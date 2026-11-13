@@ -10,8 +10,10 @@ WORDS = ["The", "result", "is", "positive", "negative", "a", "b", "cat", "dog", 
 
 @st.composite
 def sentence_doc(draw):
+    # Each line starts with a distinct marker, as real sentences are rarely
+    # identical; otherwise a line diff may legitimately align moved lines.
     sentences = draw(st.lists(st.lists(st.sampled_from(WORDS), min_size=1, max_size=6), min_size=1, max_size=6))
-    return "\n".join(" ".join(s) + "." for s in sentences)
+    return "\n".join(f"S{i} " + " ".join(s) + "." for i, s in enumerate(sentences))
 
 
 def mutate(draw, text):
@@ -19,7 +21,7 @@ def mutate(draw, text):
     for _ in range(draw(st.integers(0, 2))):
         i = draw(st.integers(0, len(lines) - 1))
         words = lines[i].rstrip(".").split(" ")
-        j = draw(st.integers(0, len(words) - 1))
+        j = draw(st.integers(1, len(words) - 1))
         words[j] = draw(st.sampled_from(WORDS))
         lines[i] = " ".join(words) + "."
     return "\n".join(lines)

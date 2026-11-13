@@ -448,23 +448,34 @@ def diff_edits(old: str, new: str) -> list[tuple[int, int, str]]:
             continue
         a_start, a_end = old_starts[i1], old_starts[i2]
         b_start, b_end = new_starts[j1], new_starts[j2]
-        a_text, b_text = old[a_start:a_end], new[b_start:b_end]
         if tag != "replace":
-            edits.append((a_start, a_end, b_text))
+            edits.append((a_start, a_end, new[b_start:b_end]))
             continue
-        a_tok, b_tok = tokenize(a_text), tokenize(b_text)
-        a_pos = [0]
-        for t in a_tok:
-            a_pos.append(a_pos[-1] + len(t))
-        b_pos = [0]
-        for t in b_tok:
-            b_pos.append(b_pos[-1] + len(t))
-        inner = difflib.SequenceMatcher(None, a_tok, b_tok, autojunk=False)
-        for t2, k1, k2, l1, l2 in inner.get_opcodes():
-            if t2 == "equal":
-                continue
-            edits.append((a_start + a_pos[k1], a_start + a_pos[k2], b_text[b_pos[l1]:b_pos[l2]]))
+        if i2 - i1 == j2 - j1:
+            # Same number of lines: diff line by line, so word edits never cross lines.
+            for k in range(i2 - i1):
+                _word_edits(edits, old, old_starts[i1 + k], old_starts[i1 + k + 1],
+                            new[new_starts[j1 + k]:new_starts[j1 + k + 1]])
+        else:
+            _word_edits(edits, old, a_start, a_end, new[b_start:b_end])
     return edits
+
+
+def _word_edits(edits: list, old: str, a_start: int, a_end: int, b_text: str) -> None:
+    a_text = old[a_start:a_end]
+    if a_text == b_text:
+        return
+    a_tok, b_tok = tokenize(a_text), tokenize(b_text)
+    a_pos = [0]
+    for t in a_tok:
+        a_pos.append(a_pos[-1] + len(t))
+    b_pos = [0]
+    for t in b_tok:
+        b_pos.append(b_pos[-1] + len(t))
+    inner = difflib.SequenceMatcher(None, a_tok, b_tok, autojunk=False)
+    for tag, k1, k2, l1, l2 in inner.get_opcodes():
+        if tag != "equal":
+            edits.append((a_start + a_pos[k1], a_start + a_pos[k2], b_text[b_pos[l1]:b_pos[l2]]))
 
 
 def edits_to_changeset(old: str, edits: list[tuple[int, int, str]]) -> ChangeSet:
