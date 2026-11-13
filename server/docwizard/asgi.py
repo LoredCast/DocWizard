@@ -46,8 +46,11 @@ class App:
         from .projects.scanner import Scanner
         from .render.layouts import REPO_LAYOUTS, Layouts
 
+        from .render.scheduler import Renderer
+
         self.layouts = Layouts([REPO_LAYOUTS, self.cfg.data_dir / "layouts"], self.cfg.cache_dir)
         self.rooms = Rooms(self)
+        self.renderer = Renderer(self)
         self.scanner = Scanner(self)
         self._ws_handler = Hub(self)
         pages.register(self)
@@ -73,7 +76,9 @@ class App:
         for hook in self._startup_hooks:
             await hook()
         await self.scanner.startup()
+        await self.renderer.start()
         self.spawn(self.rooms.maintenance(), "rooms")
+        self.spawn(self._render_cache_eviction(), "render-cache")
         self.spawn(self._session_cleanup(), "session-cleanup")
         self.started = True
 
@@ -87,12 +92,24 @@ class App:
                 await hook()
             except Exception:  # noqa: BLE001
                 log.exception("shutdown hook failed")
+        try:
+            await self.renderer.stop()
+        except Exception:  # noqa: BLE001
+            log.exception("stopping the renderer failed")
         for task in self._tasks:
             task.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
         await asyncio.to_thread(self.db.close)
         self.started = False
+
+    async def _render_cache_eviction(self) -> None:
+        while True:
+            await asyncio.sleep(3600)
+            try:
+                await self.renderer.evict()
+            except Exception:  # noqa: BLE001
+                log.exception("render cache eviction failed")
 
     async def _session_cleanup(self) -> None:
         while True:
@@ -175,7 +192,8 @@ class App:
         route, params = self.router.match(req)
         req.path_params = params
         opts = route.options
-        if not opts.get("host_any") and req.host and self._is_preview_host(req) and not opts.get("preview_host"):
+        on_preview_host = bool(req.host) and self._is_preview_host(req)
+        if bool(opts.get("preview_host")) != on_preview_host and not opts.get("host_any"):
             raise HTTPError(404, "not_found")
         if not opts.get("no_session"):
             await self.load_session(req)

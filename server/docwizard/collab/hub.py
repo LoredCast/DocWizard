@@ -116,6 +116,9 @@ class Hub:
                     conn.send({"t": "error", "code": "internal", "doc": msg.get("doc"),
                                "message": "Something went wrong on the server."})
         finally:
+            renderer = getattr(self.app, "renderer", None)
+            if renderer is not None:
+                renderer.forget(conn.key)
             for doc_id in list(conn.docs):
                 room = self.app.rooms.loaded(doc_id)
                 if room is not None:
