@@ -1,0 +1,480 @@
+"""The collaboration authority: one actor per live document (§8.3).
+
+Every room runs one asyncio task that takes commands from its queue and runs
+each to completion, including its database commit, before starting the next.
+Nothing reads the text while a push's commit is in flight, updates are
+broadcast only after the commit, and text and version are reverted together
+if anything fails.
+
+The room also owns the document's file: it materializes the text to disk
+after activity settles and reconciles changes made to the file from outside
+(§11.2, §12.3).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import time
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from ..auth import permissions
+from ..logs import fields
+from ..projects import files
+from ..projects import service as svc
+from .changeset import ChangeSet, InvalidChange, from_diff
+from .merge import reconcile
+from .text import Utf16Buffer
+
+log = logging.getLogger("docwizard.collab")
+
+MAX_UPDATES_PER_PUSH = 100
+
+
+class PushError(Exception):
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+@dataclass
+class Peer:
+    """What the room needs to know about a connection."""
+    send: Callable[[dict], None]
+    user_id: int | None
+    name: str
+    role: str
+    client_id: str
+
+
+class Room:
+    def __init__(self, rooms: Rooms, doc: dict, state: svc.DocState):
+        self.rooms = rooms
+        self.doc_id: str = doc["id"]
+        self.project_id: str = doc["project_id"]
+        self.path: str = doc["path"]
+        self.kind: str = doc["kind"]
+        self.line_ending: str = doc["line_ending"]
+        self.meta = dict(doc)  # materialized_* bookkeeping
+        self.buf = Utf16Buffer(state.text)
+        self.version = state.version
+        self.peers: dict[int, Peer] = {}
+        self.queue: asyncio.Queue = asyncio.Queue()
+        self.ops_since_snapshot = state.version - doc.get("snapshot_version", 0)
+        self.dirty_since: float | None = None
+        self.last_op = 0.0
+        self.last_activity = time.monotonic()
+        self.closed = False
+        self.task = asyncio.create_task(self._run(), name=f"room-{self.doc_id}")
+
+    # -- actor ----------------------------------------------------------
+    async def _run(self) -> None:
+        while True:
+            fn, fut = await self.queue.get()
+            if fn is None:
+                fut.set_result(None)
+                return
+            try:
+                result = await fn()
+            except BaseException as exc:  # noqa: BLE001
+                if not fut.done():
+                    fut.set_exception(exc)
+                if isinstance(exc, asyncio.CancelledError):
+                    raise
+            else:
+                if not fut.done():
+                    fut.set_result(result)
+
+    async def call(self, fn: Callable[[], Awaitable[Any]]) -> Any:
+        if self.closed:
+            raise RuntimeError("room is closed")
+        fut = asyncio.get_running_loop().create_future()
+        self.queue.put_nowait((fn, fut))
+        return await fut
+
+    async def stop(self) -> None:
+        if self.closed:
+            return
+        fut = asyncio.get_running_loop().create_future()
+        self.queue.put_nowait((None, fut))
+        self.closed = True
+        await fut
+
+    @property
+    def project_dir(self) -> Path:
+        return self.rooms.project_dir(self.project_id)
+
+    @property
+    def db(self):
+        return self.rooms.app.db
+
+    def text(self) -> str:
+        return str(self.buf)
+
+    def broadcast(self, message: dict) -> None:
+        for peer in list(self.peers.values()):
+            peer.send(message)
+
+    def touch(self) -> None:
+        now = time.monotonic()
+        self.last_op = now
+        self.last_activity = now
+        if self.dirty_since is None:
+            self.dirty_since = now
+        for hook in self.rooms.change_hooks:
+            try:
+                hook(self)
+            except Exception:  # noqa: BLE001
+                log.exception("change hook failed")
+
+    # -- commands (run on the actor) -------------------------------------
+    async def open(self, key: int, peer: Peer, version: int) -> None:
+        self.peers[key] = peer
+        self.last_activity = time.monotonic()
+        opened = {"t": "opened", "doc": self.doc_id, "version": self.version, "role": peer.role,
+                  "clientID": peer.client_id, "peers": [p.name for k, p in self.peers.items() if k != key]}
+        if version == self.version:
+            peer.send(opened)
+            return
+        if 0 <= version < self.version:
+            rows = await self.db.read(lambda c: svc.ops_since(c, self.doc_id, version))
+            if rows and rows[0]["version"] == version and len(rows) == self.version - version:
+                peer.send(opened)
+                peer.send({"t": "updates", "doc": self.doc_id, "from": version,
+                           "updates": [{"clientID": r["client_id"], "changes": json.loads(r["changes"])}
+                                       for r in rows]})
+                return
+        # Unknown or pruned history: the client starts over from the current text.
+        peer.send(opened)
+        peer.send({"t": "reset", "doc": self.doc_id, "version": self.version, "text": self.text()})
+
+    def leave(self, key: int) -> None:
+        self.peers.pop(key, None)
+        self.last_activity = time.monotonic()
+
+    async def push(self, peer: Peer, version: int, updates: list) -> bool:
+        """Apply a client's updates. Returns False if the push was rejected as stale."""
+        permissions.require(peer.role, "edit")
+        if not isinstance(updates, list) or not updates or len(updates) > MAX_UPDATES_PER_PUSH:
+            raise PushError("invalid_update", "A push carries 1 to 100 updates.")
+        parsed: list[ChangeSet] = []
+        for u in updates:
+            if not isinstance(u, dict) or u.get("clientID") != peer.client_id:
+                raise PushError("invalid_update", "Updates must carry this connection's client ID.")
+            try:
+                parsed.append(ChangeSet.from_json(u.get("changes")))
+            except InvalidChange as exc:
+                raise PushError("invalid_update", str(exc)) from None
+        if version != self.version:
+            return False
+        if sum(cs.churn() for cs in parsed) > self.rooms.cfg.collab.max_push_churn:
+            raise PushError("too_large", "This change is too large. Paste it in smaller parts.")
+        new_len = len(self.buf)
+        for cs in parsed:
+            if cs.length != new_len:
+                raise PushError("invalid_update", "The change doesn't match the document length.")
+            new_len = cs.new_length
+        if new_len > self.rooms.cfg.limits.max_document_bytes:
+            raise PushError("too_large", "The document would exceed the size limit.")
+        records = [{"clientID": peer.client_id, "changes": cs.to_json()} for cs in parsed]
+        await self._commit(parsed, records, author=peer.user_id)
+        return True
+
+    async def _commit(self, changesets: list[ChangeSet], records: list[dict], author: int | None,
+                      merge_id: str | None = None) -> int:
+        """Validate, apply, persist, then broadcast. Reverts everything on failure."""
+        start_version = self.version
+        undo: list = []
+        try:
+            for cs in changesets:
+                self.buf.validate(cs)
+                undo.append(self.buf.apply(cs))
+            self.version += len(changesets)
+            await self.db.write(lambda c: _commit_ops(c, self.doc_id, start_version, records, author, merge_id))
+        except BaseException as exc:
+            self.version = start_version
+            try:
+                for record in reversed(undo):
+                    self.buf.revert(record)
+            except Exception:  # noqa: BLE001
+                log.exception("revert failed; reloading room from the database")
+                state = await self.db.read(lambda c: svc.load_state(c, self.doc_id))
+                self.buf, self.version = Utf16Buffer(state.text), state.version
+            if isinstance(exc, InvalidChange):
+                raise PushError("invalid_update", str(exc)) from None
+            if isinstance(exc, PushError):
+                raise
+            log.exception("commit failed", extra=fields(doc=self.doc_id))
+            raise PushError("not_saved", "The change could not be saved. It will be sent again.") from None
+        self.ops_since_snapshot += len(changesets)
+        self.broadcast({"t": "updates", "doc": self.doc_id, "from": start_version, "updates": records})
+        self.touch()
+        if self.ops_since_snapshot >= self.rooms.cfg.collab.snapshot_every:
+            await self.snapshot()
+        return self.version
+
+    async def apply_text(self, new_text: str, client_id: str, author: int | None = None) -> int:
+        """Replace the text with *new_text* as one diff-based update (restores, merges)."""
+        cs = from_diff(self.text(), new_text)
+        if cs.empty_changes:
+            return self.version
+        return await self._commit([cs], [{"clientID": client_id, "changes": cs.to_json()}], author)
+
+    async def merge(self, peer: Peer, merge_id: str, base: str, text: str) -> dict:
+        """Reconcile a client's offline text (§8.6)."""
+        permissions.require(peer.role, "edit")
+        prior = await self.db.read(lambda c: c.execute(
+            "SELECT version FROM doc_ops WHERE doc_id = ? AND merge_id = ?", (self.doc_id, merge_id)).fetchone())
+        if prior is not None:
+            return {"t": "merged", "doc": self.doc_id, "mergeId": merge_id, "version": prior[0] + 1, "conflicts": 0}
+        conflicts = await self._reconcile(base, text, source=f"offline:{peer.name}", author=peer.user_id,
+                                          label=f"Offline version, {peer.name}", merge_id=merge_id,
+                                          client_id=f"merge:{merge_id}")
+        return {"t": "merged", "doc": self.doc_id, "mergeId": merge_id, "version": self.version,
+                "conflicts": conflicts}
+
+    async def _reconcile(self, base: str, theirs: str, *, source: str, author: int | None, label: str,
+                         merge_id: str | None = None, client_id: str = "system") -> int:
+        ours = self.text()
+        result = reconcile(base, ours, theirs)
+        if not result.changes.empty_changes:
+            await self._commit([result.changes], [{"clientID": client_id, "changes": result.changes.to_json()}],
+                               author, merge_id)
+        elif merge_id is not None:
+            # Record the merge id so a repeated merge gets the same answer.
+            cs = ChangeSet.empty(len(self.buf))
+            await self._commit([cs], [{"clientID": client_id, "changes": cs.to_json()}], author, merge_id)
+        if result.conflicts:
+            stamp = time.strftime("%d %b %H:%M", time.gmtime())
+            version = self.version
+
+            def record(c):
+                c.execute("INSERT INTO doc_snapshots(doc_id, version, text, label, created_by) VALUES (?, ?, ?, ?, ?)",
+                          (self.doc_id, version, theirs, f"{label}, {stamp}", author))
+                for k in result.conflicts:
+                    c.execute(
+                        "INSERT INTO conflicts(doc_id, source, base_text, theirs_text, anchor_from, anchor_to,"
+                        " anchor_version, version_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        (self.doc_id, source, k.base_text, k.theirs_text, k.anchor_from, k.anchor_to, version,
+                         f"{label}, {stamp}"))
+
+            await self.db.write(record)
+            self.broadcast({"t": "conflicts", "doc": self.doc_id, "count": len(result.conflicts)})
+        return len(result.conflicts)
+
+    async def snapshot(self, label: str | None = None, user_id: int | None = None) -> int:
+        text, version = self.text(), self.version
+        retention = self.rooms.cfg.collab.op_retention_days * 86400
+
+        def work(c):
+            c.execute("INSERT INTO doc_snapshots(doc_id, version, text, label, created_by) VALUES (?, ?, ?, ?, ?)",
+                      (self.doc_id, version, text, label, user_id))
+            if label is None:
+                c.execute("UPDATE documents SET snapshot_version = ? WHERE id = ?", (version, self.doc_id))
+                # Unlabelled snapshots older than the newest one are no longer needed.
+                c.execute("DELETE FROM doc_snapshots WHERE doc_id = ? AND label IS NULL AND version < ?",
+                          (self.doc_id, version))
+                c.execute("DELETE FROM doc_ops WHERE doc_id = ? AND version < ? AND created_at < ?",
+                          (self.doc_id, version, time.time() - retention))
+
+        await self.db.write(work)
+        if label is None:
+            self.ops_since_snapshot = 0
+        return version
+
+    # -- files ------------------------------------------------------------
+    async def materialize(self, force: bool = False) -> None:
+        """Write the current text to the project folder (§11.2)."""
+        text, version = self.text(), self.version
+        data = files.encode_text(text, self.line_ending)
+        digest = files.sha256(data)
+        if (not force and version == self.meta.get("materialized_version")
+                and digest == self.meta.get("materialized_sha256")):
+            self.dirty_since = None
+            return
+        await self.db.write(lambda c: c.execute("UPDATE documents SET pending_sha256 = ? WHERE id = ?",
+                                                (digest, self.doc_id)))
+        data_dir = self.rooms.cfg.data_dir
+
+        def write():
+            files.put_blob(data_dir, data)
+            return files.atomic_write(self.project_dir, self.path, data)
+
+        st = await asyncio.to_thread(write)
+        await self.db.write(lambda c: c.execute(
+            "UPDATE documents SET materialized_version = ?, materialized_sha256 = ?, pending_sha256 = NULL,"
+            " materialized_stat = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
+            (version, digest, json.dumps(st), self.doc_id)))
+        self.meta.update(materialized_version=version, materialized_sha256=digest, pending_sha256=None,
+                         materialized_stat=json.dumps(st))
+        self.dirty_since = None if self.version == version else self.dirty_since
+
+    async def check_disk(self) -> bool:
+        """Detect and reconcile an outside edit of the file. Returns True if one was found."""
+        st = await asyncio.to_thread(files.stat_of, self.project_dir, self.path)
+        stored = json.loads(self.meta["materialized_stat"]) if self.meta.get("materialized_stat") else None
+        if st is None:
+            # Missing (never written, or deleted while open): the database is authoritative.
+            await self.materialize(force=True)
+            return False
+        if stored is not None and list(st) == list(stored):
+            if self.meta.get("materialized_version", -1) < self.version and self.dirty_since is None:
+                await self.materialize()
+            return False
+        data = await asyncio.to_thread(files.read_bytes, self.project_dir, self.path)
+        digest = files.sha256(data)
+        if digest == self.meta.get("materialized_sha256"):
+            await self.db.write(lambda c: c.execute("UPDATE documents SET materialized_stat = ? WHERE id = ?",
+                                                    (json.dumps(st), self.doc_id)))
+            self.meta["materialized_stat"] = json.dumps(st)
+            return False
+        if digest == self.meta.get("pending_sha256"):
+            # Our own write from before a crash; rewrite from the database.
+            await self.materialize(force=True)
+            return False
+        try:
+            theirs, ending = files.decode_text(data)
+        except UnicodeDecodeError:
+            files.put_blob(self.rooms.cfg.data_dir, data)
+            log.warning("outside edit is not valid UTF-8; keeping the database version",
+                        extra=fields(doc=self.doc_id, blob=digest))
+            await self.materialize(force=True)
+            return False
+        base = ""
+        if self.meta.get("materialized_sha256"):
+            try:
+                base_bytes = await asyncio.to_thread(files.get_blob, self.rooms.cfg.data_dir,
+                                                     self.meta["materialized_sha256"])
+                base, _ = files.decode_text(base_bytes)
+            except (OSError, UnicodeDecodeError):
+                base = ""
+        log.info("reconciling outside edit", extra=fields(doc=self.doc_id, path=self.path))
+        await self._reconcile(base, theirs, source="disk", author=None, label="Outside edit",
+                              client_id="system:disk")
+        await self.materialize(force=True)
+        return True
+
+
+def _commit_ops(conn, doc_id: str, version: int, records: list[dict], author: int | None,
+                merge_id: str | None) -> None:
+    now = time.time()
+    for i, rec in enumerate(records):
+        conn.execute(
+            "INSERT INTO doc_ops(doc_id, version, client_id, author, changes, merge_id, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (doc_id, version + i, rec["clientID"], str(author) if author is not None else None,
+             json.dumps(rec["changes"], separators=(",", ":")), merge_id if i == 0 else None, now))
+    cur = conn.execute("UPDATE documents SET version = ? WHERE id = ? AND version = ?",
+                       (version + len(records), doc_id, version))
+    if cur.rowcount != 1:
+        raise RuntimeError("document version moved underneath the room")
+
+
+class Rooms:
+    """Loads, schedules and unloads rooms; runs the materializer and disk watcher."""
+
+    def __init__(self, app):
+        self.app = app
+        self.cfg = app.cfg
+        self.rooms: dict[str, Room] = {}
+        self._locks: dict[str, asyncio.Lock] = {}
+        self.change_hooks: list[Callable[[Room], None]] = []
+        self._last_disk_poll = 0.0
+
+    def project_dir(self, project_id: str) -> Path:
+        return self.cfg.data_dir / "projects" / project_id
+
+    async def get(self, doc_id: str) -> Room:
+        room = self.rooms.get(doc_id)
+        if room is not None and not room.closed:
+            return room
+        lock = self._locks.setdefault(doc_id, asyncio.Lock())
+        async with lock:
+            room = self.rooms.get(doc_id)
+            if room is not None and not room.closed:
+                return room
+
+            def load(c):
+                doc = svc.get_document(c, doc_id)
+                if doc is None:
+                    return None, None
+                return dict(doc), svc.load_state(c, doc_id)
+
+            doc, state = await self.app.db.read(load)
+            if doc is None:
+                raise KeyError(doc_id)
+            room = Room(self, doc, state)
+            self.rooms[doc_id] = room
+            try:
+                # Startup rules (§11.2): compare the file, reconcile, materialize.
+                await room.call(room.check_disk)
+            except Exception:
+                log.exception("checking the file on load failed", extra=fields(doc=doc_id))
+            return room
+
+    def loaded(self, doc_id: str) -> Room | None:
+        room = self.rooms.get(doc_id)
+        return room if room is not None and not room.closed else None
+
+    async def unload(self, room: Room) -> None:
+        try:
+            await room.call(room.materialize)
+            if room.ops_since_snapshot:
+                await room.call(room.snapshot)
+        finally:
+            await room.stop()
+            if self.rooms.get(room.doc_id) is room:
+                del self.rooms[room.doc_id]
+
+    async def close_document(self, doc_id: str, reason: str = "deleted") -> None:
+        room = self.loaded(doc_id)
+        if room is None:
+            return
+        room.broadcast({"t": "error", "code": reason, "doc": doc_id, "message": "This document was removed."})
+        room.peers.clear()
+        await room.stop()
+        self.rooms.pop(doc_id, None)
+
+    # -- background ----------------------------------------------------
+    async def maintenance(self) -> None:
+        collab = self.cfg.collab
+        while True:
+            await asyncio.sleep(0.5)
+            now = time.monotonic()
+            poll_disk = now - self._last_disk_poll >= collab.disk_poll_seconds
+            if poll_disk:
+                self._last_disk_poll = now
+            for room in list(self.rooms.values()):
+                if room.closed:
+                    continue
+                try:
+                    if room.dirty_since is not None and (now - room.last_op >= collab.materialize_delay
+                                                         or now - room.dirty_since >= collab.materialize_max_delay):
+                        await room.call(room.materialize)
+                    if room.ops_since_snapshot and now - room.last_op >= collab.snapshot_idle_seconds:
+                        await room.call(room.snapshot)
+                    if poll_disk:
+                        await room.call(room.check_disk)
+                    if (not room.peers and room.dirty_since is None
+                            and now - room.last_activity >= collab.room_idle_seconds):
+                        await self.unload(room)
+                except Exception:  # noqa: BLE001
+                    log.exception("room maintenance failed", extra=fields(doc=room.doc_id))
+            if poll_disk:
+                for project_id in {r.project_id for r in self.rooms.values()}:
+                    try:
+                        await self.app.scanner.scan(project_id)
+                    except Exception:  # noqa: BLE001
+                        log.exception("project scan failed", extra=fields(project=project_id))
+
+    async def flush_all(self) -> None:
+        for room in list(self.rooms.values()):
+            try:
+                await self.unload(room)
+            except Exception:  # noqa: BLE001
+                log.exception("flushing room failed", extra=fields(doc=room.doc_id))
