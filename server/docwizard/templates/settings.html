@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Settings · DocWizard{% endblock %}
+{% block crumbs %}<a class="wordmark" href="/">DocWizard</a><span>/</span><span>Settings</span>{% endblock %}
+{% block content %}
+<section class="narrow">
+  <form method="post" action="/settings/profile" class="form">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <label>Display name <input name="display_name" value="{{ user.display_name }}" required maxlength="80"></label>
+    <fieldset>
+      <legend>Theme</legend>
+      {% for value, label in [("dark", "Dark"), ("light", "Light"), ("system", "System")] %}
+      <label class="choice"><input type="radio" name="theme" value="{{ value }}" {% if user.theme == value %}checked{% endif %}> {{ label }}</label>
+      {% endfor %}
+    </fieldset>
+    <label>Editor font
+      <select name="editor_font">
+        {% for value, label in [("sans", "Sans"), ("mono", "Mono")] %}
+        <option value="{{ value }}" {% if user.preferences.get("editor_font", "sans") == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Editor size
+      <select name="editor_size">
+        {% for size in range(15, 21) %}
+        <option value="{{ size }}" {% if user.preferences.get("editor_size", 17) == size %}selected{% endif %}>{{ size }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% if saved == "profile" %}<p role="status">Saved</p>{% endif %}
+    <div class="buttons"><button type="submit" class="primary">Save</button></div>
+  </form>
+  <h2>Password</h2>
+  <form method="post" action="/settings/password" class="form">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <label>Current password <input name="current" type="password" autocomplete="current-password" required></label>
+    <label>New password <input name="new" type="password" autocomplete="new-password" required></label>
+    {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+    {% if saved == "password" %}<p role="status">Password changed. Other sessions were logged out.</p>{% endif %}
+    <div class="buttons"><button type="submit">Change password</button></div>
+  </form>
+</section>
+{% endblock %}
