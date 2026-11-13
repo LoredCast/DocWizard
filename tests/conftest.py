@@ -26,6 +26,9 @@ def cfg(tmp_path):
     c.server.cache_dir = str(tmp_path / "cache")
     c.server.publish_dir = str(tmp_path / "publish")
     c.accounts.registration = "open"
+    c.collab.materialize_delay = 30
+    c.collab.materialize_max_delay = 60
+    c.collab.disk_poll_seconds = 3600
     return c
 
 

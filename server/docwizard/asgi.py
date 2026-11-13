@@ -40,8 +40,18 @@ class App:
         self._register()
 
     def _register(self) -> None:
-        from . import pages
+        from . import api, pages
+        from .collab.authority import Rooms
+        from .collab.hub import Hub
+        from .projects.scanner import Scanner
+        from .render.layouts import REPO_LAYOUTS, Layouts
+
+        self.layouts = Layouts([REPO_LAYOUTS, self.cfg.data_dir / "layouts"], self.cfg.cache_dir)
+        self.rooms = Rooms(self)
+        self.scanner = Scanner(self)
+        self._ws_handler = Hub(self)
         pages.register(self)
+        api.register(self)
 
     # -- lifecycle ------------------------------------------------------
     def on_startup(self, fn) -> None:
@@ -62,10 +72,16 @@ class App:
         await asyncio.to_thread(self.db.open)
         for hook in self._startup_hooks:
             await hook()
+        await self.scanner.startup()
+        self.spawn(self.rooms.maintenance(), "rooms")
         self.spawn(self._session_cleanup(), "session-cleanup")
         self.started = True
 
     async def shutdown(self) -> None:
+        try:
+            await self.rooms.flush_all()
+        except Exception:  # noqa: BLE001
+            log.exception("flushing rooms failed")
         for hook in reversed(self._shutdown_hooks):
             try:
                 await hook()

@@ -7,9 +7,6 @@ from ..http.response import Response, json_response
 
 
 def register(app) -> None:
-    async def home(req: Request) -> Response:
-        return app.page(req, "home.html")
-
     async def source(req: Request) -> Response:
         return app.page(req, "source.html", source_url=app.cfg.server.source_url)
 
@@ -17,6 +14,5 @@ def register(app) -> None:
         await app.db.fetchone("SELECT 1")
         return json_response({"ok": True, "release": app.cfg.release})
 
-    app.router.add("GET", "/", home)
     app.router.add("GET", "/source", source, auth=False)
     app.router.add("GET", "/healthz", healthz, auth=False, no_session=True, host_any=True)

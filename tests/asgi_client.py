@@ -100,3 +100,68 @@ class Client:
         me = await self.get("/api/me")
         self.csrf = me.json()["csrf"]
         return me.json()
+
+
+class WebSocket:
+    """Drive the app's websocket handler in-process."""
+
+    def __init__(self, app, client: Client, origin=None):
+        import asyncio
+
+        self.app = app
+        self.client = client
+        self.origin = origin or client.origin
+        self.to_app: asyncio.Queue = asyncio.Queue()
+        self.from_app: asyncio.Queue = asyncio.Queue()
+        self.task = None
+        self.closed = None
+
+    async def connect(self):
+        import asyncio
+
+        hdrs = {"host": urlsplit(self.client.origin).netloc, "origin": self.origin}
+        if self.client.cookies:
+            hdrs["cookie"] = "; ".join(f"{k}={v}" for k, v in self.client.cookies.items())
+        scope = {"type": "websocket", "path": "/ws", "raw_path": b"/ws", "query_string": b"",
+                 "headers": [(k.encode(), v.encode()) for k, v in hdrs.items()], "client": ("127.0.0.1", 1),
+                 "scheme": "ws"}
+        await self.to_app.put({"type": "websocket.connect"})
+
+        async def receive():
+            return await self.to_app.get()
+
+        async def send(message):
+            await self.from_app.put(message)
+
+        self.task = asyncio.create_task(self.app(scope, receive, send))
+        first = await asyncio.wait_for(self.from_app.get(), 5)
+        if first["type"] == "websocket.close":
+            self.closed = first.get("code")
+            return False
+        assert first["type"] == "websocket.accept"
+        return True
+
+    async def send(self, msg):
+        await self.to_app.put({"type": "websocket.receive", "text": _json.dumps(msg)})
+
+    async def recv(self, timeout=5):
+        import asyncio
+
+        message = await asyncio.wait_for(self.from_app.get(), timeout)
+        if message["type"] == "websocket.close":
+            self.closed = message.get("code")
+            return None
+        return _json.loads(message["text"])
+
+    async def recv_until(self, t, timeout=5):
+        while True:
+            msg = await self.recv(timeout)
+            if msg is None or msg.get("t") == t:
+                return msg
+
+    async def close(self):
+        import asyncio
+
+        await self.to_app.put({"type": "websocket.disconnect", "code": 1000})
+        if self.task:
+            await asyncio.wait_for(self.task, 5)

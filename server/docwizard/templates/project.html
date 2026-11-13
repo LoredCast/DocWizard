@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} · DocWizard{% endblock %}
+{% block crumbs %}<a class="wordmark" href="/">DocWizard</a><span>/</span><span>{{ project.name }}</span>{% endblock %}
+{% block content %}
+{% if error %}<p class="error pad" role="alert">{{ error }}</p>{% endif %}
+<table>
+  <thead><tr><th>Name ▴</th><th>Kind</th><th>Modified</th><th class="num">Size</th></tr></thead>
+  <tbody>
+  {% for e in tree %}
+  <tr data-href="{{ doc_url(project.id, e.path) }}">
+    <td><a href="{{ doc_url(project.id, e.path) }}">{{ e.path }}</a></td>
+    <td>{{ e.kind if e.type == "document" else "file" }}</td>
+    <td title="{{ e.updatedAt }}">{{ e.updatedAt|reltime }}</td>
+    <td class="num">{{ e.size|filesize }}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="4">No files yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<div class="panels">
+{% if can(role, "edit") %}
+<section>
+  <h2>New document</h2>
+  <form method="post" class="row">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="new-document">
+    <input name="path" placeholder="chapter.md" required aria-label="File name">
+    <button type="submit">Create document</button>
+  </form>
+  <h2>Upload</h2>
+  <form class="row" data-upload="{{ project.id }}">
+    <input type="file" name="file" multiple aria-label="Files to upload">
+    <button type="submit">Upload</button>
+  </form>
+  <p class="muted" data-upload-status></p>
+</section>
+<section>
+  <h2>Layout</h2>
+  <form method="post" class="row">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="layout">
+    <select name="layout" aria-label="Layout">
+      {% for lay in layouts %}<option value="{{ lay.id }}" {% if lay.id == project.layout_id %}selected{% endif %}>{{ lay.name }}</option>{% endfor %}
+    </select>
+    <button type="submit">Change layout</button>
+  </form>
+</section>
+{% endif %}
+<section>
+  <h2>Members</h2>
+  <ul class="plain">
+    {% for m in members %}<li>{{ m.display_name }} <span class="muted">({{ m.role }})</span></li>{% endfor %}
+  </ul>
+  {% if can(role, "manage_members") %}
+  <form method="post" class="row">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="add-member">
+    <input name="username" placeholder="Username" required aria-label="Username">
+    <select name="role" aria-label="Role">
+      <option value="editor">Editor</option><option value="commenter">Commenter</option><option value="viewer">Viewer</option>
+    </select>
+    <button type="submit">Add member</button>
+  </form>
+  {% endif %}
+</section>
+{% if can(role, "delete_project") %}
+<section>
+  <h2>Project</h2>
+  <form method="post" class="row">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="rename">
+    <input name="name" value="{{ project.name }}" required aria-label="Project name">
+    <button type="submit">Rename</button>
+  </form>
+  <form method="post" class="row" data-confirm="Delete the project {{ project.name }}? It moves to the trash.">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="delete">
+    <button type="submit" class="danger">Delete project</button>
+  </form>
+</section>
+{% endif %}
+</div>
+{% endblock %}
+{% block scripts %}<script type="module" src="{{ static }}/app/main.js"></script>{% endblock %}
