@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="$lang$">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+$for(author-meta)$
+<meta name="author" content="$author-meta$">
+$endfor$
+<title>$if(title-prefix)$$title-prefix$ – $endif$$pagetitle$</title>
+$for(css)$
+<link rel="stylesheet" href="$css$">
+$endfor$
+$if(paper-dark)$
+<link rel="stylesheet" href="_dark.css">
+$endif$
+$for(header-includes)$
+$header-includes$
+$endfor$
+</head>
+<body>
+<article>
+$if(title)$
+<header class="title-block">
+<h1 class="title">$title$</h1>
+$if(subtitle)$
+<p class="subtitle">$subtitle$</p>
+$endif$
+$for(author)$
+<p class="author">$author$</p>
+$endfor$
+$if(date)$
+<p class="date">$date$</p>
+$endif$
+$if(abstract)$
+<div class="abstract">$abstract$</div>
+$endif$
+</header>
+$endif$
+$if(toc)$
+<nav id="$idprefix$TOC" role="doc-toc">
+$table-of-contents$
+</nav>
+$endif$
+$body$
+</article>
+</body>
+</html>
