@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "docwizard"
+version = "0.1.0"
+description = "Self-hostable, copyleft editor for structured writing with pandoc Markdown and layouts"
+readme = "README.md"
+license = "AGPL-3.0-or-later"
+requires-python = ">=3.12"
+# Runtime dependencies are limited by the policy in ARCHITECTURE.md §17.
+# This first version needs only the packages below; cryptography, joserfc and
+# defusedxml join when secret storage, OIDC and WebDAV sync land.
+dependencies = [
+    "uvicorn>=0.30",
+    "wsproto>=1.2",
+    "jinja2>=3.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "hypothesis>=6"]
+
+[project.scripts]
+docwizard = "docwizard.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["server"]
+
+[tool.setuptools.package-data]
+docwizard = ["templates/*.html", "db/migrations/*.sql", "auth/common-passwords.txt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["server", "worker"]
+addopts = "-q"
