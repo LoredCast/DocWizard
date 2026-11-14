@@ -52,11 +52,13 @@ class App:
         from .render.layouts import REPO_LAYOUTS, Layouts
 
         from .render.scheduler import Renderer
+        from .sync.engine import SyncEngine
 
         self.layouts = Layouts([REPO_LAYOUTS, self.cfg.data_dir / "layouts"], self.cfg.cache_dir)
         self.rooms = Rooms(self)
         self.renderer = Renderer(self)
         self.scanner = Scanner(self)
+        self.sync = SyncEngine(self)
         self._ws_handler = Hub(self)
         pages.register(self)
         api.register(self)
@@ -132,6 +134,8 @@ class App:
         self.spawn(self.rooms.maintenance(), "rooms")
         self.spawn(self._render_cache_eviction(), "render-cache")
         self.spawn(self._session_cleanup(), "session-cleanup")
+        if self.cfg.sync.enabled:
+            self.spawn(self.sync.run_forever(), "sync")
         self.started = True
 
     async def shutdown(self) -> None:

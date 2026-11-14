@@ -119,6 +119,45 @@
   </form>
 </section>
 {% endif %}
+{% if may_sync %}
+<section id="sync" data-project="{{ project.id }}">
+  <h2>Sync</h2>
+  {% if sync %}
+  <p>Synced with {{ sync.label }}: <strong>{{ sync.remotePath or "/" }}</strong> <span class="muted">at {{ sync.url }}{% if sync.username %} as {{ sync.username }}{% endif %}</span></p>
+  <p class="{{ "error" if sync.status == "error" else "muted" }}" id="sync-state" role="status">
+    {%- if sync.status == "error" %}Last sync failed: {{ sync.lastError }}
+    {%- elif sync.status == "paused" %}Paused.
+    {%- elif sync.lastSyncAt %}Last synced {{ sync.lastSyncAt|reltime }}.
+    {%- else %}Waiting for the first sync.{% endif %}</p>
+  <div class="row">
+    <button type="button" data-sync-action="run">Sync now</button>
+    <button type="button" data-sync-action="{{ "resume" if sync.status == "paused" else "pause" }}">{{ "Resume" if sync.status == "paused" else "Pause" }}</button>
+    <button type="button" class="danger" data-sync-action="disconnect">Disconnect</button>
+  </div>
+  {% else %}
+  <p class="muted">Keep this project in a folder on Nextcloud, Seafile or any WebDAV server. Changes go both ways; overlapping edits become conflicts to review.</p>
+  <form class="form" id="sync-nextcloud">
+    <label>Nextcloud address <input name="server" required placeholder="https://cloud.example.org" inputmode="url"></label>
+    <label>Folder <input name="remotePath" placeholder="Documents/{{ project.name }}" value="DocWizard/{{ project.name }}"></label>
+    <div><button type="submit" class="primary">Connect to Nextcloud</button></div>
+    <p class="muted" id="sync-flow" role="status" hidden></p>
+  </form>
+  <details>
+    <summary>Seafile or another WebDAV server</summary>
+    <form class="form" id="sync-webdav">
+      <label>Server
+        <select name="kind"><option value="webdav">WebDAV</option><option value="seafile">Seafile (SeafDAV)</option></select>
+      </label>
+      <label>WebDAV address <input name="url" required placeholder="https://dav.example.org/files" inputmode="url"></label>
+      <label>Folder <input name="remotePath" value="DocWizard/{{ project.name }}"></label>
+      <label>Username <input name="username" autocomplete="off"></label>
+      <label>Password or token <input name="password" type="password" autocomplete="new-password"></label>
+      <div><button type="submit">Connect</button></div>
+    </form>
+  </details>
+  {% endif %}
+</section>
+{% endif %}
 {% if can(role, "delete_project") %}
 <section>
   <h2>Project</h2>

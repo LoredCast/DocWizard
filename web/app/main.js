@@ -33,3 +33,5 @@ for (const form of $$("form[data-upload]")) {
     }
   });
 }
+
+if ($("#sync")) import("./sync.js").then((m) => m.wireSync($("#sync")));

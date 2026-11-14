@@ -71,6 +71,13 @@ class LimitsConfig:
 
 
 @dataclass
+class SyncConfig:
+    enabled: bool = True  # tests turn the background poller off and run syncs directly
+    default_poll_seconds: int = 60
+    max_files_per_target: int = 5000
+
+
+@dataclass
 class CollabConfig:
     op_retention_days: int = 7
     snapshot_every: int = 500
@@ -90,6 +97,7 @@ class Config:
     render: RenderConfig = field(default_factory=RenderConfig)
     limits: LimitsConfig = field(default_factory=LimitsConfig)
     collab: CollabConfig = field(default_factory=CollabConfig)
+    sync: SyncConfig = field(default_factory=SyncConfig)
 
     # -- derived values -------------------------------------------------
     @property

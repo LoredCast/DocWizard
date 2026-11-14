@@ -505,6 +505,12 @@ class Room:
             self.broadcast({"t": "conflicts", "doc": self.doc_id, "count": len(result.conflicts)})
         return len(result.conflicts)
 
+    async def reconcile_outside(self, base: str, theirs: str, *, source: str, label: str,
+                                author: str | None = None) -> int:
+        """Reconcile a text edited elsewhere (sync, upload) with the current one (§12.3)."""
+        return await self._reconcile(base, theirs, source=source, author=author, label=label,
+                                     client_id=f"system:{source}")
+
     async def snapshot(self, label: str | None = None, user_id: int | None = None) -> int:
         await self.persist_anchors()
         text, version = self.text(), self.version

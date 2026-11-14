@@ -96,7 +96,15 @@ def register(app) -> None:
                     links.list_for_project(c, project["id"]) if may_share else [])
 
         tree, members, shares = await app.db.read(load)
+        may_sync = permissions.can(role, "sync", project) and not guest
+        sync = None
+        if may_sync:
+            from ..api.sync import _public as public_target
+
+            sync = public_target(await app.db.fetchone("SELECT * FROM sync_targets WHERE project_id = ?",
+                                                       (project["id"],)))
         return app.page(req, "project.html", project=project, role=role, tree=tree, members=members,
+                        may_sync=may_sync, sync=sync,
                         shares=shares, may_share=may_share, link_roles=_link_roles(app, role),
                         new_link=req.query.get("link"), layouts=app.layouts.list(), doc_url=doc_url,
                         can=lambda r, cap: permissions.can(r, cap, project) and not (guest and cap in GUEST_FORBIDDEN),
