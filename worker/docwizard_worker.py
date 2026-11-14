@@ -58,7 +58,7 @@ def _no_new_privs() -> None:
         pass
 
 
-def _make_preexec(uid: int | None, gid: int | None, limits: dict):
+def _make_preexec(uid: int | None, gid: int | None, limits: dict, cwd: Path):
     cpu = int(limits.get("cpu_seconds", 60))
     mem = int(limits.get("memory_mb", 1536)) * 1024 * 1024
     fsize = int(limits.get("file_mb", 512)) * 1024 * 1024
@@ -77,16 +77,43 @@ def _make_preexec(uid: int | None, gid: int | None, limits: dict):
             os.setgroups([])
             os.setgid(gid)
             os.setuid(uid)
+        # After setuid: without CAP_DAC_OVERRIDE the supervisor can't enter the job's directories.
+        os.chdir(cwd)
 
     return preexec
 
 
-def _chown_tree(path: Path, uid: int, gid: int) -> None:
-    """lchown every entry below *path* (never follows symlinks)."""
+def _chown_tree(path: Path | str, uid: int, gid: int) -> None:
+    """lchown *path* and everything below it, never following symlinks.
+
+    The supervisor has CAP_CHOWN but not CAP_DAC_OVERRIDE, so it can only list a
+    directory it owns: each directory becomes root's first, then gets its final owner
+    once its entries are done.
+    """
+    os.lchown(path, 0, 0)
+    with os.scandir(path) as entries:
+        for entry in entries:
+            if entry.is_dir(follow_symlinks=False):
+                _chown_tree(entry.path, uid, gid)
+            else:
+                os.lchown(entry.path, uid, gid)
     os.lchown(path, uid, gid)
-    for dirpath, dirnames, filenames in os.walk(path, followlinks=False):
-        for name in dirnames + filenames:
-            os.lchown(os.path.join(dirpath, name), uid, gid)
+
+
+def _write_into(path: Path, data: bytes, uid: int | None) -> None:
+    """Write a file into a job directory, which the supervisor may not own."""
+    if uid is None:
+        path.write_bytes(data)
+        return
+    parent = path.parent
+    os.lchown(parent, 0, 0)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.lchown(path, uid, uid)
+    finally:
+        os.lchown(parent, uid, uid)
 
 
 def _kill_user(uid: int) -> None:
@@ -174,13 +201,21 @@ class Worker:
             st = os.lstat(job_dir)
             if not stat.S_ISDIR(st.st_mode):
                 raise OSError("not a directory")
-            job = json.loads((job_dir / "job.json").read_text())
-        except (OSError, ValueError) as exc:
+        except OSError as exc:
             return {"done": job_id, "status": "error", "diagnostics": [{"severity": "error", "message": str(exc)}]}
         owner_uid, owner_gid = st.st_uid, st.st_gid
         uid = await self.slots.get()
         run_uid = uid if self.root else None
         try:
+            if self.root:
+                _chown_tree(job_dir, 0, 0)
+            try:
+                job = json.loads((job_dir / "job.json").read_text())
+            except (OSError, ValueError) as exc:
+                return {"done": job_id, "status": "error",
+                        "diagnostics": [{"severity": "error", "message": str(exc)}]}
+            for d in ("home", "tmp", "out"):
+                (job_dir / d).mkdir(exist_ok=True)
             if self.root:
                 _chown_tree(job_dir, uid, uid)
                 os.chmod(job_dir, 0o700)
@@ -200,10 +235,6 @@ class Worker:
         deadline = time.monotonic() + wall
         home = job_dir / "home"
         tmp = job_dir / "tmp"
-        for d in (home, tmp, job_dir / "out"):
-            d.mkdir(exist_ok=True)
-            if uid is not None:
-                os.lchown(d, uid, uid)
         env = {
             "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
             "HOME": str(home), "TMPDIR": str(tmp), "TEXMFVAR": str(home / "texmf-var"),
@@ -223,14 +254,18 @@ class Worker:
             if exe is None:
                 return {"done": job_id, "status": "error",
                         "diagnostics": [{"severity": "error", "message": f"{tool} is not installed in the worker"}]}
-            cwd = job_dir / step.get("cwd", "src")
+            rel_cwd = Path(step.get("cwd", "src"))
+            cwd = job_dir / rel_cwd
+            if rel_cwd.is_absolute() or ".." in rel_cwd.parts:
+                return {"done": job_id, "status": "error",
+                        "diagnostics": [{"severity": "error", "message": "bad working directory"}]}
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return {"done": job_id, "status": "timeout", "diagnostics": diagnostics}
             proc = await asyncio.create_subprocess_exec(
-                exe, *args, cwd=cwd, env=env, stdin=asyncio.subprocess.DEVNULL,
+                exe, *args, env=env, stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-                preexec_fn=_make_preexec(uid, uid, limits), close_fds=True)
+                preexec_fn=_make_preexec(uid, uid, limits, cwd), close_fds=True)
             self.running[job_id] = proc
             try:
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=remaining)
@@ -242,8 +277,11 @@ class Worker:
             if job_id in self.cancelled:
                 return {"done": job_id, "status": "cancelled", "diagnostics": []}
             if step.get("stdout"):
-                out_path = job_dir / step["stdout"]
-                out_path.write_bytes(stdout)
+                rel = Path(step["stdout"])
+                if rel.is_absolute() or ".." in rel.parts:
+                    return {"done": job_id, "status": "error",
+                            "diagnostics": [{"severity": "error", "message": "bad output path"}]}
+                _write_into(job_dir / rel, stdout, uid)
             diagnostics += parse_diagnostics(tool, stderr.decode("utf-8", "replace"))
             if proc.returncode != 0:
                 if not any(d["severity"] == "error" for d in diagnostics):
@@ -302,6 +340,21 @@ class Worker:
     async def serve(self) -> None:
         self.socket_path.parent.mkdir(parents=True, exist_ok=True)
         (self.jobs_dir / "run").mkdir(parents=True, exist_ok=True)
+        if self.root:
+            # Jobs interrupted by a restart still belong to their job users: hand them
+            # back to the app so it can delete them.
+            run_dir = self.jobs_dir / "run"
+            owner = run_dir.stat()
+            try:
+                os.lchown(run_dir, 0, 0)  # to list it without CAP_DAC_OVERRIDE
+                names = os.listdir(run_dir)
+            finally:
+                os.lchown(run_dir, owner.st_uid, owner.st_gid)
+            for name in names:
+                try:
+                    _chown_tree(run_dir / name, owner.st_uid, owner.st_gid)
+                except OSError:
+                    pass
         try:
             self.socket_path.unlink()
         except FileNotFoundError:
@@ -311,6 +364,10 @@ class Worker:
             server = await asyncio.start_unix_server(self.handle, path=str(self.socket_path))
         finally:
             os.umask(old)
+        if self.root:
+            # Only the app, which owns the jobs directory, may connect.
+            st = self.jobs_dir.stat()
+            os.chown(self.socket_path, st.st_uid, st.st_gid)
         log(level="info", msg="worker listening", socket=str(self.socket_path), root=self.root)
         async with server:
             await server.serve_forever()

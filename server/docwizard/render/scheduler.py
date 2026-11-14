@@ -384,6 +384,21 @@ class Renderer:
                 total -= size
 
         await asyncio.to_thread(work)
+        await asyncio.to_thread(self.sweep_jobs)
+
+    def sweep_jobs(self) -> None:
+        """Remove job directories left behind by a crash or a worker restart."""
+        cutoff = time.time() - self.cfg.render.timeout_seconds - 300
+        try:
+            entries = list((self.cfg.jobs_dir / "run").iterdir())
+        except OSError:
+            return
+        for d in entries:
+            try:
+                if d.lstat().st_mtime < cutoff:
+                    shutil.rmtree(d, ignore_errors=True)
+            except OSError:
+                continue
 
 
 async def _text_version(room):
