@@ -124,6 +124,18 @@ def cmd_check(cfg, args) -> None:
     sys.exit(1 if problems else 0)
 
 
+def cmd_rotate_key(cfg, args) -> None:
+    from . import secretbox
+
+    db = _db(cfg)
+    try:
+        count = secretbox.rotate(cfg, db)
+    finally:
+        db.close()
+    print(f"Added a new key and re-encrypted {count} stored secrets. Older keys stay in the key file;"
+          " remove them once no backup needs them.")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="docwizard")
     parser.add_argument("--config", help="path to docwizard.toml")
@@ -143,11 +155,13 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("restore", help="restore a backup and rebuild project folders")
     p.add_argument("src")
     sub.add_parser("check", help="check tools and directories")
+    sub.add_parser("rotate-key", help="add a new secret key and re-encrypt stored secrets with it")
     args = parser.parse_args(argv)
     cfg = config_mod.load(args.config)
     handlers = {
         "serve": cmd_serve, "migrate": cmd_migrate, "create-admin": cmd_create_admin,
         "reset-password": cmd_reset_password, "backup": cmd_backup, "restore": cmd_restore, "check": cmd_check,
+        "rotate-key": cmd_rotate_key,
     }
     handlers[args.command](cfg, args)
 

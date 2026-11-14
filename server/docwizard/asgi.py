@@ -36,6 +36,8 @@ class App:
         self.static_prefix = f"/static/{self.cfg.release}"
         self.started = False
         self.settings: dict = {}
+        self._secrets = None
+        self.net_resolver = None  # tests replace DNS resolution here
         self._tasks: list[asyncio.Task] = []
         self._startup_hooks: list = []
         self._shutdown_hooks: list = []
@@ -62,7 +64,8 @@ class App:
     # -- instance settings ------------------------------------------------
     POLICY_KEYS = {"registration": "accounts", "guests": "accounts", "guest_max_role": "accounts",
                    "scratch_projects": "accounts", "require_totp_for_admins": "accounts",
-                   "min_password_length": "accounts", "default_layout": "render"}
+                   "min_password_length": "accounts", "default_layout": "render",
+                   "allow_private_outbound": "security"}
 
     def policy(self, key: str):
         """An instance setting: the admin area's value if set, else the config file's (§13.6)."""
@@ -87,6 +90,22 @@ class App:
                               " ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json",
                               (key, json.dumps(value)))
         self.settings[key] = value
+
+    # -- secrets and outbound requests ------------------------------------
+    @property
+    def secrets(self):
+        if self._secrets is None:
+            from .secretbox import SecretBox
+
+            self._secrets = SecretBox.from_config(self.cfg)
+        return self._secrets
+
+    @property
+    def net(self):
+        """The outbound request policy for user-supplied hosts (§15)."""
+        from .netpolicy import Policy
+
+        return Policy(self.policy("allow_private_outbound"), resolver=self.net_resolver)
 
     # -- lifecycle ------------------------------------------------------
     def on_startup(self, fn) -> None:

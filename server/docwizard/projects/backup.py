@@ -56,6 +56,10 @@ def backup(cfg, dest: str | os.PathLike) -> dict:
             src.close()
         blobs = _copy_tree_missing(data / "blobs", dest / "blobs")
         _copy_tree_missing(data / "layouts", dest / "layouts")
+        # A development key lives in the data directory; a configured key file is the
+        # admin's to back up separately, since a backup next to its key protects nothing.
+        if not cfg.security.secret_key_file and (data / "secret.key").is_file():
+            shutil.copy2(data / "secret.key", dest / "secret.key")
     finally:
         lock.unlink(missing_ok=True)
     manifest = {"created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "release": cfg.release,
@@ -76,6 +80,8 @@ def restore(cfg, src: str | os.PathLike) -> None:
     shutil.copy2(src / "docwizard.db", cfg.db_path)
     _copy_tree_missing(src / "blobs", data / "blobs")
     _copy_tree_missing(src / "layouts", data / "layouts")
+    if (src / "secret.key").is_file() and not (data / "secret.key").exists():
+        shutil.copy2(src / "secret.key", data / "secret.key")
     rebuild_folders(cfg)
 
 
