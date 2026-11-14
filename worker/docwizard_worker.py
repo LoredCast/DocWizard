@@ -68,7 +68,12 @@ def _make_preexec(uid: int | None, gid: int | None, limits: dict, cwd: Path):
         os.setsid()
         _no_new_privs()
         resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu + 5))
-        resource.setrlimit(resource.RLIMIT_AS, (mem, mem))
+        # Memory is capped with RLIMIT_DATA, not RLIMIT_AS. Pandoc's runtime reserves as
+        # much address space as it can get at startup without using it; under an
+        # address-space limit nothing is left for thread stacks, and a threaded pandoc
+        # fails with "failed to create OS thread". Reserved but unused memory doesn't
+        # count against RLIMIT_DATA, while everything the job actually allocates does.
+        resource.setrlimit(resource.RLIMIT_DATA, (mem, mem))
         resource.setrlimit(resource.RLIMIT_FSIZE, (fsize, fsize))
         resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
         if uid is not None:
