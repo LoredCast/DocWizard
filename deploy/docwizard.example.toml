@@ -12,9 +12,32 @@ jobs_dir = "/var/lib/docwizard-jobs"
 cache_dir = "/var/lib/docwizard-cache"
 serve_static = false                              # the proxy serves /static/
 
+[security]
+secret_key_file = "/run/secrets/docwizard_key"     # encrypts stored credentials; see README
+allow_private_outbound = []                       # e.g. ["nextcloud.lan", "10.0.0.0/8"] for servers on your LAN
+
 [accounts]
-registration = "closed"                           # open | closed
+registration = "closed"                           # open | oidc-only | closed
 min_password_length = 12
+
+[sync]
+default_poll_seconds = 60
+max_files_per_target = 5000
+
+# One block per login provider (§13.4). The redirect URI to register at the
+# provider is <public_url>/login/oidc/<id>/callback.
+# [[oidc]]
+# id = "keycloak"
+# label = "University login"
+# issuer = "https://id.example.org/realms/main"
+# client_id = "docwizard"
+# client_secret_file = "/run/secrets/oidc_keycloak"
+# scopes = ["openid", "profile", "email", "groups"]
+# username_claim = "preferred_username"
+# groups_claim = "groups"
+# allowed_groups = ["students", "staff"]
+# admin_groups = ["docwizard-admins"]
+# auto_create = true
 
 [render]
 worker_socket = "/var/lib/docwizard-jobs/sock/worker.sock"

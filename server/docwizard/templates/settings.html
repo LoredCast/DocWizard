@@ -38,6 +38,23 @@
     {% if saved == "password" %}<p role="status">Password changed. Other sessions were logged out.</p>{% endif %}
     <div class="buttons"><button type="submit">Change password</button></div>
   </form>
+  {% if identities or linkable %}
+  <h2 id="logins">Linked logins</h2>
+  <ul class="plain">
+    {% for i in identities %}
+    <li><span class="spacer">{{ i.label }}{% if i.email %} <span class="muted">({{ i.email }})</span>{% endif %}</span>
+      <form method="post" action="/settings/identities" class="inline">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <input type="hidden" name="identity_id" value="{{ i.id }}">
+        <button type="submit" class="link">Unlink</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  {% for p in linkable %}<p><a class="button" href="/login/oidc/{{ p.id }}?link=1">Link {{ p.label }}</a></p>{% endfor %}
+  {% if saved == "linked" %}<p role="status">Linked.</p>{% endif %}
+  {% if link_error %}<p class="error" role="alert">{{ link_error }}</p>{% endif %}
+  {% endif %}
   <h2 id="zotero">Zotero libraries</h2>
   <p class="muted">Use a library in a document with <code>bibliography: zotero:&lt;name&gt;</code> in its front matter. Collaborators' documents can use your libraries in projects you own or edit.</p>
   <ul class="plain">

@@ -20,29 +20,36 @@ def register(app) -> None:
     cfg = app.cfg
     idle = cfg.security.session_idle_days * 86400
 
-    def start_session(req: Request, resp: Response, user_id: int) -> None:
+    def start_session(req: Request, resp: Response, user_id: int, oidc_provider: str | None = None) -> None:
         old = req.session
 
         def work(c):
             if old is not None:
                 sessions.delete(c, old)  # rotate at login
-            return sessions.create(c, user_id, idle, req.headers.get("user-agent", ""))
+            token, sess = sessions.create(c, user_id, idle, req.headers.get("user-agent", ""))
+            if oidc_provider:
+                c.execute("UPDATE sessions SET oidc_provider = ? WHERE token_hash = ?", (oidc_provider, sess.token_hash))
+            return token, sess
 
         token, _ = app.db.write_sync(work)
         resp.set_cookie(cfg.cookie_name, token, max_age=idle, secure=cfg.secure_cookies)
 
+    app.start_session = start_session
+
     async def login_page(req: Request) -> Response:
         if req.user:
             return redirect(safe_next(req.query.get("next")))
-        return app.page(req, "login.html", next=safe_next(req.query.get("next")), username="", error=None,
-                        registration_open=app.policy("registration") == "open")
+        return app.page(req, "login.html", next=safe_next(req.query.get("next")), username="",
+                        error=req.query.get("error"), registration_open=app.policy("registration") == "open",
+                        providers=app.oidc.list())
 
     async def login(req: Request) -> Response:
         form = await req.form()
         username = form.get("username", "").strip()
         password = form.get("password", "")
         nxt = safe_next(form.get("next"))
-        ctx = {"next": nxt, "username": username, "registration_open": app.policy("registration") == "open"}
+        ctx = {"next": nxt, "username": username, "registration_open": app.policy("registration") == "open",
+               "providers": app.oidc.list()}
         if not app.throttle.allow(username, req.client_ip):
             return app.page(req, "login.html", 429, error="Too many attempts. Wait a few minutes and try again.", **ctx)
         row = await app.db.read(lambda c: users.get_by_username(c, username))
@@ -59,10 +66,15 @@ def register(app) -> None:
         return resp
 
     async def logout(req: Request) -> Response:
+        target = "/login"
         if req.session is not None:
             sess = req.session
+            row = await app.db.fetchone("SELECT oidc_provider FROM sessions WHERE token_hash = ?", (sess.token_hash,))
             await app.db.write(lambda c: sessions.delete(c, sess))
-        resp = redirect("/login")
+            if row is not None and row["oidc_provider"]:
+                # RP-initiated logout at the provider, when it offers one (§13.4).
+                target = await app.oidc.logout_url(row["oidc_provider"]) or target
+        resp = redirect(target)
         resp.delete_cookie(cfg.cookie_name, secure=cfg.secure_cookies)
         return resp
 
@@ -95,14 +107,22 @@ def register(app) -> None:
         return resp
 
     async def settings_page(req: Request) -> Response:
-        return await render_settings(req, saved=req.query.get("saved"), error=None)
+        return await render_settings(req, saved=req.query.get("saved"), error=None,
+                                     link_error=req.query.get("error"))
 
     async def render_settings(req: Request, status: int = 200, **ctx) -> Response:
         rows = await app.db.fetchall(
             "SELECT s.id, s.name, s.library_type, s.library_id, s.collection, s.status, s.last_error, s.last_sync_at,"
             " (SELECT COUNT(*) FROM citation_items i WHERE i.source_id = s.id) AS item_count"
             " FROM citation_sources s WHERE s.owner_id = ? ORDER BY s.name", (req.user.id,))
+        ids = await app.db.fetchall("SELECT id, provider, email, last_login_at FROM identities WHERE user_id = ?"
+                                    " ORDER BY provider", (req.user.id,))
+        linked = {r["provider"] for r in ids}
+        ctx["identities"] = [{**dict(r), "label": app.oidc.by_id[r["provider"]].label
+                              if r["provider"] in app.oidc.by_id else r["provider"]} for r in ids]
+        ctx["linkable"] = [p for p in app.oidc.list() if p.id not in linked]
         ctx.setdefault("zotero_error", None)
+        ctx.setdefault("link_error", None)
         ctx.setdefault("zotero_values", {})
         return app.page(req, "settings.html", status, sources=[dict(r) for r in rows], **ctx)
 

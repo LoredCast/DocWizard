@@ -9,6 +9,11 @@
     {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
     <div class="buttons"><button type="submit" class="primary">Log in</button></div>
   </form>
+  {% if providers %}
+  <div class="form">
+    {% for p in providers %}<a class="button" href="/login/oidc/{{ p.id }}?next={{ next|urlencode }}">Log in with {{ p.label }}</a>{% endfor %}
+  </div>
+  {% endif %}
   {% if registration_open %}<p>No account yet? <a href="/register">Create an account</a></p>{% endif %}
 </section>
 {% endblock %}

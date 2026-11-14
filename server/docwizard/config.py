@@ -90,6 +90,23 @@ class CollabConfig:
 
 
 @dataclass
+class OIDCProvider:
+    """One [[oidc]] entry (§13.4)."""
+    id: str = ""
+    label: str = ""
+    issuer: str = ""
+    client_id: str = ""
+    client_secret: str = ""
+    auth_method: str = "client_secret_basic"  # or client_secret_post
+    scopes: list[str] = field(default_factory=lambda: ["openid", "profile", "email"])
+    username_claim: str = "preferred_username"
+    groups_claim: str = "groups"
+    allowed_groups: list[str] = field(default_factory=list)
+    admin_groups: list[str] = field(default_factory=list)
+    auto_create: bool = True
+
+
+@dataclass
 class Config:
     server: ServerConfig = field(default_factory=ServerConfig)
     security: SecurityConfig = field(default_factory=SecurityConfig)
@@ -98,6 +115,7 @@ class Config:
     limits: LimitsConfig = field(default_factory=LimitsConfig)
     collab: CollabConfig = field(default_factory=CollabConfig)
     sync: SyncConfig = field(default_factory=SyncConfig)
+    oidc: list[OIDCProvider] = field(default_factory=list)
 
     # -- derived values -------------------------------------------------
     @property
@@ -190,8 +208,17 @@ def load(path: str | os.PathLike | None = None, env: dict[str, str] | None = Non
         with open(path, "rb") as fh:
             data = tomllib.load(fh)
         for section, values in data.items():
+            if section == "oidc" and isinstance(values, list):
+                for entry in values:
+                    provider = OIDCProvider()
+                    _apply_section(provider, entry, "oidc")
+                    if not (provider.id and provider.issuer and provider.client_id):
+                        raise ValueError("each [[oidc]] entry needs id, issuer and client_id")
+                    provider.label = provider.label or provider.id
+                    cfg.oidc.append(provider)
+                continue
             if section not in _SECTIONS or not isinstance(values, dict):
-                continue  # [[oidc]] and [smtp] are read by later milestones
+                continue  # [smtp] is read by a later milestone
             _apply_section(getattr(cfg, section), values, section)
 
     for name, value in env.items():
@@ -199,7 +226,7 @@ def load(path: str | os.PathLike | None = None, env: dict[str, str] | None = Non
             continue
         rest = name[len("DOCWIZARD_"):].lower()
         section, _, key = rest.partition("_")
-        if section not in _SECTIONS or not key:
+        if section not in _SECTIONS or not key or section == "oidc":
             continue
         obj = getattr(cfg, section)
         if key.endswith("_file") and hasattr(obj, key[:-5]) and not hasattr(obj, key):

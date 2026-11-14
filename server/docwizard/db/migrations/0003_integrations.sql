@@ -78,6 +78,8 @@ CREATE TABLE identities (
 );
 
 ALTER TABLE users ADD COLUMN totp_secret_enc TEXT;
+-- The OIDC provider a session logged in with, for RP-initiated logout.
+ALTER TABLE sessions ADD COLUMN oidc_provider TEXT;
 
 CREATE TABLE publications (
     id              INTEGER PRIMARY KEY,

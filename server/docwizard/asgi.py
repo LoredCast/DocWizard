@@ -52,6 +52,7 @@ class App:
         from .render.layouts import REPO_LAYOUTS, Layouts
 
         from .render.scheduler import Renderer
+        from .auth.oidc import Providers
         from .citations.zotero import Sources
         from .sync.engine import SyncEngine
 
@@ -61,6 +62,7 @@ class App:
         self.scanner = Scanner(self)
         self.sync = SyncEngine(self)
         self.zotero = Sources(self)
+        self.oidc = Providers(self)
         self._ws_handler = Hub(self)
         pages.register(self)
         api.register(self)
