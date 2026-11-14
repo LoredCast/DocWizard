@@ -1,0 +1,17 @@
+{
+  "id": "article",
+  "name": "Article",
+  "version": "1.0.0",
+  "extends": "default",
+  "description": "Journal-style article: A4, 10 pt, two columns with the title and abstract across the page.",
+  "targets": {
+    "html": {"template": "html/template.html", "css": ["html/style.css", "html/article.css"]},
+    "pdf-typst": {"template": "typst/template.typ"}
+  },
+  "variables": {
+    "fontsize": {"type": "enum", "values": ["9pt", "10pt", "11pt"], "default": "10pt", "label": "Font size"},
+    "columns": {"type": "enum", "values": ["1", "2"], "labels": {"1": "One column", "2": "Two columns"}, "default": "2", "label": "Columns"},
+    "linestretch": {"type": "number", "min": 1, "max": 2, "step": 0.25, "default": 1, "label": "Line spacing"},
+    "section-numbering": {"type": "enum", "values": ["", "1.1", "I.1"], "default": "1.1", "label": "Section numbering"}
+  }
+}

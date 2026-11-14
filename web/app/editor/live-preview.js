@@ -4,6 +4,7 @@
 import { Decoration, EditorView, StateEffect, ViewPlugin, WidgetType, syntaxTree } from "codemirror";
 import { chipText, libraryField, setLibrary } from "./citations.js";
 import { loadTemml, onTemmlReady, renderMath, temmlReady } from "./math.js";
+import { t } from "../ui/dom.js";
 
 export const refreshDecorations = StateEffect.define();
 
@@ -47,7 +48,7 @@ class TaskWidget extends WidgetType {
     box.type = "checkbox";
     box.className = "cm-task";
     box.checked = this.checked;
-    box.setAttribute("aria-label", "Task done");
+    box.setAttribute("aria-label", t("Task done"));
     box.addEventListener("mousedown", (e) => e.preventDefault());
     box.addEventListener("click", () => {
       if (view.state.readOnly) return;

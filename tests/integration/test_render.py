@@ -176,3 +176,97 @@ async def test_citation_library_from_json_and_bib(rapp, rclient):
     assert items["smith2019"]["label"] == "Smith and Lee 2019"
     again = await rclient.get(f"/api/projects/{pid}/citations", headers={"if-none-match": r.header("etag")})
     assert again.status == 304
+
+
+async def test_zotero_bibliography_resolves(rapp, rclient):
+    import json
+
+    pid = await new_project(rclient)
+    uid = (await rapp.db.fetchone("SELECT id FROM users WHERE username = 'jane'"))["id"]
+    item = {"id": "zot2021", "type": "book", "author": [{"family": "Zotfamily", "given": "Z."}],
+            "issued": {"date-parts": [[2021]]}, "title": "From Zotero"}
+
+    def seed(c):
+        sid = c.execute("INSERT INTO citation_sources(owner_id, name, kind, library_type, library_id, config_enc)"
+                        " VALUES (?, 'lib', 'zotero_web', 'user', '1', 'x')", (uid,)).lastrowid
+        c.execute("INSERT INTO citation_items(source_id, item_key, csl_json) VALUES (?, 'K1', ?)",
+                  (sid, json.dumps(item)))
+
+    await rapp.db.write(seed)
+    text = "---\ntitle: Z\nbibliography:\n  - zotero:lib\n  - references.json\n---\n\nSee [@zot2021] and [@doe2020].\n"
+    await rclient.post(f"/api/projects/{pid}/documents", json={"path": "z.md", "text": text})
+    snap = await open_editor(rclient, pid, "z.md")
+    r = await rclient.post(f"/api/projects/{pid}/export", json={"doc": snap["doc"]["id"], "target": "md-resolved"})
+    data = await wait_job(rclient, r.json()["job"])
+    assert data["status"] == "ok", data
+    out = (await rclient.get(data["url"])).text
+    assert "Zotfamily" in out and "From Zotero" in out and "Doe" in out
+
+
+async def test_citation_styles_and_article_layout(rapp, rclient):
+    pid = await new_project(rclient)
+    snap = await open_editor(rclient, pid)
+    project = dict(await rapp.db.fetchone("SELECT * FROM projects WHERE id = ?", (pid,)))
+    path = snap["doc"]["path"]
+    chicago = await rapp.renderer.render(project, "md-resolved", doc_path=path)
+    apa = await rapp.renderer.render(project, "md-resolved", doc_path=path, options={"citation-style": "apa"})
+    ieee = await rapp.renderer.render(project, "md-resolved", doc_path=path, options={"citation-style": "ieee"})
+    texts = []
+    for res in (chicago, apa, ieee):
+        assert res.status == "ok", res.diagnostics
+        texts.append((rapp.renderer.renders_dir / res.key / res.output).read_text())
+    assert "[Doe 2020, 4]" in texts[0] and "Doe, Jane. 2020." in texts[0]
+    assert "[Doe, 2020, p. 4]" in texts[1] and "Doe, J. (2020)." in texts[1]
+    assert "[\\[1, p. 4\\]]" in texts[2]
+    assert "/cache/" not in texts[0]  # no server paths in exports
+    if HAS_TYPST:
+        art = await rapp.renderer.render(project, "pdf-typst", doc_path=path, layout_id="article")
+        assert art.status == "ok", art.diagnostics
+        one = await rapp.renderer.render(project, "pdf-typst", doc_path=path, layout_id="article",
+                                         options={"columns": "1", "citation-style": "din-1505-2"})
+        assert one.status == "ok", one.diagnostics
+
+
+HAS_LATEX = shutil.which("latexmk", path=_path()) is not None and shutil.which("lualatex", path=_path()) is not None
+
+
+@pytest.mark.skipif(not HAS_LATEX, reason="needs latexmk and lualatex")
+async def test_latex_projects(rapp, rclient):
+    pid = await new_project(rclient)
+    main = ("\\documentclass{article}\n\\begin{document}\nHello from \\LaTeX.\n\\input{chapters/intro}\n"
+            "\\end{document}\n")
+    for path, text in (("main.tex", main), ("chapters/intro.tex", "An introduction.\n")):
+        r = await rclient.post(f"/api/projects/{pid}/documents", json={"path": path, "text": text})
+        assert r.status == 201, r.text
+    project = dict(await rapp.db.fetchone("SELECT * FROM projects WHERE id = ?", (pid,)))
+    # Editing a chapter builds the root.
+    res = await rapp.renderer.render(project, "pdf-latex", doc_path="chapters/intro.tex")
+    assert res.status == "ok", res.diagnostics
+    pdf = rapp.renderer.renders_dir / res.key / res.output
+    assert pdf.read_bytes().startswith(b"%PDF")
+    with pytest.raises(Exception):
+        await rapp.renderer.render(project, "html", doc_path="main.tex")
+
+    # Errors come back with their line.
+    doc = await rapp.db.fetchone("SELECT id FROM documents WHERE project_id = ? AND path = 'chapters/intro.tex'",
+                                 (pid,))
+    room = await rapp.rooms.get(doc["id"])
+
+    async def breakit():
+        return await room.apply_text("Fine.\n\\undefinedcommand\n", "t", 1)
+
+    await room.call(breakit)
+    bad = await rapp.renderer.render(project, "pdf-latex", doc_path="main.tex")
+    assert bad.status == "error"
+    err = next(d for d in bad.diagnostics if d["severity"] == "error")
+    assert "Undefined control sequence" in err["message"] and err.get("line") == 2, bad.diagnostics
+
+
+@pytest.mark.skipif(not HAS_LATEX, reason="needs latexmk and lualatex")
+async def test_markdown_to_pdf_via_latex(rapp, rclient):
+    pid = await new_project(rclient)
+    snap = await open_editor(rclient, pid)
+    project = dict(await rapp.db.fetchone("SELECT * FROM projects WHERE id = ?", (pid,)))
+    res = await rapp.renderer.render(project, "pdf-latex", doc_path=snap["doc"]["path"])
+    assert res.status == "ok", res.diagnostics
+    assert (rapp.renderer.renders_dir / res.key / res.output).read_bytes().startswith(b"%PDF")

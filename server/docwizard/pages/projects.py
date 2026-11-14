@@ -2,22 +2,57 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import secrets
 import time
 from urllib.parse import quote
 
-from ..api.projects import create_project_with_starter, project_access
-from ..auth import permissions
+from ..api.projects import GUEST_FORBIDDEN, create_project_with_starter, project_access
+from ..auth import passwords, permissions
 from ..http.request import HTTPError, Request, not_found
 from ..http.response import Response, redirect
 from ..http.templates import script_json
 from ..projects import files
 from ..projects import service as svc
+from ..sharing import links
 
 
 def doc_url(project_id: str, path: str) -> str:
     return f"/p/{project_id}/{quote(path)}"
+
+
+def _link_roles(app, role: str | None) -> list[str]:
+    """Roles a share link may grant: up to the creator's own role and the instance cap (§14.1)."""
+    cap = app.policy("guest_max_role")
+    return [r for r in links.LINK_ROLES
+            if permissions.rank(r) <= permissions.rank(role) and permissions.rank(r) <= permissions.rank(cap)]
+
+
+async def create_share_link(app, req: Request, project, role: str, values: dict) -> str:
+    """Create a link from form or JSON values; returns its URL. Raises ValueError."""
+    link_role = str(values.get("role", "viewer"))
+    if link_role not in _link_roles(app, role):
+        raise ValueError("You can't create a link with this role.")
+    days = str(values.get("expires_days", "") or "")
+    expires_at = time.time() + int(days) * 86400 if days.isdigit() and 0 < int(days) <= 365 else None
+    password = str(values.get("password", "") or "")
+    pw_hash = None
+    if password:
+        if len(password) < 6:
+            raise ValueError("Use at least 6 characters for a link password.")
+        pw_hash = await asyncio.to_thread(passwords.hash_password, password)
+    uid = req.user.id
+
+    def work(c):
+        link_id, token = links.create(c, project["id"], link_role, uid, expires_at=expires_at,
+                                      password_hash=pw_hash, label=str(values.get("label", "") or ""))
+        c.execute("INSERT INTO audit_log(actor, action, target, meta_json) VALUES (?, 'share_link.create', ?, ?)",
+                  (f"user:{uid}", project["id"], json.dumps({"link": link_id, "role": link_role})))
+        return token
+
+    token = await app.db.write(work)
+    return f"{app.cfg.server.public_url.rstrip('/')}/s/{token}"
 
 
 def register(app) -> None:
@@ -28,17 +63,21 @@ def register(app) -> None:
             return svc.list_recent(c, uid), svc.list_projects(c, uid)
 
         recent, projects = await app.db.read(load)
+        # Mirrored into IndexedDB so the offline home page can list them (§6.5).
+        mirror = [{"docId": d["id"], "url": doc_url(d["project_id"], d["path"]), "path": d["path"],
+                   "project": d["project"], "openedAt": d["opened_at"], "pinned": bool(d["pinned"])} for d in recent]
         return app.page(req, "home.html", recent=recent, projects=projects, layouts=app.layouts.list(),
-                        default_layout=app.cfg.render.default_layout, doc_url=doc_url, error=req.query.get("error"))
+                        recent_json=script_json(mirror),
+                        default_layout=app.policy("default_layout"), doc_url=doc_url, error=req.query.get("error"))
 
     async def new_project(req: Request) -> Response:
         form = await req.form()
-        layout = form.get("layout") or app.cfg.render.default_layout
+        layout = form.get("layout") or app.policy("default_layout")
         if not app.layouts.exists(layout):
-            layout = app.cfg.render.default_layout
+            layout = app.policy("default_layout")
         try:
             pid, main = await create_project_with_starter(app, req.user, form.get("name", ""), layout,
-                                                          form.get("starter", "1") == "1")
+                                                          form.get("starter", "1") == "1", app.lang_of(req))
         except ValueError as exc:
             return redirect("/?error=" + quote(str(exc)))
         if main:
@@ -49,12 +88,26 @@ def register(app) -> None:
         project, role = await project_access(app, req, req.param("project"), "read")
         await app.scanner.scan(project["id"])
 
-        def load(c):
-            return svc.tree(c, project["id"]), svc.list_members(c, project["id"])
+        guest = req.guest is not None
+        may_share = permissions.can(role, "share", project) and not guest
 
-        tree, members = await app.db.read(load)
+        def load(c):
+            return (svc.tree(c, project["id"]), [] if guest else svc.list_members(c, project["id"]),
+                    links.list_for_project(c, project["id"]) if may_share else [])
+
+        tree, members, shares = await app.db.read(load)
+        may_sync = permissions.can(role, "sync", project) and not guest
+        sync = None
+        if may_sync:
+            from ..api.sync import _public as public_target
+
+            sync = public_target(await app.db.fetchone("SELECT * FROM sync_targets WHERE project_id = ?",
+                                                       (project["id"],)))
         return app.page(req, "project.html", project=project, role=role, tree=tree, members=members,
-                        layouts=app.layouts.list(), doc_url=doc_url, can=permissions.can,
+                        may_sync=may_sync, sync=sync,
+                        shares=shares, may_share=may_share, link_roles=_link_roles(app, role),
+                        new_link=req.query.get("link"), layouts=app.layouts.list(), doc_url=doc_url,
+                        can=lambda r, cap: permissions.can(r, cap, project) and not (guest and cap in GUEST_FORBIDDEN),
                         error=req.query.get("error"))
 
     async def project_form(req: Request) -> Response:
@@ -85,6 +138,24 @@ def register(app) -> None:
                 await project_access(app, req, pid, "manage_members")
                 await app.db.write(lambda c: svc.set_member(c, pid, form.get("username", "").strip(),
                                                             form.get("role", "")))
+            elif action == "sharing":
+                await project_access(app, req, pid, "manage_members")
+                await app.db.write(lambda c: c.execute(
+                    "UPDATE projects SET editors_can_share = ?, editors_can_publish = ? WHERE id = ?",
+                    (int(form.get("editors_can_share") == "1"), int(form.get("editors_can_publish") == "1"), pid)))
+            elif action == "remove-member":
+                await project_access(app, req, pid, "manage_members")
+                uid = form.get("user_id", "")
+                await app.db.write(lambda c: svc.remove_member(c, pid, int(uid) if uid.isdigit() else -1))
+            elif action == "create-link":
+                project, role = await project_access(app, req, pid, "share")
+                url = await create_share_link(app, req, project, role, form)
+                return redirect(back + "?link=" + quote(url) + "#share")
+            elif action == "revoke-link":
+                await project_access(app, req, pid, "share")
+                lid = form.get("link_id", "")
+                await app.db.write(lambda c: links.revoke(c, pid, int(lid) if lid.isdigit() else -1))
+                return redirect(back + "#share")
             elif action == "delete":
                 await project_access(app, req, pid, "delete_project")
                 await app.db.write(lambda c: svc.delete_project(c, pid))
@@ -94,6 +165,12 @@ def register(app) -> None:
         except (ValueError, files.PathError) as exc:
             return redirect(back + "?error=" + quote(str(exc)))
         return redirect(back)
+
+    async def pin(req: Request) -> Response:
+        doc_id = req.param("doc")
+        form = await req.form()
+        await app.db.write(lambda c: svc.set_pinned(c, req.user.id, doc_id, form.get("pinned") == "1"))
+        return redirect("/")
 
     async def editor(req: Request) -> Response:
         pid = req.param("project")
@@ -106,37 +183,46 @@ def register(app) -> None:
                 return redirect(f"/api/projects/{pid}/assets/{quote(path)}")
             raise not_found("This document doesn't exist.")
         client_id = "c_" + secrets.token_hex(16)
-        user = req.user
+        user, guest = req.user, req.guest
         now = time.time()
 
         def work(c):
-            c.execute("INSERT INTO collab_clients(client_id, doc_id, user_id, created_at, last_seen_at)"
-                      " VALUES (?, ?, ?, ?, ?)", (client_id, doc["id"], user.id, now, now))
-            svc.touch_recent(c, user.id, doc["id"])
+            c.execute("INSERT INTO collab_clients(client_id, doc_id, user_id, guest_id, created_at, last_seen_at)"
+                      " VALUES (?, ?, ?, ?, ?, ?)", (client_id, doc["id"], user.id if user else None,
+                                                     guest.id if guest else None, now, now))
+            if user is not None:
+                svc.touch_recent(c, user.id, doc["id"])
+                row = c.execute("SELECT pinned FROM recent WHERE user_id = ? AND doc_id = ?",
+                                (user.id, doc["id"])).fetchone()
+                return bool(row and row["pinned"])
+            return False
 
-        await app.db.write(work)
+        pinned = await app.db.write(work)
         room = await app.rooms.get(doc["id"])
         text, version = await room.call(lambda: _text_version(room))
         tree = await app.db.read(lambda c: svc.tree(c, pid))
         layout = app.layouts.get(project["layout_id"]) if app.layouts.exists(project["layout_id"]) \
-            else app.layouts.get(app.cfg.render.default_layout)
+            else app.layouts.get(app.policy("default_layout"))
         try:
             options = json.loads(project["layout_options"] or "{}")
         except ValueError:
             options = {}
         snapshot = {
-            "doc": {"id": doc["id"], "path": doc["path"], "kind": doc["kind"]},
+            "doc": {"id": doc["id"], "path": doc["path"], "kind": doc["kind"], "pinned": pinned},
             "project": {"id": pid, "name": project["name"]},
             "version": version,
             "text": text,
             "clientID": client_id,
             "role": role,
-            "user": {"id": user.id, "name": user.display_name},
+            "user": {"id": req.actor_key, "name": req.actor_name, "guest": guest is not None},
+            "can": {cap: permissions.can(role, cap, project) and not (guest and cap in GUEST_FORBIDDEN)
+                    for cap in ("edit", "comment", "resolve_comments", "versions", "share", "publish",
+                                "change_layout")},
             "layout": layout.public(),
             "layoutOptions": options,
             "files": [{"path": e["path"], "type": e["type"]} for e in tree],
-            "prefs": {"font": user.preferences.get("editor_font", "sans"),
-                      "size": user.preferences.get("editor_size", 17)},
+            "prefs": {"font": user.preferences.get("editor_font", "sans") if user else "sans",
+                      "size": user.preferences.get("editor_size", 17) if user else 17},
             "previewOrigin": app.cfg.preview_origin,
         }
         return app.page(req, "editor.html", project=project, doc=doc, role=role, snapshot=script_json(snapshot),
@@ -144,9 +230,10 @@ def register(app) -> None:
 
     app.router.add("GET", "/", home)
     app.router.add("POST", "/projects", new_project)
-    app.router.add("GET", "/p/{project}", project_page)
-    app.router.add("POST", "/p/{project}", project_form)
-    app.router.add("GET", "/p/{project}/{path:path}", editor)
+    app.router.add("GET", "/p/{project}", project_page, guest=True)
+    app.router.add("POST", "/p/{project}", project_form, guest=True)
+    app.router.add("POST", "/d/{doc}/pin", pin)
+    app.router.add("GET", "/p/{project}/{path:path}", editor, guest=True)
 
 
 async def _text_version(room):

@@ -36,14 +36,17 @@ def filesize(n: int | None) -> str:
     return f"{n} B"
 
 
-def reltime(value: str | None) -> str:
-    """Relative for the last 7 days, then the date (§25.12)."""
+def reltime(value: str | float | None) -> str:
+    """Relative for the last 7 days, then the date (§25.12). Takes ISO strings or Unix times."""
     if not value:
         return ""
-    try:
-        when = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return value
+    if isinstance(value, (int, float)):
+        when = dt.datetime.fromtimestamp(value, dt.UTC)
+    else:
+        try:
+            when = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return value
     if when.tzinfo is None:
         when = when.replace(tzinfo=dt.UTC)
     secs = (dt.datetime.now(dt.UTC) - when).total_seconds()
@@ -69,5 +72,12 @@ def make_env() -> jinja2.Environment:
         lstrip_blocks=True,
     )
     env.filters["filesize"] = filesize
-    env.filters["reltime"] = reltime
+
+    @jinja2.pass_context
+    def localized_reltime(ctx, value):
+        from ..i18n import reltime as rt
+
+        return rt(ctx.get("lang", "en"), value)
+
+    env.filters["reltime"] = localized_reltime
     return env

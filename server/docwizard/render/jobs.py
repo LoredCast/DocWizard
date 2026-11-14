@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import secrets
 import shutil
 from dataclasses import dataclass, field
@@ -21,6 +22,7 @@ from .layouts import Layout
 OUTPUTS = {
     "html": "index.html",
     "pdf-typst": "document.pdf",
+    "pdf-latex": "document.pdf",
     "docx": "document.docx",
     "odt": "document.odt",
     "md-resolved": "document.md",
@@ -31,7 +33,13 @@ OUTPUTS = {
     "md-source": "project.zip",
 }
 TARGETS = set(OUTPUTS)
-PREVIEW_TARGETS = {"html", "pdf-typst"}
+PREVIEW_TARGETS = {"html", "pdf-typst", "pdf-latex"}
+# §9.6: no shell escape, file-line errors for diagnostics, SyncTeX for later source mapping. The worker
+# replaces {job} with the job directory: kpathsea's paranoid mode refuses ../ paths but allows
+# absolute ones below TEXMFOUTPUT, which the worker sets to the job directory.
+LATEXMK = ["-interaction=nonstopmode", "-halt-on-error", "-file-line-error", "-no-shell-escape", "-synctex=1",
+           "-jobname=document", "-outdir={job}/out", "-auxdir={job}/tmp/latex"]
+LATEX_ENGINES = {"lualatex", "xelatex", "pdflatex"}
 BUILTIN_FILTERS = {"crossref", "pagebreak", "wordcount"}
 
 
@@ -72,7 +80,10 @@ def new_job_id() -> str:
     return "j_" + secrets.token_hex(16)
 
 
-def metadata(layout: Layout, project_options: dict, inputs: list[str]) -> dict:
+CSL_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,80}$")
+
+
+def metadata(layout: Layout, project_options: dict, inputs: list[str], layout_dir: Path | None = None) -> dict:
     """Option precedence: front matter, then project settings, then layout defaults (§9.3).
 
     The values go in a --metadata-file, which pandoc lets the document override.
@@ -87,23 +98,50 @@ def metadata(layout: Layout, project_options: dict, inputs: list[str]) -> dict:
     if "link-citations" in defaults:
         meta.setdefault("link-citations", defaults["link-citations"])
     meta.setdefault("pagetitle", os.path.splitext(os.path.basename(inputs[0]))[0] if inputs else "Document")
+    # The citation style: a layout option naming a bundled style, else the layout's own CSL
+    # file. Front matter `csl:` still wins, since the document overrides the metadata file.
+    style = meta.pop("citation-style", None)
+    if layout_dir is not None:
+        own = layout.manifest.get("csl")
+        for choice in (style, own):
+            if not isinstance(choice, str) or not choice:
+                continue
+            bundled = layout_dir / "_csl" / f"{choice.removesuffix('.csl')}.csl"
+            if CSL_ID.match(choice.removesuffix(".csl")) and bundled.is_file():
+                meta["csl"] = bundled.name  # found through --resource-path, so no server path shows in outputs
+                break
+            if choice is own and ".." not in choice and (layout_dir / choice).is_file():
+                meta["csl"] = str(layout_dir / choice)
+                break
     return meta
+
+
+def latex_steps(layout: Layout, target: str, root: str) -> tuple[list[dict], list]:
+    """LaTeX projects build their root document with latexmk; pandoc isn't involved (§9.5)."""
+    if target != "pdf-latex":
+        raise ValueError("LaTeX documents export as PDF (LaTeX) or as the project source.")
+    engine = layout.targets.get("pdf-latex", {}).get("engine")
+    engine = engine if engine in LATEX_ENGINES else "lualatex"
+    return [{"tool": "latexmk", "args": [f"-{engine}", *LATEXMK, root], "log": "latex"}], []
 
 
 def pandoc_steps(layout: Layout, layout_dir: Path, target: str, inputs: list[str], options: dict,
                  approved_layout_filters: bool) -> tuple[list[dict], list[tuple[Path, str]]]:
     """Return (steps, files to copy into out/) for *target*. Paths are relative to the job's src/."""
     L = str(layout_dir)
+    if inputs and inputs[0].endswith(".tex"):
+        return latex_steps(layout, target, inputs[0])
     spec = layout.targets.get(target if target != "typ-source" else "pdf-typst", {})
     common = [*inputs, "--from", "markdown", "--standalone", "--metadata-file", "../options.json",
-              "--resource-path", "."]
+              "--resource-path", f".:{L}/_csl"]
     for name in layout.manifest.get("filters", []):
         if name in BUILTIN_FILTERS:
             common += ["--lua-filter", f"{L}/_builtin/{name}.lua"]
         elif approved_layout_filters and isinstance(name, str) and name.startswith("filters/") \
                 and name.endswith(".lua") and ".." not in name:
             common += ["--lua-filter", f"{L}/{name}"]
-    common.append("--citeproc")
+    # zotero: bibliography entries point at the job's copy of the library (§9.4).
+    common += ["--lua-filter", f"{L}/_builtin/zotero.lua", "--citeproc"]
     if options.get("toc") is True:
         common.append("--toc")
     copies: list[tuple[Path, str]] = []
@@ -126,6 +164,14 @@ def pandoc_steps(layout: Layout, layout_dir: Path, target: str, inputs: list[str
         typ = ".docwizard.typ"
         typst = ["compile", "--root", "..", "--ignore-system-fonts", "--font-path", f"{L}/fonts", typ, out]
         return [{"tool": "pandoc", "args": [*args, "-o", typ]}, {"tool": "typst", "args": typst}], copies
+    if target == "pdf-latex":
+        args = [*common, "--to", "latex"]
+        if spec.get("template"):
+            args += ["--template", f"{L}/{spec['template']}"]
+        tex = "_docwizard.tex"  # TeX refuses dot files in paranoid mode
+        engine = spec.get("engine") if spec.get("engine") in LATEX_ENGINES else "lualatex"
+        return [{"tool": "pandoc", "args": [*args, "-o", tex]},
+                {"tool": "latexmk", "args": [f"-{engine}", *LATEXMK, tex], "log": "latex"}], copies
     if target in ("docx", "odt"):
         args = [*common, "--to", target]
         ref = spec.get("reference")

@@ -1,0 +1,30 @@
+{% extends "admin_base.html" %}
+{% block admin_title %}{{ _("Layouts") }}{% endblock %}
+{% block admin %}
+<h1>{{ _("Layouts") }}</h1>
+<p class="muted">{{ _("Install a layout by copying its folder into layouts/ in the data directory, then reload. Lua filters run code inside the render worker, so a layout's filters only run once you approve them. Changing any filter file revokes the approval.") }}</p>
+{% if notice == "changed" %}<p class="error" role="alert">{{ _("The filters changed since you opened this page. Check them again.") }}</p>{% elif notice %}<p role="status">{{ _("Done.") }}</p>{% endif %}
+<form method="post" action="/admin/layouts"><input type="hidden" name="_csrf" value="{{ csrf }}"><button type="submit" name="action" value="reload">{{ _("Reload layouts") }}</button></form>
+<table class="grid">
+  <thead><tr><th>{{ _("Layout") }}</th><th>{{ _("Formats") }}</th><th>{{ _("Lua filters") }}</th></tr></thead>
+  <tbody>
+  {% for l in layouts %}
+  <tr>
+    <td><strong>{{ l.name }}</strong> <span class="muted">{{ l.id }} {{ l.version }}</span>{% if l.default %} <span class="badge">{{ _("default") }}</span>{% endif %}<br><span class="muted">{{ l.description }}</span></td>
+    <td>{{ l.targets|join(", ") }}</td>
+    <td>
+      {% if not l.filters %}<span class="muted">{{ _("None") }}</span>
+      {% else %}
+      <code>{{ l.filters|join(", ") }}</code><br><span class="muted">SHA-256 {{ l.hash[:16] }}…</span><br>
+      <form method="post" action="/admin/layouts" class="inline">
+        <input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="layout" value="{{ l.id }}"><input type="hidden" name="hash" value="{{ l.hash }}">
+        {% if l.approved %}<span class="ok">{{ _("Approved") }}</span> <button type="submit" name="action" value="revoke" class="link">{{ _("Revoke") }}</button>
+        {% else %}<span class="error">{{ _("Not approved: the filters don't run") }}</span> <button type="submit" name="action" value="approve">{{ _("Approve") }}</button>{% endif %}
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

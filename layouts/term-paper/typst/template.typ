@@ -176,7 +176,7 @@ $endfor$
     ),
 $endif$
 $if(keywords)$
-  keywords: ($for(keywords)$$keywords$$sep$,$endfor$),
+  keywords: ($for(keywords)$"$keywords$",$endfor$),
 $endif$
 $if(date)$
   date: [$date$],

@@ -29,6 +29,7 @@ def cfg(tmp_path):
     c.collab.materialize_delay = 30
     c.collab.materialize_max_delay = 60
     c.collab.disk_poll_seconds = 3600
+    c.sync.enabled = False
     return c
 
 

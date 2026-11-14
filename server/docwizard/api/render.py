@@ -43,14 +43,14 @@ def register(app) -> None:
         if not isinstance(target, str):
             raise bad_request("Choose a format.")
         try:
-            job = renderer.start_export(dict(project), req.user.id, target, doc_path, options)
+            job = renderer.start_export(dict(project), req.actor_key, target, doc_path, options)
         except ValueError as exc:
             raise bad_request(str(exc)) from None
         return json_response({"job": job.id}, 202)
 
     async def job_status(req: Request) -> Response:
         job = renderer.exports.get(req.param("id"))
-        if job is None or job.user_id != req.user.id:
+        if job is None or job.user_id != req.actor_key:
             raise not_found("No such job.")
         out = {"id": job.id, "status": job.status, "target": job.target, "diagnostics": [], "url": None}
         if job.result is not None:
@@ -128,10 +128,10 @@ def register(app) -> None:
         resp.set_header("cache-control", "private, no-cache")
         return resp
 
-    r.add("POST", "/api/projects/{id}/export", export)
-    r.add("GET", "/api/jobs/{id}", job_status)
-    r.add("GET", "/api/renders/{key}/{file}", rendered_file)
-    r.add("GET", "/api/projects/{id}/citations", citations)
+    r.add("POST", "/api/projects/{id}/export", export, guest=True)
+    r.add("GET", "/api/jobs/{id}", job_status, guest=True)
+    r.add("GET", "/api/renders/{key}/{file}", rendered_file, guest=True)
+    r.add("GET", "/api/projects/{id}/citations", citations, guest=True)
     r.add("GET", "/_preview/{token}/{key}/{path:path}", preview, auth=False, no_session=True, preview_host=True)
 
 

@@ -2,24 +2,51 @@
 
 A self-hostable editor for structured writing: term papers, theses, articles and reports. You write pandoc Markdown in the browser; **layouts** decide how the output looks. Exports go through pandoc, with Typst for PDF and citeproc for citations.
 
-[ARCHITECTURE.md](ARCHITECTURE.md) is the design reference. This first version covers roadmap milestones M0 and M1 (reliable editing and submission-ready output), plus the parts of M2–M4 that the same code already provides.
+[ARCHITECTURE.md](ARCHITECTURE.md) is the design reference. This version covers the roadmap milestones M0 to M6 (§21): reliable editing, submission-ready output, collaboration, sharing and comments, offline work, the integrations, and LaTeX with the rest of the polish.
 
 ## What works
 
-- **Editing**: CodeMirror with pandoc Markdown (front matter, citations, math, footnotes, attributes, fenced divs), live preview of headings, emphasis, links, task lists, citation chips and MathML, citation autocomplete, heading folding, word count. A LaTeX mode for `.tex` files.
-- **Saving that survives crashes**: every edit is committed to SQLite (`synchronous=FULL`) before it is acknowledged, then written to plain files in the project folder. On startup, the files are reconstructed from the database. Edits made to those files outside DocWizard are detected and reconciled, with real conflicts kept visible instead of blended.
-- **Collaboration**: several tabs or people can edit the same document (OT with a central authority, compatible with `@codemirror/collab`). Unconfirmed edits are kept in IndexedDB, survive reloads and come back after offline periods as a merge with explicit conflicts.
-- **Versions**: named versions, restore (the current text is kept as a version first).
-- **Rendering**: a separate worker runs pandoc and Typst, each job as its own Unix user with resource limits. HTML preview on a separate preview origin through capability URLs; PDF preview; exports to PDF, DOCX, ODT, HTML, Markdown, Typst and LaTeX source, and a zip of the project.
-- **Layouts**: `default` and `term-paper` (title page, numbered sections, 1.5 spacing), with options such as paper size, font size and spacing. Layouts can extend each other.
-- **Citations**: from CSL-JSON, BibTeX or RIS files in the project, formatted Chicago author-date by default; cross-references to figures, tables and equations.
-- **Accounts and projects**: local accounts, sessions, CSRF protection, project roles (owner, editor, commenter, viewer), uploads, backup and restore from the command line.
+### Writing
 
-Not yet: WebDAV sync, Zotero, OIDC, sharing links and guests, comments, presence, publishing, the service worker for offline page loads, LaTeX builds and PDF.js. See the roadmap in ARCHITECTURE.md §21.
+- **Editing**: CodeMirror with pandoc Markdown (front matter, citations, math, footnotes, attributes, fenced divs), live preview of headings, emphasis, links, task lists, citation chips and MathML, citation autocomplete, heading folding and a word count. A LaTeX mode for `.tex` files.
+- **Saving that survives crashes**: every edit is committed to SQLite (`synchronous=FULL`) before it is acknowledged, then written to plain files in the project folder. On startup, the files are reconstructed from the database. Edits made to those files outside DocWizard are detected and reconciled, with real conflicts kept visible instead of blended.
+- **Versions**: named versions, and restore (the current text is kept as a version first).
+- **Search**: full-text search across every document you can open, with SQLite FTS5.
+
+### Working together
+
+- **Collaboration**: several tabs or people edit the same document (OT with a central authority, compatible with `@codemirror/collab`), with live cursors, selections and a list of who is here. The protocol is tested against injected failures.
+- **Sharing**: project roles (owner, editor, commenter, viewer), share links with a role and an expiry, and guests who join through a link without an account (admins decide whether guests are allowed and their highest role).
+- **Comments**: threads anchored to text that stay in place while people edit, with replies and resolving. Recent documents and pins on the home page.
+- **Offline**: a service worker keeps the app and the documents this browser has stored available offline. Edits made offline are kept in IndexedDB and come back as a merge, with overlapping changes shown as conflicts in their own panel, never blended.
+
+### Output
+
+- **Rendering**: a separate worker runs pandoc, Typst and latexmk, each job as its own Unix user with resource limits. HTML preview on a separate preview origin through capability URLs; PDF preview; exports to PDF (Typst or LaTeX), DOCX, ODT, HTML, Markdown, Typst and LaTeX source, and a zip of the project.
+- **Layouts**: `default`, `term-paper` (title page, numbered sections, 1.5 spacing) and `article` (two columns with an abstract), with options such as paper size, font size, spacing and citation style. Layouts can extend each other. Lua filters in installed layouts only run after an admin approves them, by hash.
+- **Citations**: from CSL-JSON, BibTeX or RIS files in the project, or from a Zotero library. Seven bundled styles: Chicago author-date and notes, APA, MLA, Harvard, IEEE and DIN 1505-2. Cross-references to figures, tables and equations.
+- **LaTeX projects**: `.tex` documents and multi-file projects build with latexmk (LuaLaTeX by default, no shell escape), with errors and warnings shown at the right line. Markdown documents can also go to PDF through LaTeX.
+- **Publishing**: a document can be published as a static site on the publish origin, at a chosen or unlisted address, optionally with a PDF. It is updated a few seconds after edits and taken down when the document is deleted.
+
+### Integrations
+
+- **Sync**: projects sync both ways with Nextcloud, Seafile or any WebDAV server, with the same reconciliation and conflicts as outside edits.
+- **Zotero**: add a personal or group library with an API key; its items appear in citation autocomplete and in exports.
+- **Login providers**: any OpenID Connect provider, such as Keycloak or a university login, with allowed groups, admin groups and linking to existing accounts.
+- Stored credentials (WebDAV passwords, Zotero keys, authenticator secrets) are encrypted with the server's secret key. `python -m docwizard rotate-key` adds a new key and re-encrypts them. Outbound requests to private networks are refused unless an admin lists the host.
+
+### Accounts and administration
+
+- **Accounts**: local accounts, sessions, CSRF protection, two-step login with an authenticator app and recovery codes, password reset by mail, and invitations.
+- **Admin area** at `/admin`: health (worker, tool versions, disk, recent errors), users (invite, disable, reset links, require two-step login, quotas), settings that override the configuration file (registration, guests, password length, default layout, allowed private hosts), layout filter approval, and an audit log. Prometheus metrics at `/metrics` for admins.
+- **Maintenance**: a daily job empties trash older than 30 days, removes expired links and deletes unreferenced files. Backup and restore from the command line.
+- **Languages**: English and German. The language follows the browser until you choose one in your settings.
+
+Not yet: PDF.js with SyncTeX (jumping between the PDF and the source), which the roadmap lists as optional, and EPUB export.
 
 ## Run it for development
 
-You need Python 3.12 or newer, [pandoc](https://pandoc.org/installing.html) 3.9 and [Typst](https://github.com/typst/typst/releases) 0.14 on your `PATH`.
+You need Python 3.12 or newer, [pandoc](https://pandoc.org/installing.html) 3.9 and [Typst](https://github.com/typst/typst/releases) 0.14 on your `PATH`. LaTeX builds also need TeX Live with `latexmk` and LuaLaTeX; without them, everything else works.
 
 ```sh
 python -m venv .venv
@@ -37,6 +64,13 @@ Open <http://localhost:8080>. The app serves previews from `http://127.0.0.1:808
 
 Every setting can come from `docwizard.toml` (see [deploy/docwizard.example.toml](deploy/docwizard.example.toml)) or from an environment variable named `DOCWIZARD_<SECTION>_<KEY>`. `python -m docwizard check` reports missing tools and directories.
 
+Some features need configuration:
+
+- **Mail** for password resets and invitations: an `[smtp]` section. Without it, admins copy the links from the admin area and pass them on.
+- **Login providers**: one `[[oidc]]` block per provider. Register `<public_url>/login/oidc/<id>/callback` as the redirect URI.
+- **The secret key** that encrypts stored credentials is created at `<data_dir>/secret.key` on first start, or read from `security.secret_key_file`. Back it up separately from the data: without it, stored passwords and keys can't be read.
+- **Sync servers in your own network** (such as `nextcloud.lan`) need to be listed in `security.allow_private_outbound` or in the admin settings.
+
 ## Deploy
 
 [deploy/compose.yaml](deploy/compose.yaml) runs three containers: the app, the render worker (no network, read-only root, only the capabilities it needs to switch users) and Caddy, which terminates TLS for two hosts, the app and the publish/preview host.
@@ -48,6 +82,10 @@ docker compose -f deploy/compose.yaml up -d --build
 docker compose -f deploy/compose.yaml exec app python -m docwizard create-admin you
 ```
 
+The worker image includes TeX Live for LaTeX builds. Build it with `--build-arg WITH_LATEX=0` for a much smaller image without them.
+
+Published sites and previews are served from the publish host. In the Compose setup Caddy serves them from the publish directory; with `serve_static = true` the app serves them itself, which is fine for development.
+
 For a machine without containers, [deploy/systemd/](deploy/systemd) has units for the app and the worker; put any reverse proxy in front that forwards both hosts to the app's socket.
 
 Back up with `python -m docwizard backup <dir>` and restore with `python -m docwizard restore <dir>`.
@@ -58,16 +96,18 @@ Back up with `python -m docwizard backup <dir>` and restore with `python -m docw
 pytest
 ```
 
-The suite has unit tests, property tests for the changeset and merge code, a cross-check of the Python changeset port against CodeMirror's own implementation (needs Node), and integration tests for collaboration, crash recovery, backup and rendering. Rendering tests run when pandoc is installed; point `DOCWIZARD_TEST_TOOLS_PATH` at a directory with specific pandoc and Typst binaries to test those versions.
+The suite has unit tests, property tests for the changeset and merge code, a cross-check of the Python changeset port against CodeMirror's own implementation (needs Node), adversarial protocol tests, and integration tests for collaboration, crash recovery, backup, sharing, offline merges, sync (against a WebDAV server in the test), Zotero, OIDC, publishing, two-step login, the admin area, search, the German interface and rendering. Rendering tests run when pandoc is installed, LaTeX tests when latexmk is; point `DOCWIZARD_TEST_TOOLS_PATH` at a directory with specific pandoc and Typst binaries to test those versions.
 
 ## Repository
 
 | Path | What |
 |---|---|
-| `server/docwizard/` | The app: HTTP, auth, projects, collaboration, rendering, citations |
+| `server/docwizard/` | The app: HTTP, auth, projects, collaboration, rendering, citations, sync, publishing, admin |
+| `server/docwizard/locale/` | Interface translations, keyed by the English text |
 | `worker/` | The render worker (standard library only) |
 | `web/` | Stylesheet, ES modules and the vendored CodeMirror and Temml bundles |
 | `layouts/` | Built-in layouts |
+| `csl/` | Bundled citation styles (CC BY-SA 3.0, from the CSL project) |
 | `filters/` | Built-in Lua filters (cross-references, page breaks, word count) |
 | `deploy/` | Dockerfiles, Compose, Caddy and systemd |
 | `scripts/vendor.sh` | Rebuilds the vendored frontend bundles |

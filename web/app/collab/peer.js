@@ -3,11 +3,12 @@
 // this session moves them over the socket, keeps one push in flight, and takes the
 // merge path after long offline periods, pruned history or a rejected update (§8.6).
 import { ChangeSet, ViewPlugin, collab, getSyncedVersion, receiveUpdates, sendableUpdates } from "codemirror";
-import { deleteDoc, putDoc } from "../store/idb.js";
+import { putDoc } from "../store/idb.js";
 
 const REBASE_LIMIT = 5 * 60 * 1000;
 const MAX_PUSH = 100;
 const PERSIST_DELAY = 800;
+const HISTORY = 1000; // received updates kept to map presence and anchors (§8.7)
 
 function randomId(prefix) {
   const bytes = crypto.getRandomValues(new Uint8Array(12));
@@ -16,13 +17,15 @@ function randomId(prefix) {
 
 export class DocSession {
   // makeState(text, version) returns a fresh EditorState that includes session.extension(version).
-  constructor({ socket, docId, clientID, text, version, makeState, onStatus, onEvent }) {
+  constructor({ socket, docId, clientID, text, version, makeState, onStatus, onEvent, onUpdates }) {
     this.socket = socket;
     this.docId = docId;
     this.clientID = clientID;
     this.makeState = makeState;
     this.onStatus = onStatus ?? (() => {});
     this.onEvent = onEvent ?? (() => {});
+    this.onUpdates = onUpdates ?? (() => {});
+    this.history = []; // [{version, changes}] for received updates, oldest first
     this.view = null;
     this.synced = null; // Text at the synced version, the base for a merge
     this.initialText = text;
@@ -35,6 +38,7 @@ export class DocSession {
     this.persistTimer = null;
     this.retryTimer = null;
     this.lastStatus = "";
+    this.keep = {}; // {url, meta, pinned}: what the offline editor needs besides the text
   }
 
   extension(version) {
@@ -80,6 +84,28 @@ export class DocSession {
     }
     this.persistSoon();
     return this.merges.length > 0;
+  }
+
+  // Reopening this browser's copy without the server (§6.5): the editor starts at the
+  // synced text, and the edits made on top of it become unconfirmed changes again.
+  resume(record) {
+    this.merges = Array.isArray(record.merges) ? record.merges : [];
+    this.offlineSince = record.offlineSince ?? Date.now();
+    this.keep = { url: record.url, meta: record.meta, pinned: record.pinned };
+    const base = record.baseText;
+    const text = record.text;
+    if (text !== base) {
+      let start = 0;
+      while (start < base.length && start < text.length && base[start] === text[start]) start++;
+      let endB = base.length;
+      let endT = text.length;
+      while (endB > start && endT > start && base[endB - 1] === text[endT - 1]) { endB--; endT--; }
+      // Never split a surrogate pair.
+      if (start > 0 && /[\uD800-\uDBFF]/.test(base[start - 1])) start--;
+      if (endB < base.length && /[\uDC00-\uDFFF]/.test(base[endB])) { endB++; endT++; }
+      this.view.dispatch({ changes: { from: start, to: endB, insert: text.slice(start, endT) },
+                           userEvent: "input.offline" });
+    }
   }
 
   unconfirmed() {
@@ -188,16 +214,55 @@ export class DocSession {
     const fresh = updates.slice(current - from);
     if (!fresh.length) return;
     let ours = false;
-    const parsed = fresh.map((u) => {
+    const parsed = fresh.map((u, i) => {
       const changes = ChangeSet.fromJSON(u.changes);
       this.synced = changes.apply(this.synced);
+      this.history.push({ version: current + i, changes });
       if (u.clientID === this.clientID) ours = true;
       return { changes, clientID: u.clientID };
     });
+    if (this.history.length > HISTORY) this.history.splice(0, this.history.length - HISTORY);
     this.view.dispatch(receiveUpdates(this.view.state, parsed));
     if (ours) this.inflight = false;
     this.persistSoon();
     this.push();
+    this.onUpdates();
+  }
+
+  // Positions at a server version -> positions in the current document,
+  // or null while this editor hasn't reached that version (or no longer remembers it).
+  toCurrent(version, ranges) {
+    const synced = this.version();
+    if (version > synced) return null;
+    const sets = [];
+    if (version < synced) {
+      const start = this.history.findIndex((h) => h.version === version);
+      if (start < 0) return null;
+      for (const h of this.history.slice(start)) sets.push(h.changes);
+    }
+    for (const u of sendableUpdates(this.view.state)) sets.push(u.changes);
+    try {
+      return ranges.map(([a, b]) => {
+        for (const cs of sets) { a = cs.mapPos(a, -1); b = cs.mapPos(b, -1); }
+        return [a, b];
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  // Positions in the current document -> positions at the synced version.
+  toSynced(ranges) {
+    const pending = sendableUpdates(this.view.state);
+    if (!pending.length) return ranges;
+    let composed = pending[0].changes;
+    for (const u of pending.slice(1)) composed = composed.compose(u.changes);
+    try {
+      const inverse = composed.invert(this.synced);
+      return ranges.map(([a, b]) => [inverse.mapPos(a, -1), inverse.mapPos(b, -1)]);
+    } catch {
+      return null;
+    }
   }
 
   reset(text, version) {
@@ -211,6 +276,7 @@ export class DocSession {
     this.view.setState(state);
     this.view.dispatch({ selection: { anchor: Math.min(head, state.doc.length) } });
     this.synced = this.view.state.doc;
+    this.history = [];
     this.inflight = false;
     this.persistNow();
     this.awaitingReset = false;
@@ -257,14 +323,12 @@ export class DocSession {
     this.persistTimer = setTimeout(() => this.persistNow(), PERSIST_DELAY);
   }
 
+  // Every open document is kept, not only ones with waiting edits, so it opens offline (§6.5).
   persistNow() {
     clearTimeout(this.persistTimer);
     if (!this.view) return;
-    if (!this.unconfirmed() && !this.merges.length) {
-      deleteDoc(this.docId);
-      return;
-    }
     putDoc({
+      ...this.keep,
       docId: this.docId,
       clientID: this.clientID,
       syncedVersion: this.version(),

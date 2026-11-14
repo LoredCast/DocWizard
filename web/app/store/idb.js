@@ -1,10 +1,16 @@
-// IndexedDB store for documents with unconfirmed edits (ARCHITECTURE.md §6.5).
-// Each record: {docId, clientID, syncedVersion, baseText, text, offlineSince, updatedAt}.
+// The browser's copy of the user's work (ARCHITECTURE.md §6.5). Stores:
+//   docs:      {docId, owner, url, meta, clientID, syncedVersion, baseText, text, merges,
+//               offlineSince, pinned, updatedAt}, kept for every recently opened document
+//              (the last KEEP plus all pinned ones), so a reload works offline
+//   recent:    {owner, items, savedAt}, a mirror of the home page's recent list
+//   citations: {projectId, owner, etag, items}
+//   layouts:   {id, owner, layout}
 // Everything here is best effort: private windows and full disks just mean no offline copy.
 
 const DB_NAME = "docwizard";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const KEEP = 50;
+const OWNER_KEY = "dw.owner";
 let dbPromise = null;
 
 function open() {
@@ -19,9 +25,14 @@ function open() {
       }
       req.onupgradeneeded = () => {
         const db = req.result;
-        if (!db.objectStoreNames.contains("docs")) {
-          db.createObjectStore("docs", { keyPath: "docId" }).createIndex("updatedAt", "updatedAt");
-        }
+        const docs = db.objectStoreNames.contains("docs")
+          ? req.transaction.objectStore("docs")
+          : db.createObjectStore("docs", { keyPath: "docId" });
+        if (!docs.indexNames.contains("updatedAt")) docs.createIndex("updatedAt", "updatedAt");
+        if (!docs.indexNames.contains("url")) docs.createIndex("url", "url");
+        if (!db.objectStoreNames.contains("recent")) db.createObjectStore("recent", { keyPath: "owner" });
+        if (!db.objectStoreNames.contains("citations")) db.createObjectStore("citations", { keyPath: "projectId" });
+        if (!db.objectStoreNames.contains("layouts")) db.createObjectStore("layouts", { keyPath: "id" });
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => resolve(null);
@@ -31,13 +42,13 @@ function open() {
   return dbPromise;
 }
 
-function run(mode, fn) {
+function run(storeName, mode, fn) {
   return open().then((db) => new Promise((resolve) => {
     if (!db) { resolve(null); return; }
     let result = null;
     try {
-      const tx = db.transaction("docs", mode);
-      const req = fn(tx.objectStore("docs"));
+      const tx = db.transaction(storeName, mode);
+      const req = fn(tx.objectStore(storeName));
       if (req) req.onsuccess = () => { result = req.result ?? null; };
       tx.oncomplete = () => resolve(result);
       tx.onerror = () => resolve(null);
@@ -48,25 +59,98 @@ function run(mode, fn) {
   }));
 }
 
-export const getDoc = (docId) => run("readonly", (store) => store.get(docId));
+// -- Owner ------------------------------------------------------------------
+// One browser can be used by several people in turn. Records carry the account
+// that wrote them; the offline pages show only the last account's records.
 
-export async function putDoc(record) {
-  await run("readwrite", (store) => store.put({ ...record, updatedAt: Date.now() }));
+export function currentOwner() {
+  const meta = document.querySelector('meta[name="dw-user"]')?.content;
+  if (meta) {
+    try { localStorage.setItem(OWNER_KEY, meta); } catch { /* private window */ }
+    return meta;
+  }
+  try { return localStorage.getItem(OWNER_KEY) ?? ""; } catch { return ""; }
 }
 
-export const deleteDoc = (docId) => run("readwrite", (store) => store.delete(docId));
+// Records from before owners were recorded belong to whoever opens them next.
+const mine = (record) => record && (record.owner === undefined || record.owner === currentOwner()) ? record : null;
 
-// Keep the newest KEEP records.
+// -- Documents ----------------------------------------------------------------
+
+export const getDoc = (docId) => run("docs", "readonly", (s) => s.get(docId)).then(mine);
+
+export const getDocByUrl = (url) => run("docs", "readonly", (s) => s.index("url").getAll(url))
+  .then((rows) => (rows ?? []).filter(mine).sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null);
+
+export const listDocs = () => run("docs", "readonly", (s) => s.getAll())
+  .then((rows) => (rows ?? []).filter(mine).sort((a, b) => b.updatedAt - a.updatedAt));
+
+export async function putDoc(record) {
+  await run("docs", "readwrite", (s) => s.put({ ...record, owner: currentOwner(), updatedAt: Date.now() }));
+}
+
+export const deleteDoc = (docId) => run("docs", "readwrite", (s) => s.delete(docId));
+
+export const hasPendingEdits = (r) => r.text !== r.baseText || (r.merges?.length ?? 0) > 0;
+
+// Keep the newest KEEP records, all pinned ones and all with edits not yet on the server.
 export async function prune() {
-  await run("readwrite", (store) => {
+  await run("docs", "readwrite", (store) => {
     const req = store.index("updatedAt").openCursor(null, "prev");
     let seen = 0;
     req.onsuccess = () => {
       const cursor = req.result;
       if (!cursor) return;
-      if (++seen > KEEP) cursor.delete();
+      const r = cursor.value;
+      if (!r.pinned && !hasPendingEdits(r) && ++seen > KEEP) cursor.delete();
       cursor.continue();
     };
     return null;
   });
+}
+
+// -- Recent list, citations, layouts --------------------------------------------
+
+export const putRecent = (items) => run("recent", "readwrite",
+  (s) => s.put({ owner: currentOwner(), items, savedAt: Date.now() }));
+
+// Pins are set on the home page; the offline copies follow so pruning keeps them.
+export const markPinned = (pinned) => run("docs", "readwrite", (store) => {
+  const req = store.openCursor();
+  req.onsuccess = () => {
+    const cursor = req.result;
+    if (!cursor) return;
+    const r = cursor.value;
+    if (mine(r) && Boolean(r.pinned) !== pinned.has(r.docId)) cursor.update({ ...r, pinned: pinned.has(r.docId) });
+    cursor.continue();
+  };
+  return null;
+});
+
+export const getRecent = () => run("recent", "readonly", (s) => s.get(currentOwner()));
+
+export const getCitations = (projectId) => run("citations", "readonly", (s) => s.get(projectId)).then(mine);
+
+export const putCitations = (projectId, etag, items) => run("citations", "readwrite",
+  (s) => s.put({ projectId, owner: currentOwner(), etag, items }));
+
+export const putLayout = (layout) => run("layouts", "readwrite",
+  (s) => s.put({ id: layout.id, owner: currentOwner(), layout }));
+
+// -- Logging out ----------------------------------------------------------------
+
+// Drops everything except documents with edits that haven't reached the server:
+// those are sent the next time this account opens them.
+export async function forgetAccount() {
+  await run("docs", "readwrite", (store) => {
+    const req = store.openCursor();
+    req.onsuccess = () => {
+      const cursor = req.result;
+      if (!cursor) return;
+      if (!hasPendingEdits(cursor.value)) cursor.delete();
+      cursor.continue();
+    };
+    return null;
+  });
+  for (const name of ["recent", "citations", "layouts"]) await run(name, "readwrite", (s) => s.clear());
 }

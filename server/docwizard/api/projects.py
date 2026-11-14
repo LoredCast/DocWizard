@@ -12,18 +12,44 @@ from ..projects import files
 from ..projects import service as svc
 
 
+# Guests never manage a project or see who else is in it (§14.2).
+GUEST_FORBIDDEN = {"share", "publish", "sync", "manage_members", "delete_project"}
+
+
+def actor_role(c, req: Request, project_id: str) -> str | None:
+    if req.user is not None:
+        return svc.role_of(c, req.user.id, project_id)
+    if req.guest is not None and req.guest.project_id == project_id:
+        return req.guest.role
+    return None
+
+
 async def project_access(app, req: Request, project_id: str, capability: str):
     """Return (project row, role) or raise 404/403 via permissions.require."""
-    user = req.user
 
     def work(c):
         project = svc.get_project(c, project_id)
-        role = svc.role_of(c, user.id, project_id) if project else None
+        role = actor_role(c, req, project_id) if project else None
         return project, role
 
     project, role = await app.db.read(work)
-    permissions.require(role, capability)
+    permissions.require(role, capability, project)
+    if req.guest is not None and capability in GUEST_FORBIDDEN:
+        raise HTTPError(403, "forbidden", "Guests can't do this.")
     return project, role
+
+
+def user_id_of(req: Request) -> int | None:
+    return req.user.id if req.user is not None else None
+
+
+def author_of(req: Request) -> str | None:
+    """An operation author: the user id, or "g<id>" for a guest."""
+    if req.user is not None:
+        return str(req.user.id)
+    if req.guest is not None:
+        return f"g{req.guest.id}"
+    return None
 
 
 async def document_access(app, req: Request, doc_id: str, capability: str):
@@ -34,14 +60,15 @@ async def document_access(app, req: Request, doc_id: str, capability: str):
     return doc, project, role
 
 
-async def create_project_with_starter(app, user, name: str, layout: str, starter: bool = True) -> tuple[str, str | None]:
+async def create_project_with_starter(app, user, name: str, layout: str, starter: bool = True,
+                                     lang: str = "en") -> tuple[str, str | None]:
     today = dt.date.today().isoformat()
 
     def work(c):
         pid = svc.create_project(c, user.id, name, layout)
         main = None
         if starter:
-            main = svc.create_document(c, pid, "paper.md", svc.STARTER.format(author=user.display_name, date=today))
+            main = svc.create_document(c, pid, "paper.md", svc.starter(lang, user.display_name, today))
             svc.create_document(c, pid, "references.json", svc.STARTER_REFS)
         return pid, main
 
@@ -63,12 +90,12 @@ def register(app) -> None:
 
     async def create_project(req: Request) -> Response:
         body = await req.json_object()
-        layout = body.get("layout") or app.cfg.render.default_layout
+        layout = body.get("layout") or app.policy("default_layout")
         if not app.layouts.exists(layout):
             raise bad_request("Unknown layout.")
         try:
             pid, main = await create_project_with_starter(app, req.user, str(body.get("name", "")), layout,
-                                                          bool(body.get("starter", True)))
+                                                          bool(body.get("starter", True)), app.lang_of(req))
         except ValueError as exc:
             raise bad_request(str(exc)) from None
         return json_response({"id": pid, "mainDocument": main}, 201)
@@ -118,6 +145,7 @@ def register(app) -> None:
     async def delete_project(req: Request) -> Response:
         project, _ = await project_access(app, req, req.param("id"), "delete_project")
         await app.db.write(lambda c: svc.delete_project(c, project["id"]))
+        await app.publisher.prune()
         return json_response({"ok": True})
 
     async def tree(req: Request) -> Response:
@@ -159,7 +187,7 @@ def register(app) -> None:
 
                 await room.call(move)
             return json_response({"path": new_path})
-        if "pinned" in body:
+        if "pinned" in body and req.user is not None:
             await app.db.write(lambda c: svc.set_pinned(c, req.user.id, doc["id"], bool(body["pinned"])))
         return json_response({"ok": True})
 
@@ -168,6 +196,7 @@ def register(app) -> None:
         await app.db.write(lambda c: svc.trash_document(c, doc["id"]))
         await app.rooms.close_document(doc["id"])
         await asyncio.to_thread(files.remove, app.rooms.project_dir(project["id"]), doc["path"])
+        await app.publisher.prune()
         return json_response({"ok": True})
 
     async def put_asset(req: Request) -> Response:
@@ -187,7 +216,7 @@ def register(app) -> None:
             existing = await app.db.read(lambda c: svc.get_document_by_path(c, project["id"], path))
             if existing:
                 room = await app.rooms.get(existing["id"])
-                await room.call(lambda: room.apply_text(text, "system:upload", req.user.id))
+                await room.call(lambda: room.apply_text(text, "system:upload", author_of(req)))
                 return json_response({"id": existing["id"], "type": "document"})
             try:
                 doc_id = await app.db.write(lambda c: svc.create_document(c, project["id"], path, text, ending))
@@ -264,7 +293,7 @@ def register(app) -> None:
         if not label:
             raise bad_request("Name the version.")
         room = await app.rooms.get(doc["id"])
-        version = await room.call(lambda: room.snapshot(label, req.user.id))
+        version = await room.call(lambda: room.snapshot(label, user_id_of(req)))
         return json_response({"version": version}, 201)
 
     async def restore_version(req: Request) -> Response:
@@ -275,7 +304,7 @@ def register(app) -> None:
         if row is None:
             raise not_found("No such version.")
         room = await app.rooms.get(doc["id"])
-        user_id = req.user.id
+        user_id = user_id_of(req)
 
         async def restore():
             # Keep the text being replaced, so a restore can be undone.
@@ -294,42 +323,25 @@ def register(app) -> None:
             raise not_found("No such version.")
         return json_response(dict(row))
 
-    async def conflicts(req: Request) -> Response:
-        doc, _, _ = await document_access(app, req, req.param("id"), "read")
-        rows = await app.db.fetchall(
-            "SELECT id, source, base_text, theirs_text, anchor_from, anchor_to, anchor_version, version_label,"
-            " created_at FROM conflicts WHERE doc_id = ? AND resolved_at IS NULL ORDER BY id", (doc["id"],))
-        return json_response({"conflicts": [dict(r) for r in rows]})
-
-    async def resolve_conflict(req: Request) -> Response:
-        doc, _, _ = await document_access(app, req, req.param("id"), "edit")
-        cid = req.param("cid")
-        await app.db.execute(
-            "UPDATE conflicts SET resolved_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), resolved_by = ?"
-            " WHERE id = ? AND doc_id = ?", (req.user.id, int(cid) if cid.isdigit() else -1, doc["id"]))
-        return json_response({"ok": True})
-
     r.add("GET", "/api/projects", list_projects)
     r.add("POST", "/api/projects", create_project)
-    r.add("GET", "/api/projects/{id}", get_project)
-    r.add("PATCH", "/api/projects/{id}", patch_project)
+    r.add("GET", "/api/projects/{id}", get_project, guest=True)
+    r.add("PATCH", "/api/projects/{id}", patch_project, guest=True)
     r.add("DELETE", "/api/projects/{id}", delete_project)
-    r.add("GET", "/api/projects/{id}/tree", tree)
-    r.add("POST", "/api/projects/{id}/documents", create_document)
-    r.add("PUT", "/api/projects/{id}/assets/{path:path}", put_asset)
-    r.add("GET", "/api/projects/{id}/assets/{path:path}", get_asset)
-    r.add("DELETE", "/api/projects/{id}/assets/{path:path}", delete_asset)
+    r.add("GET", "/api/projects/{id}/tree", tree, guest=True)
+    r.add("POST", "/api/projects/{id}/documents", create_document, guest=True)
+    r.add("PUT", "/api/projects/{id}/assets/{path:path}", put_asset, guest=True)
+    r.add("GET", "/api/projects/{id}/assets/{path:path}", get_asset, guest=True)
+    r.add("DELETE", "/api/projects/{id}/assets/{path:path}", delete_asset, guest=True)
     r.add("GET", "/api/projects/{id}/members", members)
     r.add("POST", "/api/projects/{id}/members", add_member)
     r.add("DELETE", "/api/projects/{id}/members", remove_member)
-    r.add("PATCH", "/api/documents/{id}", patch_document)
-    r.add("DELETE", "/api/documents/{id}", delete_document)
-    r.add("GET", "/api/documents/{id}/versions", list_versions)
-    r.add("POST", "/api/documents/{id}/versions", create_version)
-    r.add("GET", "/api/documents/{id}/versions/{v}", version_text)
-    r.add("POST", "/api/documents/{id}/versions/{v}/restore", restore_version)
-    r.add("GET", "/api/documents/{id}/conflicts", conflicts)
-    r.add("PATCH", "/api/documents/{id}/conflicts/{cid}", resolve_conflict)
+    r.add("PATCH", "/api/documents/{id}", patch_document, guest=True)
+    r.add("DELETE", "/api/documents/{id}", delete_document, guest=True)
+    r.add("GET", "/api/documents/{id}/versions", list_versions, guest=True)
+    r.add("POST", "/api/documents/{id}/versions", create_version, guest=True)
+    r.add("GET", "/api/documents/{id}/versions/{v}", version_text, guest=True)
+    r.add("POST", "/api/documents/{id}/versions/{v}/restore", restore_version, guest=True)
 
 
 def _json(value):

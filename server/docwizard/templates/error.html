@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% block title %}Error · DocWizard{% endblock %}
+{% block title %}{{ _("Error") }} · DocWizard{% endblock %}
 {% block content %}
 <section class="narrow">
-  <p class="error">{{ message }}</p>
-  <p><a href="/">Go to the home page</a></p>
+  <p class="error">{{ _(message) }}</p>
+  <p><a href="/">{{ _("Go to the home page") }}</a></p>
 </section>
 {% endblock %}

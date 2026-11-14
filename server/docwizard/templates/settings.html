@@ -1,42 +1,144 @@
 {% extends "base.html" %}
-{% block title %}Settings · DocWizard{% endblock %}
-{% block crumbs %}<a class="wordmark" href="/">DocWizard</a><span>/</span><span>Settings</span>{% endblock %}
+{% block title %}{{ _("Settings") }} · DocWizard{% endblock %}
+{% block crumbs %}<a class="wordmark" href="/">DocWizard</a><span>/</span><span>{{ _("Settings") }}</span>{% endblock %}
 {% block content %}
 <section class="narrow">
   <form method="post" action="/settings/profile" class="form">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
-    <label>Display name <input name="display_name" value="{{ user.display_name }}" required maxlength="80"></label>
+    <label>{{ _("Display name") }} <input name="display_name" value="{{ user.display_name }}" required maxlength="80"></label>
     <fieldset>
-      <legend>Theme</legend>
+      <legend>{{ _("Theme") }}</legend>
       {% for value, label in [("dark", "Dark"), ("light", "Light"), ("system", "System")] %}
-      <label class="choice"><input type="radio" name="theme" value="{{ value }}" {% if user.theme == value %}checked{% endif %}> {{ label }}</label>
+      <label class="choice"><input type="radio" name="theme" value="{{ value }}" {% if user.theme == value %}checked{% endif %}> {{ _(label) }}</label>
       {% endfor %}
     </fieldset>
-    <label>Editor font
-      <select name="editor_font">
-        {% for value, label in [("sans", "Sans"), ("mono", "Mono")] %}
-        <option value="{{ value }}" {% if user.preferences.get("editor_font", "sans") == value %}selected{% endif %}>{{ label }}</option>
+    <label>{{ _("Language") }}
+      <select name="language">
+        {% for value, label in languages.items() %}
+        <option value="{{ value }}" {% if lang == value %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
     </label>
-    <label>Editor size
+    <label>{{ _("Editor font") }}
+      <select name="editor_font">
+        {% for value, label in [("sans", "Sans"), ("mono", "Mono")] %}
+        <option value="{{ value }}" {% if user.preferences.get("editor_font", "sans") == value %}selected{% endif %}>{{ _(label) }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>{{ _("Editor size") }}
       <select name="editor_size">
         {% for size in range(15, 21) %}
         <option value="{{ size }}" {% if user.preferences.get("editor_size", 17) == size %}selected{% endif %}>{{ size }}</option>
         {% endfor %}
       </select>
     </label>
-    {% if saved == "profile" %}<p role="status">Saved</p>{% endif %}
-    <div class="buttons"><button type="submit" class="primary">Save</button></div>
+    {% if saved == "profile" %}<p role="status">{{ _("Saved") }}</p>{% endif %}
+    <div class="buttons"><button type="submit" class="primary">{{ _("Save") }}</button></div>
   </form>
-  <h2>Password</h2>
+  <h2>{{ _("Password") }}</h2>
   <form method="post" action="/settings/password" class="form">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
-    <label>Current password <input name="current" type="password" autocomplete="current-password" required></label>
-    <label>New password <input name="new" type="password" autocomplete="new-password" required></label>
-    {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
-    {% if saved == "password" %}<p role="status">Password changed. Other sessions were logged out.</p>{% endif %}
-    <div class="buttons"><button type="submit">Change password</button></div>
+    <label>{{ _("Current password") }} <input name="current" type="password" autocomplete="current-password" required></label>
+    <label>{{ _("New password") }} <input name="new" type="password" autocomplete="new-password" required></label>
+    {% if error %}<p class="error" role="alert">{{ _(error) }}</p>{% endif %}
+    {% if saved == "password" %}<p role="status">{{ _("Password changed. Other sessions were logged out.") }}</p>{% endif %}
+    <div class="buttons"><button type="submit">{{ _("Change password") }}</button></div>
+  </form>
+  <h2 id="totp">{{ _("Two-step login") }}</h2>
+  {% if totp_notice %}<p class="error" role="alert">{{ _("Your account needs two-step login. Turn it on to continue using DocWizard.") }}</p>{% endif %}
+  {% if recovery_codes %}
+  <div class="form" role="status">
+    <p><strong>{{ _("Save these recovery codes") }}</strong> {{ _("somewhere safe, such as a password manager or a printout. Each one logs you in once when you don't have your phone. They won't be shown again.") }}</p>
+    <ul class="plain recovery-codes">{% for c in recovery_codes %}<li><code>{{ c }}</code></li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+  {% if user.totp %}
+  <p>{{ _("Two-step login is on. Unused recovery codes: {n}.", n=recovery_left) }}</p>
+  <form method="post" action="/settings/totp" class="form">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="recovery">
+    <label>{{ _("Current code from your app") }} <input name="code" autocomplete="one-time-code" inputmode="numeric" required maxlength="8"></label>
+    <div class="buttons"><button type="submit">{{ _("Make new recovery codes") }}</button></div>
+  </form>
+  {% if not totp_required %}
+  <form method="post" action="/settings/totp" class="form">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="disable">
+    {% if has_password %}<label>{{ _("Password") }} <input name="password" type="password" autocomplete="current-password" required></label>
+    {% else %}<label>{{ _("Current code from your app") }} <input name="code" autocomplete="one-time-code" inputmode="numeric" required maxlength="8"></label>{% endif %}
+    <div class="buttons"><button type="submit" class="danger">{{ _("Turn off two-step login") }}</button></div>
+  </form>
+  {% endif %}
+  {% elif totp_setup %}
+  <form method="post" action="/settings/totp" class="form">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="enable">
+    <p>{{ _("Scan this code with an authenticator app such as Aegis, FreeOTP, 2FAS or Google Authenticator, then enter the six-digit code it shows.") }}</p>
+    <div class="qr-box">{{ totp_setup.qr|safe }}</div>
+    <p class="muted">{{ _("Can't scan it? Enter this key in the app:") }} <code>{{ totp_setup.secret }}</code> <a href="{{ totp_setup.uri }}">{{ _("Or open it in an app on this device.") }}</a></p>
+    <label>{{ _("Code") }} <input name="code" autocomplete="one-time-code" inputmode="numeric" required maxlength="8" autofocus></label>
+    {% if totp_error %}<p class="error" role="alert">{{ _(totp_error) }}</p>{% endif %}
+    <div class="buttons"><a class="button" href="/settings#totp">{{ _("Cancel") }}</a><button type="submit" class="primary">{{ _("Turn on") }}</button></div>
+  </form>
+  {% else %}
+  <p class="muted">{{ _("With two-step login, logging in also needs a code from an app on your phone.") }}</p>
+  <form method="post" action="/settings/totp" class="form">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="begin">
+    <div class="buttons"><button type="submit">{{ _("Set up two-step login") }}</button></div>
+  </form>
+  {% endif %}
+  {% if totp_error and not totp_setup %}<p class="error" role="alert">{{ _(totp_error) }}</p>{% endif %}
+  {% if saved == "totp-off" %}<p role="status">{{ _("Two-step login is off.") }}</p>{% endif %}
+  {% if identities or linkable %}
+  <h2 id="logins">{{ _("Linked logins") }}</h2>
+  <ul class="plain">
+    {% for i in identities %}
+    <li><span class="spacer">{{ i.label }}{% if i.email %} <span class="muted">({{ i.email }})</span>{% endif %}</span>
+      <form method="post" action="/settings/identities" class="inline">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <input type="hidden" name="identity_id" value="{{ i.id }}">
+        <button type="submit" class="link">{{ _("Unlink") }}</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  {% for p in linkable %}<p><a class="button" href="/login/oidc/{{ p.id }}?link=1">{{ _("Link {provider}", provider=p.label) }}</a></p>{% endfor %}
+  {% if saved == "linked" %}<p role="status">{{ _("Linked.") }}</p>{% endif %}
+  {% if link_error %}<p class="error" role="alert">{{ _(link_error) }}</p>{% endif %}
+  {% endif %}
+  <h2 id="zotero">{{ _("Zotero libraries") }}</h2>
+  <p class="muted">{{ _("Use a library in a document with this line in its front matter:") }} <code>bibliography: zotero:&lt;name&gt;</code>. {{ _("Collaborators' documents can use your libraries in projects you own or edit.") }}</p>
+  <ul class="plain">
+    {% for s in sources %}
+    <li><span class="spacer"><strong>{{ s.name }}</strong> <span class="muted">({{ _("user library {id}", id=s.library_id) if s.library_type == "user" else _("group library {id}", id=s.library_id) }}{% if s.collection %}, {{ _("collection {key}", key=s.collection) }}{% endif %}, {{ _("1 item") if s.item_count == 1 else _("{n} items", n=s.item_count) }}{% if s.last_sync_at %}, {{ _("updated {when}", when=s.last_sync_at|reltime) }}{% endif %})</span>
+      {% if s.status == "error" %}<br><span class="error">{{ s.last_error }}</span>{% endif %}</span>
+      <form method="post" action="/settings/zotero" class="inline">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <input type="hidden" name="source_id" value="{{ s.id }}">
+        <button type="submit" name="action" value="refresh" class="link">{{ _("Refresh") }}</button>
+        <button type="submit" name="action" value="remove" class="link">{{ _("Remove") }}</button>
+      </form>
+    </li>
+    {% else %}
+    <li class="muted">{{ _("No Zotero libraries yet.") }}</li>
+    {% endfor %}
+  </ul>
+  <form method="post" action="/settings/zotero" class="form">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="add">
+    <label>{{ _("Name") }} <input name="name" required pattern="[A-Za-z0-9_\-]{1,40}" placeholder="thesis" value="{{ zotero_values.get("name", "") }}"></label>
+    <label>{{ _("Library") }}
+      <select name="library_type"><option value="user">{{ _("My library") }}</option><option value="group" {% if zotero_values.get("library_type") == "group" %}selected{% endif %}>{{ _("A group library") }}</option></select>
+    </label>
+    <label>{{ _("User or group ID") }} <input name="library_id" required inputmode="numeric" pattern="[0-9]{1,12}" value="{{ zotero_values.get("library_id", "") }}"></label>
+    <label>{{ _("Collection key (optional)") }} <input name="collection" pattern="[A-Z0-9]{8}" value="{{ zotero_values.get("collection", "") }}"></label>
+    <label>{{ _("API key, read-only") }} <input name="api_key" required type="password" autocomplete="off"></label>
+    <p class="muted">{{ _("Create a read-only key at zotero.org under Settings › Security. Your user ID is shown on the same page.") }}</p>
+    {% if zotero_error %}<p class="error" role="alert">{{ _(zotero_error) }}</p>{% endif %}
+    {% if saved == "zotero" %}<p role="status">{{ _("Saved") }}</p>{% endif %}
+    <div class="buttons"><button type="submit">{{ _("Add library") }}</button></div>
   </form>
 </section>
 {% endblock %}

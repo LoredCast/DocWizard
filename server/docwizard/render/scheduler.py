@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import logging
 import os
 import secrets
@@ -18,6 +19,7 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..citations.zotero import referenced_sources
 from ..http.request import HTTPError
 from ..logs import fields
 from ..projects import service as svc
@@ -26,6 +28,13 @@ from .layouts import Layout, LayoutError
 from .worker_client import WorkerClient, WorkerUnavailable
 
 log = logging.getLogger("docwizard.render")
+
+_DOCCLASS = re.compile(r"^[ \t]*\\documentclass", re.M)
+
+
+def _is_root(text: str) -> bool:
+    return bool(_DOCCLASS.search(text))
+
 
 MAIN_CANDIDATES = ("main.md", "paper.md", "index.md", "thesis.md", "article.md")
 PREVIEW_TOKEN_TTL = 6 * 3600
@@ -46,7 +55,7 @@ class RenderResult:
 class ExportJob:
     id: str
     project_id: str
-    user_id: int
+    user_id: str  # the actor key, "u12" or "g3"
     target: str
     status: str = "queued"
     result: RenderResult | None = None
@@ -109,6 +118,10 @@ class Renderer:
             versions[d["id"]] = version
         for a in assets:
             snap.assets[a["path"]] = (a["sha256"], self.cfg.data_dir / "blobs" / a["sha256"])
+        # zotero:<name> bibliographies become CSL-JSON files in the job (§9.4).
+        names = referenced_sources(snap.texts)
+        for name, data in (await self.app.zotero.csl_for_project(project_id, names)).items():
+            snap.texts.setdefault(f"_zotero/{name}.json", data)
         return snap, versions
 
     @staticmethod
@@ -119,7 +132,20 @@ class Renderer:
                 build = json.loads(project["build_inputs"])
             except ValueError:
                 build = None
+        if doc_path and doc_path.endswith(".tex"):
+            # LaTeX always builds the root: the build input, else main.tex, else a file with \documentclass.
+            if build and str(build[0]).endswith(".tex") and build[0] in snap.texts:
+                return [build[0]]
+            if _is_root(snap.texts.get(doc_path, "")):
+                return [doc_path]
+            roots = sorted((p for p in snap.texts if p.endswith(".tex") and _is_root(snap.texts[p])),
+                           key=lambda p: (p != "main.tex", p.count("/"), p))
+            if roots:
+                return [roots[0]]
+            raise HTTPError(400, "no_input", "No LaTeX file in this project has \\documentclass, so there's nothing "
+                                             "to build. Set the main document in the project settings.")
         if build:
+            build = [p for p in build if not str(p).endswith(".tex")] or build
             return [p for p in build if p in snap.texts] or build
         if doc_path and doc_path.endswith((".md", ".markdown")):
             return [doc_path]
@@ -140,7 +166,7 @@ class Renderer:
         try:
             return self.app.layouts.get(layout_id)
         except LayoutError:
-            return self.app.layouts.get(self.cfg.render.default_layout)
+            return self.app.layouts.get(self.app.policy("default_layout"))
 
     # -- rendering -----------------------------------------------------------
     async def render(self, project: dict, target: str, *, doc_path: str | None = None, options: dict | None = None,
@@ -156,6 +182,9 @@ class Renderer:
         options = layout.validate_options(options)
         snap, versions = await self.snapshot(project["id"])
         inputs = self.inputs_for(project, doc_path, snap) if target != "md-source" else []
+        if inputs and inputs[0].endswith(".tex") and target != "pdf-latex":
+            raise HTTPError(400, "bad_target", "LaTeX documents build as PDF with LaTeX, or export as the "
+                                               "project source.")
         key = jobs.cache_key(project["id"], snap.digest(), layout, target, inputs, options, self.worker.versions)
         version = max(versions.values(), default=0)
         cached = self._cached(key, target)
@@ -210,7 +239,7 @@ class Renderer:
         layout_dir = await asyncio.to_thread(self.app.layouts.cached_dir, layout)
         approved = self.app.layouts.filters_approved(layout)
         steps, copies = jobs.pandoc_steps(layout, layout_dir, target, inputs, options, approved)
-        meta = jobs.metadata(layout, options, inputs)
+        meta = jobs.metadata(layout, options, inputs, layout_dir)
         limits = {"cpu_seconds": self.cfg.render.timeout_seconds, "memory_mb": self.cfg.render.memory_mb,
                   "wall_seconds": self.cfg.render.timeout_seconds}
         job = {"id": job_id, "kind": "render", "inputs": inputs, "target": target, "layout": layout.content_sha256,
@@ -338,7 +367,7 @@ class Renderer:
                                if self._preview_tasks.get(k) is t else None)
 
     # -- exports -------------------------------------------------------------
-    def start_export(self, project: dict, user_id: int, target: str, doc_path: str | None,
+    def start_export(self, project: dict, user_id: str, target: str, doc_path: str | None,
                      options: dict | None) -> ExportJob:
         now = time.time()
         for jid, job in list(self.exports.items()):

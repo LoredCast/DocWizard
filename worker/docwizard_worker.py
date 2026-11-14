@@ -139,6 +139,8 @@ def _clean_tmp(uid: int) -> None:
 
 _TYPST_ERR = re.compile(r"^(error|warning): (.+)$")
 _TYPST_LOC = re.compile(r"┌─ (.+?):(\d+):(\d+)")
+_TEX_FILE_LINE = re.compile(r"^(?:\./)?([^:\s]+\.(?:tex|sty|cls)):(\d+): (.+)$")
+_TEX_WARNING = re.compile(r"^(LaTeX|Package \w+) Warning: .*(undefined|multiply defined)")
 
 
 def parse_diagnostics(tool: str, stderr: str) -> list[dict]:
@@ -156,6 +158,28 @@ def parse_diagnostics(tool: str, stderr: str) -> list[dict]:
                     d.update(file=os.path.basename(loc.group(1)), line=int(loc.group(2)), col=int(loc.group(3)))
                     break
             diags.append(d)
+    elif tool == "latexmk":
+        seen = set()
+        for i, line in enumerate(lines):
+            m = _TEX_FILE_LINE.match(line.strip())
+            if m:
+                d = {"tool": "latex", "severity": "error", "file": os.path.basename(m.group(1)),
+                     "line": int(m.group(2)), "message": m.group(3).strip()}
+            elif line.startswith("! "):
+                d = {"tool": "latex", "severity": "error", "message": line[2:].strip()}
+                for nxt in lines[i + 1:i + 12]:
+                    loc = re.match(r"^l\.(\d+)", nxt)
+                    if loc:
+                        d["line"] = int(loc.group(1))
+                        break
+            elif _TEX_WARNING.search(line):
+                d = {"tool": "latex", "severity": "warning", "message": line.strip()}
+            else:
+                continue
+            key = (d.get("line"), d["message"])
+            if key not in seen:
+                seen.add(key)
+                diags.append(d)
     else:
         for line in lines:
             text = line.strip()
@@ -243,6 +267,7 @@ class Worker:
             "LUA_CPATH": "", "LUA_CPATH_5_4": "",
             "openin_any": "p", "openout_any": "p",
             "TYPST_PACKAGE_CACHE_PATH": str(self.cache_dir / "typst-packages"),
+            "TEXMFOUTPUT": str(job_dir),
         }
         diagnostics: list[dict] = []
         for step in job.get("steps", []):
@@ -250,6 +275,7 @@ class Worker:
             if tool not in ALLOWED_TOOLS or not all(isinstance(a, str) for a in args):
                 return {"done": job_id, "status": "error",
                         "diagnostics": [{"severity": "error", "message": f"tool not allowed: {tool}"}]}
+            args = [a.replace("{job}", str(job_dir)) for a in args]
             exe = shutil.which(tool)
             if exe is None:
                 return {"done": job_id, "status": "error",
@@ -282,7 +308,10 @@ class Worker:
                     return {"done": job_id, "status": "error",
                             "diagnostics": [{"severity": "error", "message": "bad output path"}]}
                 _write_into(job_dir / rel, stdout, uid)
-            diagnostics += parse_diagnostics(tool, stderr.decode("utf-8", "replace"))
+            text = stderr.decode("utf-8", "replace")
+            if tool == "latexmk":  # TeX reports errors on stdout
+                text = stdout.decode("utf-8", "replace") + "\n" + text
+            diagnostics += parse_diagnostics(tool, text)
             if proc.returncode != 0:
                 if not any(d["severity"] == "error" for d in diagnostics):
                     diagnostics.append({"tool": tool, "severity": "error",
@@ -306,7 +335,12 @@ class Worker:
                 await writer.drain()
 
         async def run(job_id: str) -> None:
-            result = await self.run_job(job_id)
+            try:
+                result = await self.run_job(job_id)
+            except Exception as exc:  # never leave the app waiting for a reply
+                log(level="error", msg="job crashed", job=job_id, error=repr(exc))
+                result = {"done": job_id, "status": "error", "diagnostics": [
+                    {"severity": "error", "message": "The render worker could not run this job."}]}
             log(level="info", msg="job finished", job=job_id, status=result["status"])
             try:
                 await reply(result)

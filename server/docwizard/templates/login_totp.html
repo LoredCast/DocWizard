@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Two-step login") }} · DocWizard{% endblock %}
+{% block content %}
+<section class="narrow">
+  <form method="post" action="/login/totp" class="form">
+    <h1>{{ _("Two-step login") }}</h1>
+    <p class="muted">{{ _("Enter the six-digit code from your authenticator app. If you don't have your phone, enter one of your recovery codes.") }}</p>
+    <label>{{ _("Code") }} <input name="code" autocomplete="one-time-code" inputmode="text" required autofocus maxlength="16" spellcheck="false"></label>
+    {% if error %}<p class="error" role="alert">{{ _(error) }}</p>{% endif %}
+    <div class="buttons"><a class="button" href="/login">{{ _("Cancel") }}</a><button type="submit" class="primary">{{ _("Continue") }}</button></div>
+  </form>
+</section>
+{% endblock %}

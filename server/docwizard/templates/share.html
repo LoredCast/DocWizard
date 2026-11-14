@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}{{ link.project_name }} · DocWizard{% endblock %}
+{% block content %}
+<section class="narrow">
+  <p>{{ _("You were invited to {project} as {role}.", project=link.project_name, role=_("an editor") if link.role == "editor" else _("a commenter") if link.role == "commenter" else _("a viewer")) }}</p>
+  {% if guests %}
+  <form method="post" action="/s/{{ token }}" class="form">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <label>{{ _("Your name") }} <input name="name" required maxlength="60" autocomplete="name" autofocus value="{{ guest_name }}"></label>
+    {% if link.password_hash %}
+    <label>{{ _("Password") }} <input name="password" type="password" required autocomplete="off"></label>
+    {% endif %}
+    {% if error %}<p class="error" role="alert">{{ _(error) }}</p>{% endif %}
+    <p class="muted">{{ _("Others in the project see this name next to your edits and comments.") }}</p>
+    <div class="buttons"><button type="submit" class="primary">{{ _("Open as guest") }}</button></div>
+  </form>
+  <p>{{ _("Have an account?") }} <a href="/login?next=/s/{{ token }}">{{ _("Log in to join the project instead.") }}</a></p>
+  {% else %}
+  {% if error %}<p class="error" role="alert">{{ _(error) }}</p>{% endif %}
+  <p><a href="/login?next=/s/{{ token }}">{{ _("Log in to open this project.") }}</a></p>
+  {% endif %}
+</section>
+{% endblock %}

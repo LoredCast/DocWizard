@@ -32,6 +32,27 @@ Write here. Cite sources like this [@doe2020, p. 4], and add them to
 # References
 """
 
+STARTER_DE = """---
+title: "Ohne Titel"
+author: "{author}"
+date: {date}
+lang: de-DE
+bibliography: references.json
+---
+
+# Einleitung
+
+Schreib hier. Quellen zitierst du so [@doe2020, S. 4]; trag sie in
+`references.json` oder eine `.bib`-Datei in diesem Projekt ein.
+
+# Literatur
+"""
+
+
+def starter(lang: str, author: str, date: str) -> str:
+    """The first paper of a new project, in the interface language."""
+    return (STARTER_DE if lang == "de" else STARTER).format(author=author, date=date)
+
 STARTER_REFS = """[
   {
     "id": "doe2020",
