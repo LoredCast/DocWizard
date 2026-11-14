@@ -18,6 +18,7 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..citations.zotero import referenced_sources
 from ..http.request import HTTPError
 from ..logs import fields
 from ..projects import service as svc
@@ -109,6 +110,10 @@ class Renderer:
             versions[d["id"]] = version
         for a in assets:
             snap.assets[a["path"]] = (a["sha256"], self.cfg.data_dir / "blobs" / a["sha256"])
+        # zotero:<name> bibliographies become CSL-JSON files in the job (§9.4).
+        names = referenced_sources(snap.texts)
+        for name, data in (await self.app.zotero.csl_for_project(project_id, names)).items():
+            snap.texts.setdefault(f"_zotero/{name}.json", data)
         return snap, versions
 
     @staticmethod

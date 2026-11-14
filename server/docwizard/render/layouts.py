@@ -18,6 +18,17 @@ from pathlib import Path
 
 REPO_LAYOUTS = Path(__file__).resolve().parents[3] / "layouts"
 REPO_FILTERS = Path(__file__).resolve().parents[3] / "filters"
+_BUILTIN_HASH: list[str] = []
+
+
+def builtin_filters_hash() -> str:
+    """Changes when DocWizard's own filters change, so cached layout copies get them."""
+    if not _BUILTIN_HASH:
+        h = hashlib.sha256()
+        for f in sorted(REPO_FILTERS.glob("*.lua")) if REPO_FILTERS.is_dir() else []:
+            h.update(f.name.encode() + b"\0" + f.read_bytes())
+        _BUILTIN_HASH.append(h.hexdigest())
+    return _BUILTIN_HASH[0]
 
 # Only these pandoc defaults keys are passed on (§9.3).
 DEFAULTS_ALLOWLIST = {
@@ -225,7 +236,7 @@ class Layouts:
 
     def cached_dir(self, layout: Layout) -> Path:
         """Copy the resolved layout into the shared cache once per content hash."""
-        target = self.cache_dir / "layouts" / layout.content_sha256
+        target = self.cache_dir / "layouts" / f"{layout.content_sha256[:48]}-{builtin_filters_hash()[:15]}"
         if target.is_dir():
             return target
         tmp = target.with_name(target.name + ".tmp")

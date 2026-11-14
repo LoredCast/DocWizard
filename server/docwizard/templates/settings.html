@@ -38,5 +38,37 @@
     {% if saved == "password" %}<p role="status">Password changed. Other sessions were logged out.</p>{% endif %}
     <div class="buttons"><button type="submit">Change password</button></div>
   </form>
+  <h2 id="zotero">Zotero libraries</h2>
+  <p class="muted">Use a library in a document with <code>bibliography: zotero:&lt;name&gt;</code> in its front matter. Collaborators' documents can use your libraries in projects you own or edit.</p>
+  <ul class="plain">
+    {% for s in sources %}
+    <li><span class="spacer"><strong>{{ s.name }}</strong> <span class="muted">({{ "user" if s.library_type == "user" else "group" }} library {{ s.library_id }}{% if s.collection %}, collection {{ s.collection }}{% endif %}, {{ s.item_count }} {{ "item" if s.item_count == 1 else "items" }}{% if s.last_sync_at %}, updated {{ s.last_sync_at|reltime }}{% endif %})</span>
+      {% if s.status == "error" %}<br><span class="error">{{ s.last_error }}</span>{% endif %}</span>
+      <form method="post" action="/settings/zotero" class="inline">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <input type="hidden" name="source_id" value="{{ s.id }}">
+        <button type="submit" name="action" value="refresh" class="link">Refresh</button>
+        <button type="submit" name="action" value="remove" class="link">Remove</button>
+      </form>
+    </li>
+    {% else %}
+    <li class="muted">No Zotero libraries yet.</li>
+    {% endfor %}
+  </ul>
+  <form method="post" action="/settings/zotero" class="form">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="add">
+    <label>Name <input name="name" required pattern="[A-Za-z0-9_\-]{1,40}" placeholder="thesis" value="{{ zotero_values.get("name", "") }}"></label>
+    <label>Library
+      <select name="library_type"><option value="user">My library</option><option value="group" {% if zotero_values.get("library_type") == "group" %}selected{% endif %}>A group library</option></select>
+    </label>
+    <label>User or group ID <input name="library_id" required inputmode="numeric" pattern="[0-9]{1,12}" value="{{ zotero_values.get("library_id", "") }}"></label>
+    <label>Collection key (optional) <input name="collection" pattern="[A-Z0-9]{8}" value="{{ zotero_values.get("collection", "") }}"></label>
+    <label>API key, read-only <input name="api_key" required type="password" autocomplete="off"></label>
+    <p class="muted">Create a read-only key at zotero.org under Settings › Security. Your user ID is shown on the same page.</p>
+    {% if zotero_error %}<p class="error" role="alert">{{ zotero_error }}</p>{% endif %}
+    {% if saved == "zotero" %}<p role="status">Saved</p>{% endif %}
+    <div class="buttons"><button type="submit">Add library</button></div>
+  </form>
 </section>
 {% endblock %}

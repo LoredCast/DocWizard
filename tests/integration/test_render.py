@@ -176,3 +176,28 @@ async def test_citation_library_from_json_and_bib(rapp, rclient):
     assert items["smith2019"]["label"] == "Smith and Lee 2019"
     again = await rclient.get(f"/api/projects/{pid}/citations", headers={"if-none-match": r.header("etag")})
     assert again.status == 304
+
+
+async def test_zotero_bibliography_resolves(rapp, rclient):
+    import json
+
+    pid = await new_project(rclient)
+    uid = (await rapp.db.fetchone("SELECT id FROM users WHERE username = 'jane'"))["id"]
+    item = {"id": "zot2021", "type": "book", "author": [{"family": "Zotfamily", "given": "Z."}],
+            "issued": {"date-parts": [[2021]]}, "title": "From Zotero"}
+
+    def seed(c):
+        sid = c.execute("INSERT INTO citation_sources(owner_id, name, kind, library_type, library_id, config_enc)"
+                        " VALUES (?, 'lib', 'zotero_web', 'user', '1', 'x')", (uid,)).lastrowid
+        c.execute("INSERT INTO citation_items(source_id, item_key, csl_json) VALUES (?, 'K1', ?)",
+                  (sid, json.dumps(item)))
+
+    await rapp.db.write(seed)
+    text = "---\ntitle: Z\nbibliography:\n  - zotero:lib\n  - references.json\n---\n\nSee [@zot2021] and [@doe2020].\n"
+    await rclient.post(f"/api/projects/{pid}/documents", json={"path": "z.md", "text": text})
+    snap = await open_editor(rclient, pid, "z.md")
+    r = await rclient.post(f"/api/projects/{pid}/export", json={"doc": snap["doc"]["id"], "target": "md-resolved"})
+    data = await wait_job(rclient, r.json()["job"])
+    assert data["status"] == "ok", data
+    out = (await rclient.get(data["url"])).text
+    assert "Zotfamily" in out and "From Zotero" in out and "Doe" in out

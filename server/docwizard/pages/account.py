@@ -95,7 +95,18 @@ def register(app) -> None:
         return resp
 
     async def settings_page(req: Request) -> Response:
-        return app.page(req, "settings.html", saved=req.query.get("saved"), error=None)
+        return await render_settings(req, saved=req.query.get("saved"), error=None)
+
+    async def render_settings(req: Request, status: int = 200, **ctx) -> Response:
+        rows = await app.db.fetchall(
+            "SELECT s.id, s.name, s.library_type, s.library_id, s.collection, s.status, s.last_error, s.last_sync_at,"
+            " (SELECT COUNT(*) FROM citation_items i WHERE i.source_id = s.id) AS item_count"
+            " FROM citation_sources s WHERE s.owner_id = ? ORDER BY s.name", (req.user.id,))
+        ctx.setdefault("zotero_error", None)
+        ctx.setdefault("zotero_values", {})
+        return app.page(req, "settings.html", status, sources=[dict(r) for r in rows], **ctx)
+
+    app.render_settings = render_settings
 
     async def settings_profile(req: Request) -> Response:
         form = await req.form()
@@ -118,10 +129,10 @@ def register(app) -> None:
         user = req.user
         row = await app.db.read(lambda c: users.get_by_username(c, user.username))
         if not await asyncio.to_thread(users.authenticate, row, form.get("current", "")):
-            return app.page(req, "settings.html", 400, saved=None, error="The current password is wrong.")
+            return await render_settings(req, 400, saved=None, error="The current password is wrong.")
         problem = passwords.check_policy(form.get("new", ""), app.policy("min_password_length"), user.username)
         if problem:
-            return app.page(req, "settings.html", 400, saved=None, error=problem)
+            return await render_settings(req, 400, saved=None, error=problem)
         new_hash = await asyncio.to_thread(passwords.hash_password, form["new"])
         keep = req.session.token_hash
 

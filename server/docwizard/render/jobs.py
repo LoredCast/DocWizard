@@ -103,7 +103,8 @@ def pandoc_steps(layout: Layout, layout_dir: Path, target: str, inputs: list[str
         elif approved_layout_filters and isinstance(name, str) and name.startswith("filters/") \
                 and name.endswith(".lua") and ".." not in name:
             common += ["--lua-filter", f"{L}/{name}"]
-    common.append("--citeproc")
+    # zotero: bibliography entries point at the job's copy of the library (§9.4).
+    common += ["--lua-filter", f"{L}/_builtin/zotero.lua", "--citeproc"]
     if options.get("toc") is True:
         common.append("--toc")
     copies: list[tuple[Path, str]] = []
