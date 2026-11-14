@@ -1,6 +1,7 @@
 // The editor page: wires the editor, collaboration, preview, export, layout options and versions.
 import { EditorState, EditorView } from "codemirror";
 import { DocSession } from "../collab/peer.js";
+import { PresenceSender, PresenceView, peersField } from "../collab/presence.js";
 import { Socket } from "../collab/socket.js";
 import { HtmlPreview, headingId } from "../preview/html.js";
 import { PdfPreview } from "../preview/pdf.js";
@@ -38,10 +39,14 @@ let layoutOptions = { ...snap.layoutOptions };
 
 const session = new DocSession({
   socket, docId, clientID: snap.clientID, text: snap.text, version: snap.version,
-  makeState: (text, version) => EditorState.create({ doc: text, extensions: [base, session.extension(version)] }),
+  makeState: (text, version) => EditorState.create({ doc: text, extensions: [base, peersField,
+                                                                              session.extension(version)] }),
   onStatus: showStatus,
   onEvent: handleEvent,
+  onUpdates: () => presence.flush(),
 });
+const presenceSender = new PresenceSender(session, socket, docId);
+const presence = new PresenceView(session, showPeers);
 
 const view = new EditorView({
   state: session.makeState(snap.text, snap.version),
@@ -49,6 +54,7 @@ const view = new EditorView({
   dispatchTransactions(trs, v) {
     v.update(trs);
     if (trs.some((tr) => tr.docChanged)) docChanged();
+    if (trs.some((tr) => tr.selection || tr.docChanged)) presenceSender.schedule();
     if (trs.some((tr) => tr.selection)) cursorMoved();
   },
 });
@@ -73,17 +79,29 @@ function showStatus({ state, waiting }) {
   $("#save-state").textContent = label;
 }
 
+function showPeers(peers) {
+  const slot = $("#presence");
+  slot.replaceChildren(...peers.map((p, i) => el("span", { class: "peer" },
+    el("span", { class: "dot", style: `--peer: var(--peer-${p.color})`, "aria-hidden": "true" }),
+    el("span", { class: "name" }, `${p.name}${i < peers.length - 1 ? "," : ""}`))));
+  slot.title = peers.length ? `Also here: ${peers.map((p) => p.name).join(", ")}` : "";
+}
+
 socket.onError((msg) => toast(msg.message ?? "The connection reported an error.", { error: true }));
 
 function handleEvent(msg) {
   switch (msg.t) {
     case "opened":
+      presence.replaceAll(msg.version, msg.peers ?? []);
+      presenceSender.reset();
+      presenceSender.send(true);
       if (msg.role && msg.role !== snap.role && ["viewer", "commenter"].includes(msg.role) && !readOnly) {
         toast("Your access changed to read-only. Reload the page.", { error: true });
       }
       requestPreview(0);
       break;
     case "reset":
+      presence.restore();
       if (library.size) view.dispatch({ effects: setLibrary.of(library) });
       docChanged();
       break;
@@ -98,6 +116,9 @@ function handleEvent(msg) {
       break;
     case "rendered":
       showRendered(msg);
+      break;
+    case "presence":
+      presence.receive(msg.version, msg.peer);
       break;
     case "error":
       toast(msg.message ?? "Something went wrong.", { error: true });

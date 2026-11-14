@@ -14,9 +14,11 @@ after activity settles and reconciles changes made to the file from outside
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import time
+from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +35,9 @@ from .text import Utf16Buffer
 log = logging.getLogger("docwizard.collab")
 
 MAX_UPDATES_PER_PUSH = 100
+RECENT_CHANGES = 2000  # changesets kept in memory to map presence and anchors (§8.7)
+MAX_SELECTIONS = 100
+PEER_COLORS = 8
 
 
 class PushError(Exception):
@@ -50,6 +55,37 @@ class Peer:
     name: str
     role: str
     client_id: str
+    guest_id: int | None = None
+    project_id: str | None = None
+    # Presence (§8.7): set by the room.
+    id: str = ""
+    color: int = 0
+    sel: list | None = None
+
+    @property
+    def identity(self) -> str:
+        return f"u{self.user_id}" if self.user_id is not None else f"g{self.guest_id}"
+
+    @property
+    def author(self) -> str | None:
+        """The value stored as an operation's author."""
+        if self.user_id is not None:
+            return str(self.user_id)
+        if self.guest_id is not None:
+            return f"g{self.guest_id}"
+        return None
+
+    def public(self) -> dict:
+        return {"id": self.id, "name": self.name, "color": self.color, "sel": self.sel}
+
+
+def map_selection(sel: list, changesets) -> list:
+    out = []
+    for anchor, head in sel:
+        for cs in changesets:
+            anchor, head = cs.map_pos(anchor, -1), cs.map_pos(head, -1)
+        out.append([anchor, head])
+    return out
 
 
 class Room:
@@ -64,6 +100,8 @@ class Room:
         self.buf = Utf16Buffer(state.text)
         self.version = state.version
         self.peers: dict[int, Peer] = {}
+        self.recent: deque[tuple[int, ChangeSet]] = deque(maxlen=RECENT_CHANGES)
+        self._peer_seq = 0
         self.queue: asyncio.Queue = asyncio.Queue()
         self.ops_since_snapshot = state.version - doc.get("snapshot_version", 0)
         self.dirty_since: float | None = None
@@ -116,9 +154,18 @@ class Room:
     def text(self) -> str:
         return str(self.buf)
 
-    def broadcast(self, message: dict) -> None:
-        for peer in list(self.peers.values()):
-            peer.send(message)
+    def broadcast(self, message: dict, exclude: int | None = None) -> None:
+        for key, peer in list(self.peers.items()):
+            if key != exclude:
+                peer.send(message)
+
+    def changes_since(self, version: int) -> list[ChangeSet] | None:
+        """Changesets from *version* to the current version, if still in memory."""
+        if version == self.version:
+            return []
+        if version > self.version or not self.recent or self.recent[0][0] > version:
+            return None
+        return [cs for v, cs in self.recent if v >= version]
 
     def touch(self) -> None:
         now = time.monotonic()
@@ -133,11 +180,31 @@ class Room:
                 log.exception("change hook failed")
 
     # -- commands (run on the actor) -------------------------------------
+    def _assign_color(self, peer: Peer, key: int) -> int:
+        """A stable color per person; another free one if someone else present has it."""
+        preferred = int(hashlib.sha256(peer.identity.encode()).hexdigest(), 16) % PEER_COLORS
+        taken = {p.color for k, p in self.peers.items() if k != key and p.identity != peer.identity}
+        if preferred not in taken:
+            return preferred
+        free = [c for c in range(PEER_COLORS) if c not in taken]
+        return free[0] if free else preferred
+
     async def open(self, key: int, peer: Peer, version: int) -> None:
+        old = self.peers.get(key)
+        if old is not None and old.id:
+            peer.id, peer.color = old.id, old.color
+        else:
+            self._peer_seq += 1
+            peer.id = f"p{self._peer_seq}"
+            peer.color = self._assign_color(peer, key)
+        peer.sel = None
         self.peers[key] = peer
         self.last_activity = time.monotonic()
         opened = {"t": "opened", "doc": self.doc_id, "version": self.version, "role": peer.role,
-                  "clientID": peer.client_id, "peers": [p.name for k, p in self.peers.items() if k != key]}
+                  "clientID": peer.client_id, "peerId": peer.id, "color": peer.color,
+                  "peers": [p.public() for k, p in self.peers.items() if k != key]}
+        self.broadcast({"t": "presence", "doc": self.doc_id, "version": self.version, "peer": peer.public()},
+                       exclude=key)
         if version == self.version:
             peer.send(opened)
             return
@@ -154,8 +221,32 @@ class Room:
         peer.send({"t": "reset", "doc": self.doc_id, "version": self.version, "text": self.text()})
 
     def leave(self, key: int) -> None:
-        self.peers.pop(key, None)
+        peer = self.peers.pop(key, None)
         self.last_activity = time.monotonic()
+        if peer is not None and peer.id:
+            self.broadcast({"t": "presence", "doc": self.doc_id, "version": self.version,
+                            "peer": {"id": peer.id, "gone": True}})
+
+    async def presence(self, key: int, version: int, sel) -> None:
+        """Map a peer's selection from *version* to now and share it (§8.7)."""
+        peer = self.peers.get(key)
+        if peer is None:
+            return
+        if sel is not None:
+            if (not isinstance(sel, list) or not 0 < len(sel) <= MAX_SELECTIONS or not all(
+                    isinstance(r, list) and len(r) == 2 and all(isinstance(x, int) and not isinstance(x, bool)
+                                                                for x in r) for r in sel)):
+                return
+            changes = self.changes_since(version)
+            if changes is None:
+                return  # too old or from the future: the next update will do
+            base_len = changes[0].length if changes else len(self.buf)
+            if any(not 0 <= x <= base_len for r in sel for x in r):
+                return
+            sel = map_selection(sel, changes)
+        peer.sel = sel
+        self.broadcast({"t": "presence", "doc": self.doc_id, "version": self.version, "peer": peer.public()},
+                       exclude=key)
 
     async def push(self, peer: Peer, version: int, updates: list) -> bool:
         """Apply a client's updates. Returns False if the push was rejected as stale."""
@@ -182,10 +273,10 @@ class Room:
         if new_len > self.rooms.cfg.limits.max_document_bytes:
             raise PushError("too_large", "The document would exceed the size limit.")
         records = [{"clientID": peer.client_id, "changes": cs.to_json()} for cs in parsed]
-        await self._commit(parsed, records, author=peer.user_id)
+        await self._commit(parsed, records, author=peer.author)
         return True
 
-    async def _commit(self, changesets: list[ChangeSet], records: list[dict], author: int | None,
+    async def _commit(self, changesets: list[ChangeSet], records: list[dict], author: int | str | None,
                       merge_id: str | None = None) -> int:
         """Validate, apply, persist, then broadcast. Reverts everything on failure."""
         start_version = self.version
@@ -212,13 +303,22 @@ class Room:
             log.exception("commit failed", extra=fields(doc=self.doc_id))
             raise PushError("not_saved", "The change could not be saved. It will be sent again.") from None
         self.ops_since_snapshot += len(changesets)
+        for i, cs in enumerate(changesets):
+            self.recent.append((start_version + i, cs))
+        for peer in self.peers.values():
+            if peer.sel:
+                peer.sel = map_selection(peer.sel, changesets)
+        self.after_commit(changesets)
         self.broadcast({"t": "updates", "doc": self.doc_id, "from": start_version, "updates": records})
         self.touch()
         if self.ops_since_snapshot >= self.rooms.cfg.collab.snapshot_every:
             await self.snapshot()
         return self.version
 
-    async def apply_text(self, new_text: str, client_id: str, author: int | None = None) -> int:
+    def after_commit(self, changesets: list[ChangeSet]) -> None:
+        """Map everything anchored to the text through committed changes."""
+
+    async def apply_text(self, new_text: str, client_id: str, author: int | str | None = None) -> int:
         """Replace the text with *new_text* as one diff-based update (restores, merges)."""
         cs = from_diff(self.text(), new_text)
         if cs.empty_changes:
@@ -232,13 +332,13 @@ class Room:
             "SELECT version FROM doc_ops WHERE doc_id = ? AND merge_id = ?", (self.doc_id, merge_id)).fetchone())
         if prior is not None:
             return {"t": "merged", "doc": self.doc_id, "mergeId": merge_id, "version": prior[0] + 1, "conflicts": 0}
-        conflicts = await self._reconcile(base, text, source=f"offline:{peer.name}", author=peer.user_id,
+        conflicts = await self._reconcile(base, text, source=f"offline:{peer.name}", author=peer.author,
                                           label=f"Offline version, {peer.name}", merge_id=merge_id,
                                           client_id=f"merge:{merge_id}")
         return {"t": "merged", "doc": self.doc_id, "mergeId": merge_id, "version": self.version,
                 "conflicts": conflicts}
 
-    async def _reconcile(self, base: str, theirs: str, *, source: str, author: int | None, label: str,
+    async def _reconcile(self, base: str, theirs: str, *, source: str, author: int | str | None, label: str,
                          merge_id: str | None = None, client_id: str = "system") -> int:
         ours = self.text()
         result = reconcile(base, ours, theirs)
@@ -255,7 +355,7 @@ class Room:
 
             def record(c):
                 c.execute("INSERT INTO doc_snapshots(doc_id, version, text, label, created_by) VALUES (?, ?, ?, ?, ?)",
-                          (self.doc_id, version, theirs, f"{label}, {stamp}", author))
+                          (self.doc_id, version, theirs, f"{label}, {stamp}", user_of(author)))
                 for k in result.conflicts:
                     c.execute(
                         "INSERT INTO conflicts(doc_id, source, base_text, theirs_text, anchor_from, anchor_to,"
@@ -360,7 +460,16 @@ class Room:
         return True
 
 
-def _commit_ops(conn, doc_id: str, version: int, records: list[dict], author: int | None,
+def user_of(author) -> int | None:
+    """The user id behind an operation author ("12" or 12); None for guests and the system."""
+    if isinstance(author, int):
+        return author
+    if isinstance(author, str) and author.isdigit():
+        return int(author)
+    return None
+
+
+def _commit_ops(conn, doc_id: str, version: int, records: list[dict], author: int | str | None,
                 merge_id: str | None) -> None:
     now = time.time()
     for i, rec in enumerate(records):

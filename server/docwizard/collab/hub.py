@@ -164,6 +164,11 @@ class Hub:
                 raise HTTPError(400, "bad_request", "Invalid merge.")
             reply = await room.call(lambda: room.merge(peer, merge_id, base, text))
             conn.send(reply)
+        elif kind == "presence":
+            version = msg.get("version")
+            if not isinstance(version, int):
+                raise HTTPError(400, "bad_request", "Missing version.")
+            await room.call(lambda: room.presence(conn.key, version, msg.get("sel")))
         elif kind == "render":
             renderer = getattr(self.app, "renderer", None)
             if renderer is None:
