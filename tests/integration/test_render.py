@@ -124,6 +124,21 @@ async def test_exports(rapp, rclient):
             assert out.header("content-disposition").startswith("attachment")
 
 
+async def test_identical_projects_get_their_own_renders(rapp, rclient):
+    # Two projects with the same files must not share a cache entry: outputs are
+    # served only to members of the project that owns them.
+    urls = []
+    for name in ("One", "Two"):
+        pid = await new_project(rclient, name)
+        snap = await open_editor(rclient, pid)
+        r = await rclient.post(f"/api/projects/{pid}/export", json={"doc": snap["doc"]["id"], "target": "docx"})
+        data = await wait_job(rclient, r.json()["job"])
+        assert data["status"] == "ok", data
+        assert (await rclient.get(data["url"])).status == 200
+        urls.append(data["url"])
+    assert urls[0] != urls[1]
+
+
 async def test_term_paper_pdf_with_layout_options(rapp, rclient):
     if not HAS_TYPST:
         pytest.skip("needs typst")

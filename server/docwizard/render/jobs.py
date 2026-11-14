@@ -59,10 +59,11 @@ class ProjectSnapshot:
             shutil.copyfile(blob, target)
 
 
-def cache_key(snapshot_digest: str, layout: Layout, target: str, inputs: list[str], options: dict,
+def cache_key(project_id: str, snapshot_digest: str, layout: Layout, target: str, inputs: list[str], options: dict,
               versions: dict) -> str:
+    """Renders are cached per project: outputs are served only to the project's members."""
     h = hashlib.sha256()
-    h.update(json.dumps({"files": snapshot_digest, "layout": layout.content_sha256, "target": target,
+    h.update(json.dumps({"project": project_id, "files": snapshot_digest, "layout": layout.content_sha256, "target": target,
                          "inputs": inputs, "options": options, "tools": versions}, sort_keys=True).encode())
     return h.hexdigest()
 

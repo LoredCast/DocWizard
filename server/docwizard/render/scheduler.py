@@ -156,7 +156,7 @@ class Renderer:
         options = layout.validate_options(options)
         snap, versions = await self.snapshot(project["id"])
         inputs = self.inputs_for(project, doc_path, snap) if target != "md-source" else []
-        key = jobs.cache_key(snap.digest(), layout, target, inputs, options, self.worker.versions)
+        key = jobs.cache_key(project["id"], snap.digest(), layout, target, inputs, options, self.worker.versions)
         version = max(versions.values(), default=0)
         cached = self._cached(key, target)
         if cached is not None:
