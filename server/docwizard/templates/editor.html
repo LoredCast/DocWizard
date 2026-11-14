@@ -17,6 +17,7 @@
 <button type="button" id="open-export">Export</button>
 <button type="button" id="open-versions">Versions</button>
 {% if can(role, "share", project) and not guest %}<button type="button" id="open-share">Share</button>{% endif %}
+{% if can(role, "publish", project) and not guest %}<button type="button" id="open-publish">Publish</button>{% endif %}
 {% endblock %}
 {% block main_class %}workspace{% endblock %}
 {% block content %}
@@ -63,6 +64,31 @@
     </div>
   </form>
 </dialog>
+{% if can(role, "publish", project) and not guest %}
+<dialog id="publish-dialog" aria-labelledby="publish-title">
+  <form class="form" id="publish-form">
+    <h2 id="publish-title">Publish {{ doc.path }}</h2>
+    <p class="muted">Publishing puts this document on the web as a static page, rendered with the project's layout. Images in the project are published with it.</p>
+    <p id="publish-current" role="status"></p>
+    <fieldset class="plain">
+      <legend>Who can find it</legend>
+      <label class="choice"><input type="radio" name="visibility" value="public" checked> Public, at an address you choose</label>
+      <label class="choice"><input type="radio" name="visibility" value="unlisted"> Unlisted, at a random address only people with the link know</label>
+    </fieldset>
+    <label id="publish-slug-label">Address
+      <span class="row"><span class="muted" id="publish-base"></span><input name="slug" pattern="[a-z0-9][a-z0-9\-]{2,63}" maxlength="64" autocomplete="off" spellcheck="false" placeholder="my-thesis"></span>
+    </label>
+    <label class="choice"><input type="checkbox" name="autoUpdate"> Update the page automatically when the document changes</label>
+    <label class="choice"><input type="checkbox" name="withPdf"> Offer a PDF download</label>
+    <div class="buttons">
+      <button type="button" data-close-dialog>Close</button>
+      <button type="button" id="publish-remove" class="danger" hidden>Unpublish</button>
+      <button type="button" id="publish-again" hidden>Publish changes</button>
+      <button type="submit" class="primary" id="publish-submit">Publish</button>
+    </div>
+  </form>
+</dialog>
+{% endif %}
 {% if can(role, "share", project) and not guest %}
 <dialog id="share-dialog" aria-labelledby="share-title">
   <div class="form">

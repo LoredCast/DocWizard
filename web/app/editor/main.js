@@ -627,6 +627,80 @@ if (shareButton) {
   });
 }
 
+// -- Publish (§14.4) -----------------------------------------------------------
+const publishButton = $("#open-publish");
+if (publishButton) {
+  const dialog = $("#publish-dialog");
+  const form = $("#publish-form");
+  const f = form.elements;
+  const current = $("#publish-current");
+  let busy = false;
+
+  function show(pub) {
+    $("#publish-remove").hidden = !pub;
+    $("#publish-again").hidden = !pub;
+    $("#publish-submit").textContent = pub ? "Save" : "Publish";
+    if (!pub) {
+      current.replaceChildren(el("span", { class: "muted" }, "This document isn't published."));
+    } else if (pub.status === "error") {
+      current.replaceChildren(el("span", { class: "error" }, `Publishing failed: ${pub.lastError || "unknown error"}`));
+    } else {
+      const state = pub.outdated ? (pub.autoUpdate ? "updating soon" : "has unpublished changes") : "up to date";
+      current.replaceChildren("Published at ", el("a", { href: pub.url, target: "_blank", rel: "noopener noreferrer" }, pub.url),
+        el("span", { class: "muted" }, ` (${state})`), " ",
+        el("button", { type: "button", class: "link", onclick: () => { navigator.clipboard?.writeText(pub.url); toast("Link copied."); } }, "Copy link"));
+    }
+    if (pub) {
+      f.visibility.value = pub.visibility;
+      f.slug.value = pub.visibility === "public" ? pub.slug : "";
+      f.autoUpdate.checked = pub.autoUpdate;
+      f.withPdf.checked = pub.withPdf;
+    }
+    syncVisibility();
+  }
+  function syncVisibility() {
+    const unlisted = f.visibility.value === "unlisted";
+    $("#publish-slug-label").hidden = unlisted;
+    f.slug.required = !unlisted;
+  }
+  async function call(method, url, body) {
+    if (busy) return;
+    busy = true;
+    current.replaceChildren(el("span", { class: "muted" }, method === "DELETE" ? "Unpublishing…" : "Publishing…"));
+    try {
+      show((await api(method, url, body)).publication);
+    } catch (err) {
+      current.replaceChildren(el("span", { class: "error" }, err.message));
+    } finally {
+      busy = false;
+    }
+  }
+  const base = `/api/documents/${docId}/publication`;
+  form.addEventListener("change", syncVisibility);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    call("PUT", base, { visibility: f.visibility.value, slug: f.slug.value.trim().toLowerCase(),
+                        autoUpdate: f.autoUpdate.checked, withPdf: f.withPdf.checked });
+  });
+  $("#publish-again").addEventListener("click", () => call("POST", `${base}/run`));
+  $("#publish-remove").addEventListener("click", async () => {
+    if (await confirmDialog("Unpublish this document? Its page disappears from the web.", "Unpublish")) {
+      call("DELETE", base);
+    }
+  });
+  publishButton.addEventListener("click", async () => {
+    dialog.showModal();
+    current.replaceChildren(el("span", { class: "muted" }, "Loading…"));
+    try {
+      const { publication, baseUrl } = await api("GET", base);
+      $("#publish-base").textContent = baseUrl;
+      show(publication);
+    } catch (err) {
+      current.replaceChildren(el("span", { class: "error" }, err.message));
+    }
+  });
+}
+
 // -- Keyboard -------------------------------------------------------------
 document.addEventListener("keydown", (event) => {
   const mod = event.metaKey || event.ctrlKey;

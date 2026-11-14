@@ -144,6 +144,7 @@ def register(app) -> None:
     async def delete_project(req: Request) -> Response:
         project, _ = await project_access(app, req, req.param("id"), "delete_project")
         await app.db.write(lambda c: svc.delete_project(c, project["id"]))
+        await app.publisher.prune()
         return json_response({"ok": True})
 
     async def tree(req: Request) -> Response:
@@ -194,6 +195,7 @@ def register(app) -> None:
         await app.db.write(lambda c: svc.trash_document(c, doc["id"]))
         await app.rooms.close_document(doc["id"])
         await asyncio.to_thread(files.remove, app.rooms.project_dir(project["id"]), doc["path"])
+        await app.publisher.prune()
         return json_response({"ok": True})
 
     async def put_asset(req: Request) -> Response:

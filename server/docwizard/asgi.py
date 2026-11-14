@@ -54,6 +54,7 @@ class App:
         from .render.scheduler import Renderer
         from .auth.oidc import Providers
         from .citations.zotero import Sources
+        from .render.publish import Publisher
         from .sync.engine import SyncEngine
 
         self.layouts = Layouts([REPO_LAYOUTS, self.cfg.data_dir / "layouts"], self.cfg.cache_dir)
@@ -63,6 +64,7 @@ class App:
         self.sync = SyncEngine(self)
         self.zotero = Sources(self)
         self.oidc = Providers(self)
+        self.publisher = Publisher(self)
         self._ws_handler = Hub(self)
         pages.register(self)
         api.register(self)
@@ -141,6 +143,7 @@ class App:
         if self.cfg.sync.enabled:
             self.spawn(self.sync.run_forever(), "sync")
             self.spawn(self.zotero.run_forever(), "zotero")
+            self.spawn(self.publisher.run_forever(), "publish")
         self.started = True
 
     async def shutdown(self) -> None:
@@ -258,10 +261,13 @@ class App:
     async def dispatch(self, req: Request) -> Response:
         if self.cfg.server.serve_static and req.path.startswith("/static/"):
             return self.static(req)
+        on_preview_host = bool(req.host) and self._is_preview_host(req)
+        if (self.cfg.server.serve_static and on_preview_host and req.method in ("GET", "HEAD")
+                and not req.path.startswith("/_")):
+            return self.published_file(req)
         route, params = self.router.match(req)
         req.path_params = params
         opts = route.options
-        on_preview_host = bool(req.host) and self._is_preview_host(req)
         if bool(opts.get("preview_host")) != on_preview_host and not opts.get("host_any"):
             raise HTTPError(404, "not_found")
         if not opts.get("no_session"):
@@ -309,6 +315,35 @@ class App:
         resp = Response(b"", 200, ctype)
         resp.file_path = target
         resp.set_header("cache-control", "public, max-age=31536000, immutable")
+        return resp
+
+    def published_file(self, req: Request) -> Response:
+        """Published sites on the publish host, for setups without a proxy (§14.4)."""
+        from .render.publish import SITE_CSP
+
+        rel = req.path.lstrip("/")
+        parts = Path(rel).parts
+        if not parts or any(p.startswith(".") for p in parts):
+            raise HTTPError(404, "not_found")
+        root = self.publisher.root.resolve()
+        target = (root / rel).resolve()
+        if root not in target.parents:
+            raise HTTPError(404, "not_found")
+        if target.is_dir():
+            if not req.path.endswith("/"):
+                raise HTTPError(308, "moved", headers=[("location", req.path + "/")])
+            target = target / "index.html"
+        if not target.is_file():
+            raise HTTPError(404, "not_found")
+        ctype = guess_type(target.name)
+        if ctype.startswith("text/") or ctype == "image/svg+xml":
+            ctype += "; charset=utf-8"
+        resp = Response(b"", 200, ctype)
+        resp.file_path = target
+        resp.set_header("content-security-policy", SITE_CSP)
+        resp.set_header("x-content-type-options", "nosniff")
+        resp.set_header("referrer-policy", "no-referrer")
+        resp.set_header("cache-control", "public, max-age=60")
         return resp
 
     def error_response(self, req: Request, err: HTTPError) -> Response:
