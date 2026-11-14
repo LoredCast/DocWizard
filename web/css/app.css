@@ -1,0 +1,188 @@
+/* DocWizard: the only stylesheet (ARCHITECTURE.md §25). */
+@layer tokens, base, layout, components;
+
+@layer tokens {
+  :root {
+    color-scheme: dark;
+    --bg:        light-dark(#ffffff, #000000);
+    --fg:        light-dark(#141414, #e6e6e6);
+    --muted:     light-dark(#616161, #8c8c8c);
+    --line:      light-dark(#e3e3e3, #262626);
+    --edge:      light-dark(#8a8a8a, #6b6b6b);
+    --hover:     light-dark(#f2f2f2, #141414);
+    --accent:    light-dark(#0b57d0, #4da3ff);
+    --on-accent: light-dark(#ffffff, #000000);
+    --danger:    light-dark(#c5221f, #ff6b6b);
+    --sel:       light-dark(rgb(11 87 208 / .2), rgb(77 163 255 / .35));
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", "DejaVu Sans Mono", monospace;
+    --radius: 2px;
+    --control: 28px;
+  }
+  :root[data-theme="light"]  { color-scheme: light; }
+  :root[data-theme="system"] { color-scheme: light dark; }
+  @media (prefers-contrast: more) {
+    :root { --muted: var(--fg); --line: var(--edge); }
+  }
+  @media (pointer: coarse) {
+    :root { --control: 40px; }
+  }
+}
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+  html { background: var(--bg); color: var(--fg); font: 14px/1.4 var(--font); }
+  body { margin: 0; min-height: 100dvh; background: var(--bg); }
+  h1, h2 { font-size: 14px; font-weight: 600; margin: 24px 0 8px; }
+  p { margin: 8px 0; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover, a:focus-visible { text-decoration: underline; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  ::selection { background: var(--sel); }
+  button, input, select, textarea {
+    font: inherit; color: var(--fg); background: transparent;
+    border: 1px solid var(--edge); border-radius: var(--radius);
+    min-height: var(--control);
+  }
+  button { padding: 0 12px; cursor: pointer; white-space: nowrap; }
+  button:hover { background: var(--hover); }
+  button.primary { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+  button.danger { color: var(--danger); border-color: var(--danger); }
+  button.link { border: 0; padding: 0; min-height: 0; color: var(--accent); background: none; }
+  input, select, textarea { padding: 0 8px; }
+  textarea { padding: 8px; }
+  input::placeholder { color: var(--muted); }
+  input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); min-height: 0; }
+  input[type="file"] { border: 0; padding: 0; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th { text-align: left; font-weight: 400; color: var(--muted); }
+  th, td { padding: 4px 16px; border-bottom: 1px solid var(--line); height: var(--control); }
+  tbody tr:hover { background: var(--hover); }
+  tr[data-href] { cursor: pointer; }
+  .num { text-align: right; }
+  dialog {
+    background: var(--bg); color: var(--fg); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 16px; width: min(32rem, calc(100vw - 32px));
+  }
+  dialog::backdrop { background: rgb(0 0 0 / .6); }
+  dialog h2 { margin-top: 0; }
+  fieldset { border: 0; padding: 0; margin: 0; display: flex; gap: 16px; flex-wrap: wrap; }
+  legend { color: var(--muted); padding: 0; margin-bottom: 4px; }
+}
+
+@layer layout {
+  .page { display: grid; grid-template-rows: 40px 1fr auto; min-height: 100dvh; }
+  .toolbar {
+    display: flex; align-items: center; gap: 12px; padding: 0 16px; height: 40px;
+    border-bottom: 1px solid var(--line); min-width: 0;
+  }
+  .crumbs { display: flex; gap: 8px; align-items: center; min-width: 0; overflow: hidden; white-space: nowrap; }
+  .crumbs > * { overflow: hidden; text-overflow: ellipsis; }
+  .crumbs a { color: var(--fg); }
+  .crumbs span:last-child { font-weight: 600; }
+  .wordmark { font-weight: 600; }
+  .actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .actions form.inline { display: contents; }
+  .content { padding-bottom: 32px; }
+  .pad { padding: 0 16px; }
+  .narrow { max-width: 40rem; padding: 0 16px; margin: 24px auto; }
+  .statusbar {
+    display: flex; gap: 16px; align-items: center; padding: 0 16px; min-height: 24px;
+    border-top: 1px solid var(--line); color: var(--muted); font-size: 12px;
+  }
+  .statusbar .spacer, .pane-head .spacer { flex: 1; }
+  .panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 0 32px; padding: 0 16px; }
+
+  .editor-page { height: 100dvh; grid-template-rows: 40px minmax(0, 1fr) 24px; }
+  .workspace { min-height: 0; }
+  .split { display: grid; grid-template-columns: 1fr 1fr; height: 100%; min-height: 0; }
+  .split.no-preview { grid-template-columns: 1fr; }
+  .split.no-preview .preview-pane { display: none; }
+  .pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+  .editor-pane { overflow: hidden; }
+  .preview-pane { border-left: 1px solid var(--line); }
+  .pane-head {
+    display: flex; gap: 12px; align-items: center; padding: 0 16px; height: 32px;
+    border-bottom: 1px solid var(--line); color: var(--muted); white-space: nowrap; overflow: hidden;
+  }
+  .pane-head button { min-height: 24px; }
+  #preview, .pdf-frame { flex: 1; width: 100%; border: 0; background: #fff; }
+  #preview[hidden], .pdf-frame[hidden] { display: none; }
+  .preview-pane.dark-paper #preview { background: #000; }
+  .preview-empty { flex: 1; padding: 16px; color: var(--muted); }
+  #editor { height: 100%; }
+  .diagnostic-error { color: var(--danger); }
+
+  @media (max-width: 900px) {
+    .split { grid-template-columns: 1fr; }
+    .split.show-preview .editor-pane { display: none; }
+    .split:not(.show-preview) .preview-pane { display: none; }
+    .preview-pane { border-left: 0; }
+    .actions .status { display: none; }
+  }
+}
+
+@layer components {
+  .form { display: flex; flex-direction: column; gap: 12px; max-width: 40rem; }
+  .form label { display: flex; flex-direction: column; gap: 4px; }
+  .form label.choice, label.choice { flex-direction: row; align-items: center; gap: 8px; display: inline-flex; }
+  .buttons { display: flex; gap: 8px; justify-content: flex-end; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+  .row input:not([type]), .row input[name] { flex: 1; min-width: 8rem; }
+  .muted { color: var(--muted); }
+  .error { color: var(--danger); }
+  .status { color: var(--muted); }
+  ul.plain { list-style: none; padding: 0; margin: 8px 0; }
+  ul.plain li { padding: 4px 0; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }
+  ul.plain li .spacer { flex: 1; }
+  .toast {
+    position: fixed; left: 16px; bottom: 32px; max-width: calc(100vw - 32px);
+    background: var(--bg); border: 1px solid var(--line); padding: 4px 12px;
+  }
+  .toast.error { color: var(--danger); }
+  pre.alt { white-space: pre-wrap; font: 13px/1.5 var(--mono); border: 1px solid var(--line); padding: 8px; margin: 4px 0; }
+}
+
+/* Unlayered and scoped to #editor so they win over CodeMirror's injected base theme. */
+  #editor .cm-editor { height: 100%; background: var(--bg); color: var(--fg); }
+  #editor .cm-editor.cm-focused { outline: none; }
+  #editor .cm-scroller { font-family: var(--editor-font, var(--font)); font-size: var(--editor-size, 17px); line-height: 1.6; }
+  #editor .cm-content { max-width: 72ch; margin: 0 auto; padding: 24px 16px 40vh; caret-color: var(--accent); }
+  #editor .cm-cursor, #editor .cm-dropCursor { border-left: 2px solid var(--accent); }
+  #editor .cm-selectionBackground, #editor .cm-focused .cm-selectionBackground, #editor .cm-content ::selection { background: var(--sel) !important; }
+  #editor .cm-searchMatch { background: var(--sel); }
+  #editor .cm-searchMatch-selected { outline: 1px solid var(--accent); }
+  #editor .cm-gutters { background: var(--bg); border: 0; color: var(--muted); }
+  #editor .cm-panels { background: var(--bg); color: var(--fg); }
+  #editor .cm-panels.cm-panels-bottom { border-top: 1px solid var(--line); }
+  #editor .cm-panel input, #editor .cm-panel button { min-height: 24px; }
+  #editor .cm-tooltip { background: var(--bg); border: 1px solid var(--line); color: var(--fg); }
+  #editor .cm-tooltip-autocomplete > ul > li { padding: 2px 8px; }
+  #editor .cm-tooltip-autocomplete > ul > li[aria-selected] { background: var(--hover); color: var(--fg); }
+  #editor .cm-completionDetail { color: var(--muted); margin-left: 8px; font-style: normal; }
+  #editor .cm-completionInfo { max-width: 24rem; }
+
+  #editor .cm-h1 { font-size: 1.5em; font-weight: 600; }
+  #editor .cm-h2 { font-size: 1.3em; font-weight: 600; }
+  #editor .cm-h3 { font-size: 1.15em; font-weight: 600; }
+  #editor .cm-h4, #editor .cm-h5, #editor .cm-h6 { font-weight: 600; }
+  #editor .cm-md-mark { color: var(--muted); }
+  #editor .cm-md-em { font-style: italic; }
+  #editor .cm-md-strong { font-weight: 600; }
+  #editor .cm-md-strike { text-decoration: line-through; }
+  #editor .cm-md-link { color: var(--accent); }
+  #editor .cm-md-url { color: var(--muted); }
+  #editor .cm-md-code, #editor .cm-md-frontmatter, #editor .cm-md-raw { font-family: var(--mono); font-size: 0.9em; }
+  #editor .cm-md-meta { color: var(--muted); }
+  #editor .cm-md-quote { color: var(--muted); }
+  #editor .cm-md-math { font-family: var(--mono); font-size: 0.9em; }
+  #editor .cm-cite-chip {
+    border: 1px solid var(--edge); border-radius: var(--radius); padding: 0 4px;
+    font-size: 0.9em; white-space: nowrap; cursor: text;
+  }
+  #editor .cm-cite-unknown { text-decoration: wavy underline var(--danger); }
+  #editor .cm-math-widget math { font-size: 1.05em; }
+  #editor .cm-math-block { display: block; text-align: center; }
+  #editor .cm-task { margin: 0 4px 0 0; vertical-align: middle; }
+  #editor .cm-latex-cmd { color: var(--accent); }
+  #editor .cm-comment { color: var(--muted); }
