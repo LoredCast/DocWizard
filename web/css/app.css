@@ -148,6 +148,13 @@
 }
 
 @layer components {
+  /* Search */
+  .toolbar-search { width: min(16rem, 40vw); }
+  .narrow.wide { max-width: 52rem; }
+  .search-results li { display: block; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .search-results .snippet { margin: 4px 0 0; color: var(--muted); }
+  .search-results mark { background: var(--sel); color: var(--fg); border-radius: 2px; }
+
   /* Admin area */
   .admin { max-width: 72rem; margin: 0 auto; padding: 0 16px 32px; }
   .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 16px 0; overflow-x: auto; }

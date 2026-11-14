@@ -559,6 +559,10 @@ class Room:
         self.meta.update(materialized_version=version, materialized_sha256=digest, pending_sha256=None,
                          materialized_stat=json.dumps(st))
         self.dirty_since = None if self.version == version else self.dirty_since
+        try:
+            await self.rooms.app.search.index(self.doc_id, self.project_id, self.path, text, version)
+        except Exception:  # noqa: BLE001
+            log.exception("indexing for search failed", extra=fields(doc=self.doc_id))
 
     async def check_disk(self) -> bool:
         """Detect and reconcile an outside edit of the file. Returns True if one was found."""

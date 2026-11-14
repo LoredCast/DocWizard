@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% block actions %}<button type="button" class="primary" data-open-dialog="new-project">New project</button>{% endblock %}
+{% block actions %}<form action="/search" method="get" role="search" class="inline"><input type="search" name="q" placeholder="Search…" aria-label="Search your documents" class="toolbar-search"></form>
+<button type="button" class="primary" data-open-dialog="new-project">New project</button>{% endblock %}
 {% block content %}
 {% if error %}<p class="error pad" role="alert">{{ error }}</p>{% endif %}
 <h2 class="pad">Recent</h2>

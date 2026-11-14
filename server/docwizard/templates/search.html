@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}{% if q %}{{ q }} · {% endif %}Search · DocWizard{% endblock %}
+{% block crumbs %}<a class="wordmark" href="/">DocWizard</a><span>/</span><span>Search</span>{% endblock %}
+{% block actions %}<form action="/search" method="get" role="search" class="inline"><input type="search" name="q" value="{{ q }}" placeholder="Search…" aria-label="Search your documents" class="toolbar-search" autofocus></form>{% endblock %}
+{% block content %}
+<section class="narrow wide">
+  {% if not available %}
+  <p class="muted">Search isn't available on this server: its SQLite was built without full-text search (FTS5).</p>
+  {% elif not q %}
+  <p class="muted">Search the text and file names of every document in your projects.</p>
+  {% elif not results %}
+  <p>Nothing matches <strong>{{ q }}</strong>. Words match at their start, so “cit” finds “citation”.</p>
+  {% else %}
+  <p class="muted" role="status">{{ results|length }}{% if results|length == 50 %}+{% endif %} {{ "document" if results|length == 1 else "documents" }}</p>
+  <ul class="plain search-results">
+    {% for r in results %}
+    <li><a href="{{ doc_url(r.project, r.path) }}"><strong>{{ r.path }}</strong></a> <span class="muted">in {{ r.projectName }}</span>
+      <p class="snippet">{{ r.snippet|safe }}</p></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+{% endblock %}

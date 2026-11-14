@@ -85,8 +85,13 @@ class App:
         self.oidc = Providers(self)
         self.publisher = Publisher(self)
         from .mail import Mailer
+        from .search import Search
 
         self.mail = Mailer(self)
+        self.search = Search(self)
+        from .maintenance import Maintenance
+
+        self.maintenance = Maintenance(self)
         self._ws_handler = Hub(self)
         pages.register(self)
         api.register(self)
@@ -164,6 +169,7 @@ class App:
         self.cfg.data_dir.mkdir(parents=True, exist_ok=True)
         await asyncio.to_thread(self.db.open)
         await self.load_settings()
+        await self.search.startup()
         logging.getLogger("docwizard").addHandler(self._error_handler)
         for hook in self._startup_hooks:
             await hook()
@@ -172,10 +178,12 @@ class App:
         self.spawn(self.rooms.maintenance(), "rooms")
         self.spawn(self._render_cache_eviction(), "render-cache")
         self.spawn(self._session_cleanup(), "session-cleanup")
+        self.spawn(self.search.catch_up(), "search-catch-up")
         if self.cfg.sync.enabled:
             self.spawn(self.sync.run_forever(), "sync")
             self.spawn(self.zotero.run_forever(), "zotero")
             self.spawn(self.publisher.run_forever(), "publish")
+            self.spawn(self.maintenance.run_forever(), "maintenance")
         self.started = True
 
     async def shutdown(self) -> None:
