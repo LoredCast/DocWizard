@@ -1,0 +1,20 @@
+# The render worker: stdlib Python, pandoc and Typst (ARCHITECTURE.md §9.2, §18.1).
+# It starts as root with five capabilities and runs every job as its own user.
+# Typst uses its embedded fonts plus each layout's fonts/ folder, never system fonts.
+FROM python:3.12-slim
+
+# Pinned pandoc and Typst releases, checked against their SHA-256.
+COPY deploy/fetch_tools.py /tmp/fetch_tools.py
+RUN python3 -I /tmp/fetch_tools.py && rm /tmp/fetch_tools.py && pandoc --version | head -1 && typst --version
+
+COPY worker/docwizard_worker.py /opt/docwizard/docwizard_worker.py
+
+# Same tree as the app image, so the shared volumes start out the same whichever
+# container creates them: the app owns jobs/ and cache/, the worker owns jobs/sock/.
+RUN install -d -o 10001 -g 10001 /var/lib/docwizard-jobs /var/lib/docwizard-jobs/run /var/lib/docwizard-cache \
+ && install -d -o 0 -g 0 -m 0755 /var/lib/docwizard-jobs/sock
+
+ENV DOCWIZARD_WORKER_SOCKET=/var/lib/docwizard-jobs/sock/worker.sock \
+    DOCWIZARD_JOBS_DIR=/var/lib/docwizard-jobs \
+    DOCWIZARD_CACHE_DIR=/var/lib/docwizard-cache
+CMD ["python3", "-I", "/opt/docwizard/docwizard_worker.py"]

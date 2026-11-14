@@ -1,0 +1,36 @@
+# DocWizard render worker (ARCHITECTURE.md §9.2, §18.2).
+# It starts as root, keeps only the five capabilities it needs, and runs every job
+# as its own user from the pool (uid 20000 and up), with no network.
+[Unit]
+Description=DocWizard render worker
+After=local-fs.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/docwizard
+Environment=DOCWIZARD_WORKER_SOCKET=/var/lib/docwizard-jobs/sock/worker.sock
+Environment=DOCWIZARD_JOBS_DIR=/var/lib/docwizard-jobs
+Environment=DOCWIZARD_CACHE_DIR=/var/lib/docwizard-cache
+ExecStartPre=+/usr/bin/install -d -o root -g root -m 0755 /var/lib/docwizard-jobs/sock
+ExecStart=/usr/bin/python3 -I /opt/docwizard/worker/docwizard_worker.py
+Restart=on-failure
+
+CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER CAP_SETUID CAP_SETGID CAP_KILL
+NoNewPrivileges=true
+PrivateNetwork=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+ReadWritePaths=/var/lib/docwizard-jobs
+ReadOnlyPaths=/var/lib/docwizard-cache
+LimitNPROC=512
+MemoryMax=4G
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,45 @@
+# docker compose -f deploy/compose.yaml up -d   (ARCHITECTURE.md §18.1)
+# Before the first start: copy docwizard.example.toml to deploy/docwizard.toml and edit the URLs.
+services:
+  app:
+    build: { context: .., dockerfile: deploy/Dockerfile.app }
+    restart: unless-stopped
+    user: "10001:10001"
+    volumes:
+      - data:/var/lib/docwizard
+      - publish:/var/lib/docwizard-publish
+      - jobs:/var/lib/docwizard-jobs
+      - render-cache:/var/lib/docwizard-cache
+      - run:/run/docwizard
+      - ./docwizard.toml:/etc/docwizard/docwizard.toml:ro
+    depends_on: [worker]
+
+  worker:
+    build: { context: .., dockerfile: deploy/Dockerfile.worker }
+    restart: unless-stopped
+    user: "0:0"                  # supervisor only; every job runs as its own user
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, SETUID, SETGID, KILL]   # no DAC_OVERRIDE: can't read job files
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 512
+    mem_limit: 4g
+    tmpfs: ["/tmp"]
+    volumes:
+      - jobs:/var/lib/docwizard-jobs
+      - render-cache:/var/lib/docwizard-cache:ro
+
+  proxy:
+    build: { context: .., dockerfile: deploy/Dockerfile.proxy }
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      DOCWIZARD_APP_HOST: write.example.org
+      DOCWIZARD_PUBLISH_HOST: pub.example.org
+    volumes:
+      - run:/run/docwizard
+      - publish:/srv/publish:ro
+      - caddy:/data
+
+volumes: { data: {}, publish: {}, jobs: {}, render-cache: {}, run: {}, caddy: {} }
