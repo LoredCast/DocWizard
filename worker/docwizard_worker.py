@@ -306,7 +306,12 @@ class Worker:
                 await writer.drain()
 
         async def run(job_id: str) -> None:
-            result = await self.run_job(job_id)
+            try:
+                result = await self.run_job(job_id)
+            except Exception as exc:  # never leave the app waiting for a reply
+                log(level="error", msg="job crashed", job=job_id, error=repr(exc))
+                result = {"done": job_id, "status": "error", "diagnostics": [
+                    {"severity": "error", "message": "The render worker could not run this job."}]}
             log(level="info", msg="job finished", job=job_id, status=result["status"])
             try:
                 await reply(result)
