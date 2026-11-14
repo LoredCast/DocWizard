@@ -1,0 +1,21 @@
+{
+  "id": "default",
+  "name": "Default",
+  "version": "1.0.0",
+  "description": "Clean single-column output. A4, 11 pt, Chicago author-date citations.",
+  "targets": {
+    "html": {"template": "html/template.html", "css": ["html/style.css"]},
+    "pdf-typst": {"template": "typst/template.typ"},
+    "docx": {},
+    "odt": {}
+  },
+  "defaultPdf": "pdf-typst",
+  "filters": ["crossref"],
+  "variables": {
+    "papersize": {"type": "enum", "values": ["a4", "us-letter"], "default": "a4", "label": "Paper size"},
+    "fontsize": {"type": "enum", "values": ["10pt", "11pt", "12pt"], "default": "11pt", "label": "Font size"},
+    "linestretch": {"type": "number", "min": 1, "max": 2, "step": 0.25, "default": 1.25, "label": "Line spacing"},
+    "section-numbering": {"type": "enum", "values": ["", "1.1", "1.a", "I.1"], "default": "", "label": "Section numbering"},
+    "toc": {"type": "boolean", "default": false, "label": "Table of contents"}
+  }
+}

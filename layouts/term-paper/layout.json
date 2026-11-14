@@ -1,0 +1,17 @@
+{
+  "id": "term-paper",
+  "name": "Term paper",
+  "version": "1.0.0",
+  "extends": "default",
+  "description": "A4, 12 pt, 1.5 line spacing, title page, numbered sections, Chicago author-date.",
+  "targets": {
+    "pdf-typst": {"template": "typst/template.typ"}
+  },
+  "variables": {
+    "fontsize": {"type": "enum", "values": ["11pt", "12pt"], "default": "12pt", "label": "Font size"},
+    "linestretch": {"type": "number", "min": 1, "max": 2, "step": 0.25, "default": 1.5, "label": "Line spacing"},
+    "section-numbering": {"type": "enum", "values": ["", "1.1", "1.a", "I.1"], "default": "1.1", "label": "Section numbering"},
+    "titlepage": {"type": "boolean", "default": true, "label": "Title page"},
+    "institution": {"type": "string", "default": "", "label": "Institution"}
+  }
+}

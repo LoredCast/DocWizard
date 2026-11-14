@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Source code · DocWizard{% endblock %}
+{% block content %}
+<section class="narrow">
+  <p>DocWizard is free software under the GNU Affero General Public License, version 3 or later.</p>
+  <p>This server runs release <strong>{{ release }}</strong>. Its source code is available at <a href="{{ source_url }}">{{ source_url }}</a>.</p>
+</section>
+{% endblock %}

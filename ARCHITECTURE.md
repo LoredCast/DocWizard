@@ -1,0 +1,1822 @@
+# DocWizard — Architecture
+
+> Status: draft 0.5 · Last updated: 2026-11-13 · License: AGPL-3.0-or-later
+
+This document describes what DocWizard is for, how it is built and why. It is the reference for contributors and self-hosters. When the code and this document disagree, fix one of them.
+
+## Contents
+
+1. [Purpose](#1-purpose)
+2. [Goals and non-goals](#2-goals-and-non-goals)
+3. [Design principles](#3-design-principles)
+4. [System overview](#4-system-overview)
+5. [Repository structure](#5-repository-structure)
+6. [Frontend](#6-frontend)
+7. [Backend](#7-backend)
+8. [Collaboration](#8-collaboration)
+9. [Rendering and layouts](#9-rendering-and-layouts)
+10. [Citations and Zotero](#10-citations-and-zotero)
+11. [Storage](#11-storage)
+12. [Sync](#12-sync)
+13. [Accounts, authentication and authorization](#13-accounts-authentication-and-authorization)
+14. [Sharing, guests and publishing](#14-sharing-guests-and-publishing)
+15. [Security model](#15-security-model)
+16. [Performance budget](#16-performance-budget)
+17. [Dependencies](#17-dependencies)
+18. [Deployment and operations](#18-deployment-and-operations)
+19. [Configuration](#19-configuration)
+20. [Testing](#20-testing)
+21. [Roadmap](#21-roadmap)
+22. [Key decisions](#22-key-decisions)
+23. [Open questions](#23-open-questions)
+24. [Glossary](#24-glossary)
+25. [Design guide](#25-design-guide)
+
+---
+
+## 1. Purpose
+
+DocWizard is a self-hostable, copyleft editor for structured writing: term papers, theses, articles, reports and documentation. Authors write plain text, pandoc Markdown first and LaTeX where needed. How the output looks comes entirely from **layouts**: versioned bundles of templates, styles and settings. There is no WYSIWYG formatting.
+
+DocWizard should:
+
+- feel as fast as a native app: open instantly, type without lag;
+- make collaboration as easy as sending a link;
+- produce submission-ready output (PDF, Word, HTML) with correct citations and bibliographies;
+- keep documents as ordinary files that sync to Nextcloud, Seafile or any WebDAV server;
+- run as one small deployment with very few dependencies.
+
+**Primary users**
+
+- Students and researchers writing citation-heavy papers (Chicago author-date by default, any CSL style).
+- Small groups such as classes, labs, associations and companies that want a self-hosted shared editor.
+- Admins who want something boring to operate: one data directory, one config file, few moving parts.
+
+## 2. Goals and non-goals
+
+### Goals
+
+| ID | Goal | Measure |
+|---|---|---|
+| G1 | Fast loading | Editor shows text in < 300 ms on repeat visits and < 1 s cold (see [§16](#16-performance-budget)) |
+| G2 | Native-feeling editing | Typing never waits on the network or the renderer; IME, mobile input, spellcheck and undo behave like a native text field |
+| G3 | Layouts, not WYSIWYG | All visual formatting lives in layouts; documents contain only content and meaning |
+| G4 | Markdown first, LaTeX capable | Pandoc Markdown is the primary format; LaTeX documents compile to PDF live |
+| G5 | Exports through pandoc | HTML, PDF, DOCX, ODT, Markdown (source and resolved), LaTeX and Typst source |
+| G6 | Academic writing | CSL citations (Chicago author-date default), Zotero, bibliographies, footnotes, cross-references, word count |
+| G7 | Easy collaboration | Real-time co-editing, presence, comments, share links with roles, guests |
+| G8 | Files stay files | Plain files on disk; two-way sync with Nextcloud, Seafile and any WebDAV server |
+| G9 | Identity | Local accounts, admin management, guests, OIDC |
+| G10 | Publishing | Publish a document as a static HTML site |
+| G11 | Little difficult code of our own, few dependencies | Policy in [§17](#17-dependencies); 11 Python packages at runtime |
+| G12 | Easy to host | One compose file; back up one directory |
+
+### Non-goals (v1)
+
+- WYSIWYG or direct manipulation of page layout.
+- Track changes / suggestion mode. Comments and named versions cover review in v1.
+- Peer-to-peer collaboration or long-lived offline branches.
+- More than one app process per instance (no horizontal scaling).
+- Spreadsheets, slides, drawings.
+- Native mobile apps. The web app is responsive.
+- Managing TeX packages from the UI.
+
+## 3. Design principles
+
+1. **Text is the source of truth.** A document is plain text. Layout is applied at render time and never stored in the text.
+2. **One renderer.** Pandoc decides what output looks like. The editor shows structure and meaning and never imitates the final page. The preview always comes from the real pipeline.
+3. **Files stay files.** Every project is also a normal folder of normal files, kept current within seconds and editable from outside. The database holds the authoritative edit history ([§11.2](#112-canonical-state)), but nothing is locked in: the folder on its own is a complete, portable copy of the project.
+4. **Dependencies must earn their place.** A dependency is accepted only if it replaces security-critical or edge-case-heavy code, brings few or no transitive dependencies, comes from an established project and can be pinned ([§17](#17-dependencies)).
+5. **Fast by construction.** Server-rendered pages, no framework, nothing loaded before it is needed, size budgets checked in CI.
+6. **Everything is untrusted.** Documents, layouts, uploads, remote servers and identity providers are treated as hostile input. Anything that executes code runs in a sandbox.
+7. **Boring operations.** One process, SQLite, a config file, logs on stdout.
+
+## 4. System overview
+
+```mermaid
+flowchart TB
+    subgraph browser["Browser"]
+        shell["Server-rendered pages<br/>+ service worker"]
+        editor["Editor<br/>CodeMirror 6 + collab"]
+        preview["Preview<br/>sandboxed iframe / PDF"]
+        idb[("IndexedDB<br/>offline copy")]
+    end
+
+    proxy["Reverse proxy<br/>TLS · HTTP/2 · static files"]
+
+    subgraph app["App process (Python, ASGI on uvicorn)"]
+        router["HTTP router<br/>pages + JSON API"]
+        hub["WebSocket hub"]
+        authority["Collaboration authority<br/>OT version log"]
+        auth["Auth<br/>local · OIDC · guests"]
+        scheduler["Render scheduler"]
+        sync["Sync engine"]
+        cites["Citation service"]
+    end
+
+    db[("SQLite")]
+    files[("Project folders<br/>plain files")]
+    worker["Render worker (sandboxed, no network)<br/>pandoc · Typst · TeX Live"]
+    pub["Publish origin<br/>static HTML"]
+    dav["Nextcloud · Seafile · WebDAV"]
+    zotero["Zotero Web API"]
+    idp["OIDC provider"]
+
+    browser <-->|HTTPS + WSS| proxy
+    proxy <-->|Unix socket| app
+    proxy --> pub
+    editor <--> idb
+    authority --> db
+    authority --> files
+    scheduler <-->|jobs volume + socket| worker
+    sync <-->|WebDAV| dav
+    cites --> zotero
+    auth --> idp
+```
+
+| Component | Runs where | Responsibility |
+|---|---|---|
+| Browser app | User's browser | Server-rendered pages enhanced with vanilla JS; CodeMirror editor; preview; offline cache |
+| Reverse proxy | Own container or host | TLS, HTTP/2, compression, static files, publish origin |
+| App process | One Python process | HTTP and WebSocket, auth, collaboration authority, render scheduling, sync, citations |
+| SQLite | App data directory | Metadata, operation log, sessions, settings |
+| Project folders | App data directory | Canonical plain files per project |
+| Render worker | Sandboxed container (or bubblewrap) | Runs pandoc, Typst and LaTeX with no network |
+| External services | Internet or LAN | WebDAV servers, Zotero Web API, OIDC providers |
+
+### Key flows
+
+**Opening a document**
+
+1. The browser requests `/p/<project>/<path>`. The app returns a small HTML shell with the latest snapshot of the document embedded as JSON.
+2. The editor compares the embedded snapshot with its IndexedDB copy and starts from whichever is newer, always keeping unconfirmed local edits. Offline, the service worker serves a shell without a snapshot, and the editor opens the IndexedDB copy ([§6.5](#65-offline-and-caching)).
+3. The editor opens the WebSocket, sends its synced version, receives the updates it missed and sends its unconfirmed edits.
+
+**Typing**
+
+1. CodeMirror applies the edit locally. No network is involved.
+2. The collab plugin sends the update. The authority validates, applies, persists and broadcasts it.
+3. The materializer writes the text to disk a few seconds after activity stops.
+
+**Preview**
+
+1. About 300 ms after typing pauses, the client asks for a render of `(document, version, target, layout, options)`.
+2. The scheduler dedupes requests across collaborators, checks the cache and queues a job.
+3. The worker runs pandoc (and Typst or LaTeX for PDF). The client is notified and loads the result.
+
+**External change** (someone edits the file in Nextcloud)
+
+1. The sync engine sees a changed ETag, downloads the file and reconciles it against the last synced base ([§12.3](#123-reconciling-outside-edits)).
+2. Non-overlapping changes are applied to the authority as an ordinary update, so open editors see them live. Overlapping changes become visible conflicts instead of blended text.
+
+## 5. Repository structure
+
+```text
+docwizard/
+├── ARCHITECTURE.md
+├── README.md
+├── LICENSE                          AGPL-3.0-or-later
+├── pyproject.toml
+├── requirements.lock                pinned with hashes
+├── server/docwizard/
+│   ├── __main__.py                  CLI: serve, migrate, create-admin, backup, check, rotate-key
+│   ├── config.py                    docwizard.toml (tomllib) + environment overrides
+│   ├── asgi.py                      ASGI entry: http / websocket / lifespan
+│   ├── http/
+│   │   ├── router.py                routes, middleware chain
+│   │   ├── request.py               query, cookies, JSON, raw bodies, limits
+│   │   ├── response.py              HTML / JSON / file responses, security headers
+│   │   ├── csrf.py
+│   │   └── templates.py             Jinja2 environment, autoescaping always on
+│   ├── pages/                       handlers for server-rendered pages: home, login, settings, admin, share
+│   ├── templates/                   Jinja2 templates for those pages and emails
+│   ├── api/                         JSON API handlers, one module per area
+│   ├── db/
+│   │   ├── database.py              writer thread, read connections, group commit
+│   │   ├── migrate.py
+│   │   └── migrations/              0001_init.sql, 0002_….sql
+│   ├── auth/
+│   │   ├── passwords.py             scrypt, password policy
+│   │   ├── sessions.py
+│   │   ├── totp.py
+│   │   ├── oidc.py                  discovery, code flow + PKCE, claim mapping
+│   │   ├── jwt.py                   ID token verification via joserfc, JWKS cache
+│   │   ├── throttle.py
+│   │   └── permissions.py           the single place for access checks
+│   ├── projects/
+│   │   ├── service.py               projects, documents, assets, members, recent
+│   │   ├── files.py                 safe paths, atomic writes, quotas
+│   │   └── materializer.py
+│   ├── collab/
+│   │   ├── changeset.py             apply, map_pos, compose, map, from_diff (UTF-16)
+│   │   ├── authority.py             rooms, versions, validation, persistence
+│   │   ├── hub.py                   WebSocket connections, protocol, presence
+│   │   ├── merge.py                 reconciliation of outside edits, conflicts
+│   │   └── comments.py
+│   ├── render/
+│   │   ├── scheduler.py             debounce, dedupe, cache keys, cancellation
+│   │   ├── jobs.py                  job directories, job.json
+│   │   ├── worker_client.py         socket protocol to the worker
+│   │   ├── layouts.py               manifests, inheritance, options, approval
+│   │   ├── diagnostics.py           Typst / LaTeX error parsing
+│   │   └── publish.py
+│   ├── citations/
+│   │   ├── zotero.py                Zotero Web API client
+│   │   ├── library.py               CSL-JSON cache, citation key assignment
+│   │   └── sources.py
+│   ├── sync/
+│   │   ├── webdav.py                PROPFIND / GET / PUT / DELETE / MKCOL via urllib
+│   │   ├── engine.py                per-target state machine (§12.2)
+│   │   └── nextcloud.py             Login Flow v2
+│   ├── sharing/links.py
+│   ├── admin/
+│   ├── netpolicy.py                 outbound request policy (SSRF protection)
+│   ├── secretbox.py                 AES-256-GCM for stored secrets, key rotation
+│   └── mail.py                      smtplib
+├── worker/
+│   └── docwizard_worker.py          stdlib only: socket server, sandboxed job runner
+├── web/
+│   ├── app/
+│   │   ├── main.js                  page bootstrapping
+│   │   ├── editor/
+│   │   │   ├── setup.js             CodeMirror composition
+│   │   │   ├── pandoc-syntax.js     @lezer/markdown extensions for pandoc Markdown
+│   │   │   ├── live-preview.js
+│   │   │   ├── commands.js          list continuation, formatting, Markdown commands
+│   │   │   ├── citations.js         autocomplete, chips, insert dialog
+│   │   │   ├── math.js              Temml widgets (lazy)
+│   │   │   ├── latex-mode.js        StreamLanguage tokenizer for LaTeX
+│   │   │   └── diagnostics.js
+│   │   ├── collab/
+│   │   │   ├── socket.js            reconnecting, multiplexed WebSocket
+│   │   │   ├── peer.js              @codemirror/collab glue
+│   │   │   └── presence.js
+│   │   ├── preview/
+│   │   │   ├── html.js
+│   │   │   └── pdf.js
+│   │   ├── store/idb.js
+│   │   ├── ui/                      DOM helpers, dialogs, command palette, panels
+│   │   └── workers/
+│   │       ├── citations.js
+│   │       └── stats.js
+│   ├── css/app.css                  the only stylesheet (§25.13)
+│   ├── icons.svg                    icon sprite (§25.9)
+│   ├── i18n/                        en.json, de.json
+│   ├── sw.js
+│   └── vendor/
+│       ├── MANIFEST                 versions, licenses, SHA-256
+│       ├── codemirror.js            bundled CodeMirror + Lezer
+│       ├── temml/
+│       └── pdfjs/                   optional
+├── layouts/                         built-in layouts: default, term-paper, article
+├── filters/                         pre-approved Lua filters: crossref.lua, wordcount.lua, pagebreak.lua
+├── csl/                             bundled CSL styles
+├── deploy/
+│   ├── Dockerfile.app
+│   ├── Dockerfile.worker            build arg TEX=none|full
+│   ├── Dockerfile.proxy
+│   ├── compose.yaml
+│   ├── Caddyfile
+│   └── systemd/
+├── scripts/
+│   ├── vendor.sh                    dev-only: fetch and bundle frontend dependencies
+│   ├── check_deps.py                fails CI on unlisted dependencies
+│   └── bench_render.py
+└── tests/
+    ├── unit/
+    ├── property/
+    ├── integration/
+    ├── e2e/
+    └── fixtures/                    reference papers, tokens, WebDAV responses
+```
+
+Layering rules:
+
+- `http/`, `pages/` and `api/` may call services, but services never import from them.
+- All permission checks go through `auth/permissions.py`.
+- Only `render/worker_client.py` talks to the worker. Only `sync/` and `citations/` (through `netpolicy.py`) make outbound requests.
+- The worker shares no code with the app except the job format, which is documented in [§9.2](#92-render-jobs).
+
+## 6. Frontend
+
+### 6.1 Constraints
+
+- Plain HTML, CSS and JavaScript (ES2022 modules). No framework, no transpiler, no build step at runtime.
+- Third-party code lives in `web/vendor/`, pinned with checksums in `web/vendor/MANIFEST`. When versions change, `scripts/vendor.sh` (dev-only, uses esbuild) bundles CodeMirror and Lezer into one minified module.
+- Our own modules are served as they are, wired up with an inline import map plus `modulepreload` hints. Browsers apply `script-src` to import maps, so the import map carries the per-response CSP nonce ([§15](#15-security-model)).
+- All static assets are served under a per-release prefix, `/static/<release>/…`, with `Cache-Control: immutable`. A new release gets a new prefix, so no per-file hashing is needed. The release id is the version or git commit.
+- Target browsers: the last two major versions of Firefox, Chromium-based browsers and Safari. MathML Core, import maps, `:has()`, the `popover` attribute and CSS `light-dark()` are assumed.
+
+### 6.2 Pages
+
+| Route | Rendering | Notes |
+|---|---|---|
+| `/` | Server | Pinned and recent documents, projects. Works without JS |
+| `/login`, `/register`, `/reset` | Server | |
+| `/p/<project>/<path>` | Server shell + JS | Editor; the document snapshot is embedded |
+| `/s/<token>` | Server | Share-link landing page; guest name prompt |
+| `/settings/…` | Server + JS | Profile, security, citation sources, sync targets, layouts |
+| `/admin/…` | Server + JS | See [§13.6](#136-admin) |
+| `/source` | Server | AGPL source offer ([§17.4](#174-licensing)) |
+| `/sw.js` | App | Service worker, generated per release, `no-cache` |
+| `/_shell/home`, `/_shell/editor` | App | Offline shells without server data, precached by the service worker ([§6.5](#65-offline-and-caching)) |
+| `<preview origin>/_preview/<token>/…` | App | HTML previews and their assets on a separate origin ([§6.4](#64-preview)) |
+
+Server-rendered pages use Jinja2 templates (`server/docwizard/templates/`) with autoescaping always on. Values are escaped unless explicitly marked safe, and CI fails if `|safe` or `Markup()` appears outside a short, reviewed list.
+
+The editor shell embeds the snapshot as `<script type="application/json" id="snapshot">`. Inside it, every `<` is written as the JSON escape `\u003c` (and `>`, `&`, U+2028 and U+2029 are escaped the same way), so document text such as `</script>` can never close the tag. JSON data blocks are not executed, so they need no CSP nonce.
+
+### 6.3 Editor
+
+**Composition**
+
+- CodeMirror packages: `state`, `view`, `commands` (keymaps, history), `language` (syntax tree, folding, indentation), `search`, `autocomplete`, `collab`.
+- Markdown parsing uses `@lezer/markdown` with its GFM extensions plus our own **pandoc extensions** in `editor/pandoc-syntax.js`:
+  - YAML front matter
+  - citations (`[@key, p. 4]`, `@key`, `[-@key]`)
+  - inline and display math (`$…$`, `$$…$$`)
+  - fenced divs (`::: {.note}`) and bracketed spans
+  - attributes (`{#fig:map .wide}`)
+  - inline footnotes (`^[…]`)
+  - raw blocks (`` ```{=latex} ``)
+  - definition lists
+- `@codemirror/lang-markdown` is deliberately **not** used, because it pulls in HTML, CSS and JavaScript language support. List continuation on Enter and the other Markdown commands live in `editor/commands.js`.
+- LaTeX documents use our own `StreamLanguage` tokenizer in `editor/latex-mode.js` (commands, environments, math, comments).
+
+**Live preview** (`editor/live-preview.js`)
+
+A view plugin over the syntax tree. On every line except the one with the cursor, it:
+
+- hides syntax marks (`**`, `#`, link URLs) and styles the content (heading sizes, emphasis);
+- renders inline and display math as MathML widgets via Temml, which is loaded the first time a document contains math;
+- shows citations as chips (`Smith 2020`) resolved from the citation library, and underlines unknown keys as errors;
+- renders task-list checkboxes, footnote markers and optional image thumbnails.
+
+The line with the cursor always shows raw source. A toggle switches to plain source mode.
+
+**Other features**
+
+- Citation autocomplete after `[@` or `@`, fed by the citation worker ([§10.4](#104-editor-support)).
+- Outline panel and folding by heading.
+- Word count of body text, excluding front matter, citation keys, code and comments. Footnotes and bibliography are counted separately.
+- Diagnostics from renders (Typst and LaTeX errors) shown in the gutter.
+- The browser's native spellcheck in the document's `lang`.
+- Keyboard first: command palette on `Ctrl/Cmd+K`, and every action reachable from the keyboard.
+
+### 6.4 Preview
+
+- **HTML preview** is served from a separate **preview origin** (by default the publish host under `/_preview/`), never from the app origin, because documents may contain raw HTML:
+  - Each editor session gets a capability URL, `/_preview/<token>/…`, with a random 128-bit token. It grants read-only access to that project's HTML renders and assets and expires with the session. No cookies are involved, so images and other assets load normally.
+  - The app serves `/_preview/` only when the request's host is the preview origin.
+  - Every response, including images and SVG files, carries `Referrer-Policy: no-referrer` and a CSP that blocks scripts and all external loads, so the token can't leak: `default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors <app origin>`.
+  - The iframe is `sandbox`ed without `allow-scripts`, `allow-same-origin`, popups or top-level navigation.
+  - Scroll sync is one-way, from editor to preview. When the section under the cursor changes, the editor calls `iframe.contentWindow.location.replace(url + "#" + headingId)`. That is a fragment navigation, so the preview scrolls without reloading and without adding browser history entries. This works across origins: the HTML spec lets a page call `replace()` and set `href` on a cross-origin `Location`, and nothing else. Assigning `iframe.src` instead would add a history entry for every section change. Syncing back from preview to editor would need a script in the preview ([§23](#23-open-questions)).
+  - Exact line mapping would need pandoc's `sourcepos` extension, which the `markdown` reader does not support.
+- **PDF preview** uses the browser's built-in viewer in an iframe, reopened at the current page with `#page=N`. Optional PDF.js integration (lazy-loaded) keeps the scroll position across re-renders and adds SyncTeX click-to-source for LaTeX.
+- **Layout options panel** is generated from the layout's variable schema ([§9.3](#93-layouts)).
+
+### 6.5 Offline and caching
+
+- **Service worker** (`web/sw.js`, hand-written, no Workbox):
+  - on install, precaches the release's static assets (the list is injected by the app) and the two offline shells, `/_shell/home` and `/_shell/editor`, so an offline reload never misses the cache;
+  - serves static assets cache-first and pages network-first. Offline, it answers `/` with `/_shell/home`, which lists recent documents from IndexedDB, and `/p/…` with `/_shell/editor`, which opens the document from IndexedDB;
+  - deletes caches from older releases.
+- **IndexedDB** (`web/app/store/idb.js`) stores:
+  - `docs`: `{docId, clientID, syncedVersion, baseText, unconfirmed, text, offlineSince, updatedAt}`. This is kept for every recently opened document (default: the last 50, plus all pinned ones), not only for documents with unconfirmed edits, so a document reloaded offline still opens. A document that isn't cached shows "Not available offline".
+  - `recent`: a mirror of the user's recent documents, so `/` can render instantly and offline
+  - `citations`: cached CSL-JSON per source, with ETag
+  - `layouts`: layout metadata for the options panel
+- Unconfirmed edits survive reloads and offline periods and are sent on reconnect ([§8.6](#86-reconnect-and-offline)).
+
+### 6.6 Web workers
+
+- `workers/citations.js` holds the citation library, does fuzzy search and formats chip labels.
+- `workers/stats.js` computes word and character counts and the outline for long documents.
+
+The main thread runs only the editor and the UI.
+
+### 6.7 UI conventions
+
+- The visual design is defined in [§25](#25-design-guide): OLED black by default, light mode as an option, nothing decorative.
+- System font stack for the UI. Layouts bring their own fonts for output.
+- Small DOM helpers in `web/app/ui/`, `<template>` elements for repeated markup, event delegation.
+- i18n: JSON catalogs per language in `web/i18n/`, shared by server pages and JS. English and German first.
+- Accessibility: full keyboard operation, visible focus, ARIA labels on icon-only buttons, `prefers-reduced-motion` respected.
+
+## 7. Backend
+
+### 7.1 Process model
+
+- One Python ≥ 3.12 process runs `uvicorn` with `wsproto`, listening on a Unix socket that only the proxy can reach.
+- Everything is asyncio: HTTP handlers, the WebSocket hub, the collaboration authority, render scheduling and sync polling.
+- Blocking work (SQLite, `urllib`, file I/O, password hashing) runs in threads via `asyncio.to_thread` or a dedicated thread.
+- Long-running tasks start and stop in the ASGI lifespan ([§7.6](#76-background-tasks)).
+- Consequence: all live documents are in one process's memory, so there is one app process per instance.
+
+### 7.2 HTTP layer
+
+- `asgi.py` dispatches by scope type: `http` goes to the router, `websocket` to the collaboration hub, `lifespan` to startup and shutdown.
+- `router.py` maps method and path patterns to handlers, with a middleware chain for sessions, CSRF, security headers and errors.
+- Requests:
+  - query strings and URL-encoded forms are parsed with `urllib.parse`, JSON bodies with `json`;
+  - uploads are raw `PUT` bodies with the file name in the path. There is no multipart parsing (Python's `cgi` module was removed in 3.13, and the frontend can send files with `fetch`).
+- Limits on body size per route, JSON nesting depth and request time.
+- Security headers on every response ([§15](#15-security-model)).
+- `X-Forwarded-For` and `X-Forwarded-Proto` are trusted only because the socket is reachable only by the proxy.
+
+### 7.3 Database
+
+- SQLite in WAL mode with `foreign_keys=ON`, `synchronous=FULL` and a `busy_timeout`. With `FULL`, every commit is flushed to disk before it returns, so it survives a power loss, not just a process crash. Group commit (below) limits the cost to at most one flush per 20 ms.
+- **What "Saved" means.** The status bar shows "Saved" only for edits the server has committed this way. Edits on their way show "Saving…", and edits held in the browser show "Offline · N changes waiting". On slow storage, admins can set `durability = "normal"` (`synchronous=NORMAL`). Committed edits then still survive an app crash, but the last moments before a power loss can be lost, and the status bar says "Saved (crash-safe)" instead.
+- All writes go through one writer thread, which serializes them and avoids `SQLITE_BUSY`. Reads use per-thread connections.
+- Collaboration operations are group-committed in batches of at most 20 ms and broadcast only after the commit.
+- Migrations are numbered SQL files in `server/docwizard/db/migrations/`, applied in order at startup and forward-only. `PRAGMA user_version` records the current one.
+- Full-text search across a user's projects uses SQLite's FTS5 when it is compiled in (later milestone). The index is updated by the materializer, never in the collaboration commit path, so typing doesn't pay for indexing.
+
+### 7.4 Data model
+
+| Table | Main columns | Notes |
+|---|---|---|
+| `users` | id, username, email, display_name, password_hash?, instance_role, active, quota_bytes, totp_secret_enc?, created_at | `password_hash` is null for OIDC-only users; `instance_role` is `admin` or `user` |
+| `identities` | id, user_id, provider, issuer, subject, email, last_login_at | unique `(issuer, subject)` |
+| `sessions` | token_hash, user_id?, guest_id?, csrf_token, created_at, expires_at, last_seen_at, user_agent | the cookie holds the token, the table its SHA-256 |
+| `guests` | id, display_name, share_link_id, created_at | |
+| `projects` | id, owner_id, name, layout_id, build_inputs, preview_scope, created_at, updated_at, deleted_at | folder `projects/<id>/`; for `build_inputs` and `preview_scope` see [§9.2](#92-render-jobs) |
+| `project_members` | project_id, user_id, role | `owner`, `editor`, `commenter`, `viewer` |
+| `documents` | id, project_id, path, kind, version, snapshot_version, materialized_version, materialized_sha256, pending_sha256?, materialized_stat, line_ending, deleted_at | `kind` is `markdown`, `latex`, `bib` or `text`. `materialized_sha256` names the blob holding exactly what was last written to the file; `pending_sha256` is set just before a write; `materialized_stat` is the file's `(mtime_ns, inode, size)` after it ([§11.2](#112-canonical-state)) |
+| `doc_ops` | doc_id, version, client_id, author, changes, merge_id?, created_at | append-only, compacted ([§8.5](#85-persistence-and-compaction)) |
+| `collab_clients` | client_id, doc_id, user_id?, guest_id?, created_at, last_seen_at | server-issued CodeMirror client IDs ([§8.3](#83-authority-algorithm)) |
+| `conflicts` | id, doc_id, source, base_text, theirs_text, anchor_from, anchor_to, anchor_version, version_label, created_at, resolved_at?, resolved_by? | outside edits that overlapped local ones ([§12.3](#123-reconciling-outside-edits)) |
+| `doc_snapshots` | doc_id, version, text, label?, created_by?, created_at | a snapshot with a label is a named version |
+| `assets` | project_id, path, sha256, size, materialized_stat, updated_at, deleted_at | binary files such as images and PDFs; content in `blobs/<sha256>` |
+| `recent` | user_id, doc_id, opened_at, pinned | |
+| `comments` | id, doc_id, thread_id, author, body, anchor_from, anchor_to, anchor_version, resolved_at, created_at | anchors are UTF-16 offsets |
+| `share_links` | id, project_id, token_hash, role, expires_at?, password_hash?, created_by, revoked_at? | |
+| `publications` | id, project_id, doc_id, slug, layout_id, version, visibility, auto_update, updated_at | |
+| `layouts` | id, scope, owner_id?, name, version, path, content_sha256, filters_approved_sha256? | `scope` is `instance`, `user` or `project` |
+| `citation_sources` | id, owner_id, kind, config_enc, library_version, last_sync_at, status | `kind` is `zotero_web` or `file` |
+| `citation_keys` | source_id, item_key, citation_key | keeps generated keys stable |
+| `sync_targets` | id, project_id, kind, base_url, remote_path, username, secret_enc, poll_seconds, status, last_error | |
+| `sync_state` | target_id, path, doc_or_asset_id, base_blob, base_sha256, remote_etag, remote_fileid?, local_sha256, updated_at | reconciliation bases; `remote_fileid` is Nextcloud's `oc:fileid` where available |
+| `settings` | key, value_json | instance settings from the admin area |
+| `audit_log` | id, actor, action, target, meta_json, at | logins, admin actions, share links |
+
+Columns ending in `_enc` are encrypted with AES-256-GCM ([§15](#15-security-model)).
+
+Deleted documents and assets keep their rows with `deleted_at` set, and their files leave the project folder. Their content stays in the database (text) or the blob store (binary) and is purged after 30 days.
+
+### 7.5 HTTP API
+
+The JSON API lives under `/api/`. It is same-origin only and requires the session cookie plus the CSRF header for unsafe methods. Errors use the shape `{"error": {"code": "…", "message": "…"}}` with a matching status code.
+
+| Method and path | Purpose |
+|---|---|
+| `GET /api/me` | Current user or guest, roles, preferences |
+| `GET`, `POST /api/projects` | List, create |
+| `GET`, `PATCH`, `DELETE /api/projects/{id}` | Read, rename, change layout, delete (soft) |
+| `GET /api/projects/{id}/tree` | Files and documents |
+| `POST /api/projects/{id}/documents` | Create a text document |
+| `PATCH`, `DELETE /api/documents/{id}` | Rename or move, delete |
+| `PUT`, `GET /api/projects/{id}/assets/{path}` | Upload (raw body), download |
+| `GET`, `POST`, `DELETE /api/projects/{id}/members` | Members |
+| `GET`, `POST`, `DELETE /api/projects/{id}/shares` | Share links |
+| `POST /api/projects/{id}/export` | Start an export `{doc, target, options}`, returns a job id |
+| `GET /api/jobs/{id}` | Status, diagnostics, output URL |
+| `GET /api/renders/{key}/{file}` | Rendered output from the cache |
+| `POST`, `DELETE /api/documents/{id}/publication` | Publish, unpublish |
+| `GET`, `POST /api/documents/{id}/versions` | Named versions; `POST …/versions/{v}/restore` |
+| `GET`, `POST`, `PATCH /api/documents/{id}/comments` | Comment threads |
+| `GET`, `POST`, `PATCH`, `DELETE /api/citations/sources` | Citation sources |
+| `GET /api/citations/library?source=…` | CSL-JSON, with ETag |
+| `GET`, `POST`, `PATCH /api/layouts` | Layouts; upload as zip |
+| `GET`, `POST`, `DELETE /api/sync/targets` | Sync targets |
+| `POST /api/sync/nextcloud/login`, `GET …/poll` | Nextcloud Login Flow v2 |
+| `/api/admin/…` | Users, settings, layout approval, audit log, health |
+
+**User content on the app origin.** Uploaded assets (`/api/projects/{id}/assets/…`) and rendered outputs (`/api/renders/…`) are untrusted. A user could upload an `.html` or `.svg` file and open its URL directly. These routes therefore follow fixed rules:
+
+- Only PDFs and raster images (PNG, JPEG, GIF, WebP) are served inline, with their real type and `X-Content-Type-Options: nosniff`. That covers the PDF preview and image thumbnails in the editor.
+- Everything else, including HTML, SVG and XML, is served with `Content-Disposition: attachment`.
+- Every response except PDFs also carries `Content-Security-Policy: sandbox; default-src 'none'`, so a file opened directly can't run script on the app origin. PDFs are left out because browsers' built-in viewers don't load in sandboxed documents.
+- All carry `Cross-Origin-Resource-Policy: same-origin`.
+
+HTML previews never come from these routes; they live on the preview origin ([§6.4](#64-preview)).
+
+### 7.6 Background tasks
+
+| Task | Schedule | Notes |
+|---|---|---|
+| Materializer | 2 s after the last operation, at most every 30 s during activity | atomic file writes; records the file's stat afterwards; updates the FTS5 index |
+| Snapshot and compaction | every 500 operations or after 60 s idle | [§8.5](#85-persistence-and-compaction) |
+| Sync scheduler | per target (default 60 s), plus 5 s after local changes settle | [§12](#12-sync) |
+| Citation refresh | per source (default 15 min) and on demand | [§10.2](#102-sources) |
+| Disk watcher | 5 s poll for loaded documents | compares `(mtime_ns, inode, size)` with `materialized_stat` and hashes only on a mismatch, so DocWizard's own writes never trigger a merge |
+| Session and guest cleanup | hourly | |
+| Trash purge | daily | deletes trashed documents and assets older than 30 days |
+| Blob garbage collection | daily | deletes blobs unreferenced for more than 24 h; paused while a backup runs |
+| Render cache eviction | hourly, least recently used, by size cap | |
+
+## 8. Collaboration
+
+### 8.1 Model
+
+DocWizard uses operational transformation with a central authority: `@codemirror/collab` in the browser and a Python authority on the server.
+
+- The server puts all updates in one order. A document's version is the number of updates applied to it.
+- A client may only push updates based on the current server version. Otherwise the push is rejected. The client then receives the missing updates, `receiveUpdates()` rebases its unconfirmed changes over them, and the client pushes again.
+- There is no server-side rebasing, no CRDT and no Yjs. The server only needs to apply and map changes.
+- Transformation is used only for live editing, where people see each other's changes within moments. Longer offline periods and outside edits are **reconciled** instead, with explicit conflicts ([§12.3](#123-reconciling-outside-edits)).
+
+Why not a CRDT: DocWizard always has a central server and documents are plain text, so this approach keeps the server small and dependency-free. CRDTs mainly help with peer-to-peer editing or long divergent offline work, which are non-goals.
+
+### 8.2 Wire protocol
+
+There is one WebSocket per browser tab at `/ws`, carrying JSON text frames multiplexed by `doc`. It is authenticated by the session cookie, and the `Origin` header must match the app origin.
+
+Client to server:
+
+```json
+{"t": "open",     "doc": "d_123", "version": 41}
+{"t": "push",     "doc": "d_123", "version": 41, "updates": [{"clientID": "c_9f2…", "changes": [12, [0, "Hello"], 30]}]}
+{"t": "merge",    "doc": "d_123", "mergeId": "m_51c…", "baseVersion": 12, "base": "…", "text": "…"}
+{"t": "presence", "doc": "d_123", "version": 41, "sel": [[120, 120]]}
+{"t": "render",   "doc": "d_123", "version": 42, "target": "html", "layout": "term-paper@3f9a…", "options": {"linestretch": 1.5}}
+{"t": "close",    "doc": "d_123"}
+```
+
+Server to client:
+
+```json
+{"t": "opened",   "doc": "d_123", "version": 44, "role": "editor", "clientID": "c_9f2…", "peers": []}
+{"t": "updates",  "doc": "d_123", "from": 41, "updates": []}
+{"t": "rejected", "doc": "d_123", "version": 44}
+{"t": "merged",   "doc": "d_123", "mergeId": "m_51c…", "version": 47, "conflicts": 1}
+{"t": "reset",    "doc": "d_123", "version": 44, "text": "…"}
+{"t": "presence", "doc": "d_123", "version": 44, "peer": {"id": "p7", "name": "Jane", "color": 3, "sel": [[120, 120]]}}
+{"t": "rendered", "doc": "d_123", "version": 42, "target": "html", "url": "https://pub.example.org/_preview/<token>/…", "diagnostics": []}
+{"t": "rendered", "doc": "d_123", "version": 42, "target": "pdf-typst", "url": "/api/renders/…/paper.pdf", "diagnostics": []}
+{"t": "error",    "code": "forbidden", "message": "…"}
+```
+
+`changes` uses CodeMirror's `ChangeSet.toJSON()` format: a number is the length of unchanged text, and an array `[deletedLength, ...insertedLines]` is a replacement. All lengths are UTF-16 code units.
+
+For `html`, `rendered` returns a capability URL on the preview origin. All other targets return an `/api/renders/…` URL on the app origin ([§7.5](#75-http-api)).
+
+`presence` positions refer to the version sent with them ([§8.7](#87-presence)). `render` carries the layout (id and content hash) and the options the client is currently showing. A preview requested right after changing options therefore uses exactly those options. The server checks that the client may use that layout and validates the options against its schema ([§9.3](#93-layouts)).
+
+Limits:
+
+- frames up to 1 MiB;
+- up to 100 updates per push, and at most 1 million code units of total change (inserted plus deleted) per push. A larger paste is rejected with a clear error instead of stalling the server;
+- up to 20 open documents per socket;
+- a per-connection rate limit;
+- clients that don't keep up are disconnected.
+
+### 8.3 Authority algorithm
+
+Every room is an **actor**: one asyncio task takes commands from the room's queue and runs each one to completion, including its database commit, before starting the next.
+
+```text
+command push(version, updates) from connection c:
+    require c.role in {owner, editor}
+    require every u.clientID == c.clientID          # issued by the server, rule 5 below
+    if version != room.version:
+        reply c {"t": "rejected", "version": room.version}
+        return
+    require churn(updates) <= MAX_PUSH_CHURN         # inserted + deleted code units
+    undo = []
+    try:
+        for u in updates:
+            validate(u.changes, room.text)           # length, surrogate pairs, valid text
+            undo.append(room.apply(u.changes))       # text, anchors, version; returns an undo record
+        await db.commit_ops(doc, version, updates)   # group commit, synchronous=FULL
+    except error:
+        room.revert(reversed(undo))                  # if this fails: room.reload_from_db()
+        reply c {"t": "error", "code": "invalid_update" or "not_saved"}
+        return
+    broadcast {"t": "updates", "from": version, "updates": updates} to every member, including c
+    room.touch()                                     # schedules the materializer and preview renders
+```
+
+**Transaction rules**
+
+1. **One lock per document, held across the commit.** Pushes, merges, opens, render requests, snapshots and materializer reads are all commands on the room's queue. Nothing interleaves with a push while its commit is awaited.
+2. **Uncommitted state is never visible.** Because every read waits behind an in-flight push, no render, new connection, snapshot or presence broadcast ever sees uncommitted text. Updates are broadcast only after the commit.
+3. **Text, anchors and version recover together.** `room.apply` returns one undo record covering the text change, the comment and conflict anchors and the version. On any failure, the records are reverted in reverse order. If reverting fails, the room is discarded and rebuilt from the database, which is authoritative ([§11.2](#112-canonical-state)).
+4. **Lost acknowledgments resolve themselves.**
+   - If a push was committed but the client never saw the broadcast, its retry carries the old version and is rejected. The client then receives the missing updates, finds its own (matching `clientID`) among them, and `receiveUpdates()` confirms them.
+   - A committed update can't be applied twice, because every push must match the current version, and the committed update has already advanced it.
+   - `merge` carries a `mergeId`, which the server stores with the resulting operation. A repeated `mergeId` gets the original `merged` answer instead of a second merge.
+5. **Client IDs are issued by the server.** CodeMirror decides which updates are a client's own by `clientID`. A client reusing someone else's ID could make that person's editor discard its pending edits.
+   - The editor page embeds a fresh server-issued 128-bit `clientID` next to the snapshot. `opened` confirms it, and IndexedDB keeps it for offline sessions.
+   - The server records each ID with the user or guest and the document (`collab_clients`).
+   - The server rejects any update whose `clientID` doesn't belong to the connection, and accepts a returning ID only from the same user on the same document.
+
+These rules are tested adversarially, with injected failures at every step ([§20](#20-testing)).
+
+```mermaid
+sequenceDiagram
+    participant A as Client A
+    participant S as Authority
+    participant B as Client B
+    A->>S: push(version 41, [u1])
+    S->>S: validate, apply, commit (now 42)
+    S-->>A: updates(from 41, [u1])
+    S-->>B: updates(from 41, [u1])
+    B->>S: push(version 41, [u2])
+    S-->>B: rejected(version 42)
+    Note over B: receiveUpdates() has rebased u2 over u1
+    B->>S: push(version 42, [u2'])
+    S-->>A: updates(from 42, [u2'])
+    S-->>B: updates(from 42, [u2'])
+```
+
+### 8.4 ChangeSets in Python
+
+`collab/changeset.py` works directly on CodeMirror's JSON format:
+
+- `apply(text, changes)`
+- `map_pos(changes, pos, assoc)` for comment anchors and merges
+- `compose(a, b)` and `map(a, b)` (transform), used to apply non-conflicting outside changes ([§12.3](#123-reconciling-outside-edits))
+- `from_diff(old, new)` builds a ChangeSet from two texts. It diffs by line with `difflib` first, then by word inside changed lines, always with `autojunk=False`.
+
+**UTF-16 offsets.** CodeMirror measures positions in UTF-16 code units, but Python strings index by code point. Characters outside the Basic Multilingual Plane (emoji, some CJK characters, mathematical alphanumerics) count as 2 in JavaScript and 1 in Python. The authority therefore keeps the document as UTF-16-LE in a chunked buffer (chunks of at most 64 KiB with a prefix-length index), so applying a change costs roughly the size of the change, not the size of the document. All offset arithmetic is in code units. Conversion to `str` happens only at the boundaries (rendering, files, diffs). Updates that would split a surrogate pair are rejected. Property tests cover this ([§20](#20-testing)).
+
+**Line endings.** The editor always uses `\n`. Files are read with any line ending, converted to `\n`, and written back with the ending they originally had (`documents.line_ending`).
+
+### 8.5 Persistence and compaction
+
+- Every accepted update is appended to `doc_ops` before it is broadcast.
+- A snapshot goes into `doc_snapshots` every 500 operations or after 60 s idle.
+- Operations older than the newest snapshot are kept for 7 days (configurable) so reconnecting clients can catch up, then pruned.
+- Rooms are unloaded from memory after 10 minutes without connections. The snapshot and operations in SQLite remain authoritative ([§11.2](#112-canonical-state)).
+
+### 8.6 Reconnect and offline
+
+- **Short disconnects:** on reconnect the client sends `open` with its synced version. If it was offline for less than 5 minutes and the server still has the operations since then, the client rebases its unconfirmed edits over them and pushes them, as in live editing.
+- **Longer offline periods:** the client sends `merge` with its base version, base text and current text instead of rebasing. Its edits weren't seen by anyone while they were made, so blending them in character by character could produce text nobody wrote. The server reconciles them like an outside edit ([§12.3](#123-reconciling-outside-edits)): non-overlapping changes are applied, overlapping ones become conflicts, and the client's full text is saved as a version.
+- **Pruned history:** if the operations since the client's version are gone, the server answers `open` with `reset`, and the client takes the `merge` path.
+- No edits are silently dropped or silently rewritten.
+
+### 8.7 Presence
+
+Cursor and selection positions are sent when they change (at most 10 per second) and kept only in memory. Positions always refer to a specific version:
+
+1. The client maps its selection back through its unconfirmed changes (using their inverse) to its synced version, and sends that version with the positions.
+2. The server maps the positions forward through the operations since that version, and broadcasts them with its current version.
+3. Each receiving client maps them through the updates it has received since that version and through its own unconfirmed changes. If it hasn't received that version yet, it holds the presence until it has.
+
+Each peer gets a stable color index and a display name, which for guests is the name they chose.
+
+### 8.8 Comments
+
+- A comment anchors to a range `[from, to)` at a version. The authority maps every open anchor through each applied change, so anchors are always current.
+- If the anchored text is deleted entirely, the anchor collapses to a point and the thread is marked as orphaned.
+- Commenters can create threads and reply. Editors and owners can also resolve them.
+- Comments live in SQLite, never in the document text.
+
+## 9. Rendering and layouts
+
+### 9.1 Pipeline
+
+```mermaid
+flowchart LR
+    snap["Project snapshot<br/>at version V"] --> prep["Prepare job<br/>layout · bibliography · options"]
+    prep --> pandoc["pandoc<br/>defaults · citeproc · Lua filters"]
+    pandoc -->|html| html["HTML<br/>preview · publish"]
+    pandoc -->|docx · odt · md| exports["Exports"]
+    pandoc -->|typ| typst["typst compile"]
+    pandoc -->|tex| latexmk["latexmk (LuaLaTeX)"]
+    texdoc["LaTeX documents"] --> latexmk
+    typst --> pdf["PDF"]
+    latexmk --> pdf
+```
+
+- Markdown documents always go through pandoc.
+- Citations are always resolved by pandoc's `--citeproc`, including for Typst and LaTeX output, so every format shows identical citations. Typst's own bibliography engine is not used.
+- PDF via Typst is the default: pandoc writes a `.typ` file, then `typst compile` runs with controlled options. PDF via LaTeX is available per layout, for example for university class files.
+- LaTeX documents (`.tex` as the source) skip pandoc and compile directly with `latexmk`. Their citations use biblatex and biber from TeX Live.
+- Math in HTML uses `--mathml`, which browsers render natively.
+
+### 9.2 Render jobs
+
+- **Requests** come from editors (preview, 300 ms after typing pauses), from exports and from publishing.
+- **Cache key**: SHA-256 over the project content at that version, the layout content hash, target, options and tool versions. Identical requests from several collaborators share one job and one result.
+- **Scheduling**: per `(build, target)` only the newest request is kept. Older queued jobs are dropped and running ones are cancelled. Global concurrency is limited (default: number of CPU cores, at most 4).
+- **Build inputs and preview scope**: a project can set `build_inputs`, either a root document (`main.tex`, or `main.md` for Markdown) or an ordered list of Markdown files that pandoc reads as one document (`chapters/01.md`, `chapters/02.md`, …). Editing any input renders the whole build, so editing `chapters/02.tex` previews `main.tex` instead of failing on a missing preamble. Markdown projects can set `preview_scope` to `current-file` for faster previews, with the root's metadata merged in. LaTeX always previews the root.
+- **Job isolation (baseline, every deployment).** The boundary is the job, not the worker container. Every job runs as its own Unix user, taken from a pool with one user id per concurrency slot (for example 20000–20003):
+  1. The app writes the job directory, `jobs/run/<id>/`, with `job.json`, a snapshot of the project files at that version and the resolved bibliography.
+  2. The worker gives the directory to the slot's job user, with mode `0700`, and starts the tools as that user with `no_new_privs` and the `resource` limits.
+  3. When the job ends, times out or is cancelled, the worker kills every process of that user and clears the user's files from `/tmp`, the only other writable place. It then hands `out/` back to the app user. Ownership changes use `lchown` and never follow symlinks.
+  4. The app reads the outputs (without following symlinks) and deletes the job directory.
+
+  Concurrent jobs therefore can't read, write, signal or trace each other: different users, `0700` directories. Process limits count per job. The worker's own socket (mode `0600`) is closed to jobs. As defence in depth, job ids are random 128-bit values and `jobs/run/` is mode `0711`, so its entries can't be listed.
+- **Namespaces (extra layer):** where bubblewrap can run (bare metal, or Docker with a seccomp profile that allows user namespaces), each job also gets its own mount and PID namespace and sees only its directory and a read-only toolchain.
+- **Shared caches**: layouts (copied once per content hash) and the Typst package cache live in a separate cache volume. The app writes it and the worker mounts it **read-only**, so a compromised job can't tamper with files other projects use ([§18.1](#181-containers)).
+- **Worker protocol**: newline-delimited JSON over a Unix socket in the shared jobs volume. Requests are `{"run": "<id>"}` and `{"cancel": "<id>"}`; the response is `{"done": "<id>", "status": "ok|error|timeout", "diagnostics": […]}`.
+- **Diagnostics**: Typst errors (file, line, column, message) and errors from the LaTeX log are parsed and shown in the editor gutter.
+- **LaTeX build directories** persist per project in `jobs/latex/<build-id>/`, so latexmk reuses auxiliary files between runs. `build-id` is an HMAC of the project id, so it can't be guessed.
+  - For each run, the directory goes to the job's user with mode `0700`, and back to the worker afterwards, so it is reachable only during that project's own jobs. Anyone who can start such a job can already edit the project.
+  - If a run fails and the directory holds state from earlier runs, the worker wipes it and retries once from clean, because a half-written `.aux` file after an error can break every later run.
+
+Example `job.json`:
+
+```json
+{
+  "id": "j_8f2c",
+  "kind": "render",
+  "inputs": ["paper.md"],
+  "target": "pdf-typst",
+  "layout": "3f9a…",
+  "bibliography": ["refs.json"],
+  "options": {"fontsize": "12pt", "linestretch": 1.5},
+  "limits": {"cpu_seconds": 60, "memory_mb": 1536, "wall_seconds": 90}
+}
+```
+
+Job kinds:
+
+- `render`: produce a target.
+- `meta`: front matter as JSON, via pandoc's `$meta-json$` template variable. Run only when the front matter changes.
+- `bib2csl`: BibTeX, BibLaTeX or RIS to CSL-JSON via `pandoc -t csljson`.
+
+### 9.3 Layouts
+
+A layout is a folder:
+
+```text
+layouts/term-paper/
+├── layout.json            manifest (below)
+├── defaults.json          pandoc defaults file (JSON; requires pandoc ≥ 3.9)
+├── html/template.html     preview and publishing
+├── html/style.css
+├── typst/template.typ     PDF via Typst
+├── latex/template.tex     PDF via LaTeX (optional)
+├── docx/reference.docx    Word styles
+├── odt/reference.odt      optional
+├── csl/chicago-author-date.csl
+├── filters/*.lua          need admin approval
+├── fonts/                 fonts for Typst and LaTeX
+└── README.md              what the layout is for, its options
+```
+
+Manifest:
+
+```json
+{
+  "id": "term-paper",
+  "name": "Term paper",
+  "version": "1.0.0",
+  "extends": "default",
+  "description": "A4, 12 pt, 1.5 line spacing, title page, Chicago author-date.",
+  "targets": {
+    "html":      {"template": "html/template.html", "css": ["html/style.css"]},
+    "pdf-typst": {"template": "typst/template.typ"},
+    "pdf-latex": {"template": "latex/template.tex", "engine": "lualatex"},
+    "docx":      {"reference": "docx/reference.docx"}
+  },
+  "defaultPdf": "pdf-typst",
+  "csl": "csl/chicago-author-date.csl",
+  "filters": ["filters/crossref.lua"],
+  "variables": {
+    "papersize":   {"type": "enum", "values": ["a4", "letter"], "default": "a4", "label": "Paper size"},
+    "fontsize":    {"type": "enum", "values": ["11pt", "12pt"], "default": "12pt", "label": "Font size"},
+    "linestretch": {"type": "number", "min": 1, "max": 2, "step": 0.25, "default": 1.5, "label": "Line spacing"},
+    "titlepage":   {"type": "boolean", "default": true, "label": "Title page"},
+    "institution": {"type": "string", "default": "", "label": "Institution"}
+  }
+}
+```
+
+- **Variables** become pandoc metadata or template variables. The UI builds the layout options form from this schema.
+- **Inheritance**: with `extends`, a layout inherits every file it doesn't provide from its parent. Manifests are merged, and the child wins.
+- **Option precedence**: document front matter, then project settings, then layout defaults.
+- **Scopes**:
+  - instance layouts, installed by admins;
+  - user layouts;
+  - project layouts in `_layouts/<name>/` inside the project folder, so they sync with the project.
+- **Editing**: users can duplicate any layout and edit its files in the editor, since templates and CSS are just text documents.
+- **Safety**:
+  - Templates, CSS, CSL styles and variables are safe for anyone to edit. Pandoc templates cannot run code, and Typst and LaTeX run in the sandbox.
+  - Lua filters run arbitrary code inside the render worker. They only run once an admin has approved the layout's filter files by hash. The hash covers every `.lua` file in the layout's `filters/` folder, including modules the filters `require`, and changing any of them revokes the approval.
+  - `defaults.json` is never passed to pandoc as is. Pandoc defaults can name filters, a data directory, resource paths, output and log files, and PDF engines with their options. DocWizard parses the file and passes on only an allowlist of formatting options (for example `variables`, `metadata`, `table-of-contents`, `number-sections`, `top-level-division`, `highlight-style`). Filters come only from the approved manifest list, and every path is set by the job.
+  - Pandoc runs in an empty working directory, with inputs and resources passed by path. `LUA_PATH` and `LUA_PATH_5_4` point only at the approved `filters/` folder, and `LUA_CPATH` and `LUA_CPATH_5_4` are empty. `require()` therefore can't load a `.lua` file from the project folder.
+
+### 9.4 Document metadata
+
+```yaml
+---
+title: "The Politics of Infrastructure"
+subtitle: "Term paper, Seminar on Urban Studies"
+author: "Jane Doe"
+date: 2026-11-13
+lang: en-US
+layout: term-paper
+layout-options:
+  linestretch: 1.5
+  institution: "Example University"
+bibliography:
+  - zotero:thesis          # a configured Zotero source, optionally one collection
+  - refs.bib               # a file in the project
+csl: chicago-author-date   # a bundled style id, or a path to a .csl file
+link-citations: true
+---
+```
+
+- DocWizard reads the front matter with a `meta` job, and only when the hash of the front-matter block changes.
+- `zotero:` entries are resolved by the app into a CSL-JSON file in the job directory before pandoc runs.
+- DocWizard-specific keys (`layout`, `layout-options`) are consumed by the app. Their values reach pandoc as variables.
+
+### 9.5 Targets
+
+| Target | Pipeline | Notes |
+|---|---|---|
+| `html` | pandoc → HTML5 with the layout template, `--mathml` | Preview and publishing |
+| `pdf-typst` | pandoc → `.typ` → `typst compile` | Default PDF; fast |
+| `pdf-latex` | pandoc → `.tex` → `latexmk -lualatex` | When a layout needs LaTeX |
+| `docx` | pandoc with `--reference-doc` | The required format at many universities |
+| `odt` | pandoc with `--reference-doc` | |
+| `md-source` | zip of the project folder | Exact source with bibliography and assets |
+| `md-resolved` | pandoc → `markdown` with `--citeproc` | Citations rendered as text, bibliography appended |
+| `md-gfm`, `md-commonmark` | pandoc → `gfm` or `commonmark_x` | For other tools |
+| `tex-source`, `typ-source` | pandoc intermediate files | For hand-off or further editing |
+| `epub` | pandoc | Later |
+
+### 9.6 Engine settings
+
+- **Typst**: `typst compile --root <job> --font-path <layout>/fonts --ignore-system-fonts <file>.typ`. Typst cannot read files outside `--root`. The worker has no network, so any Typst packages a layout uses (`@preview/…`) must be in the shared, read-only package cache (`--package-cache-path`). Admins install them from the admin area, and the app downloads them into the shared volume.
+- **LaTeX**: `latexmk -lualatex -interaction=nonstopmode -halt-on-error -synctex=1 -no-shell-escape`, with the environment variables `openin_any=p` and `openout_any=p` (kpathsea's paranoid mode).
+- **pandoc**: `meta` and `bib2csl` jobs run with `--sandbox`. Render jobs rely on the worker sandbox, because `--sandbox` doesn't restrict filters or PDF production and would block layout resources and images.
+- **Every job** gets its own `HOME`, `TMPDIR` and `TEXMFVAR` inside its job directory, and an environment containing only what the tool needs. Every render job is treated as untrusted code. LuaLaTeX alone gives documents a Lua interpreter (`\directlua`), whose file access is harder to reason about than TeX's own.
+
+### 9.7 Built-in filters
+
+These ship with DocWizard and are pre-approved:
+
+- `crossref.lua`: numbered figures, tables, equations and sections, referenced as `[@fig:map]`. It runs before citeproc and replaces pandoc-crossref, which has to match the exact pandoc version.
+- `wordcount.lua`: word count in exports, using the same rules as the editor.
+- `pagebreak.lua`: one page-break syntax that works in every output format.
+
+## 10. Citations and Zotero
+
+### 10.1 Model
+
+- The citation library is CSL-JSON. Every source is converted to CSL-JSON once and cached, and pandoc reads CSL-JSON directly.
+- Pandoc's citeproc formats all citations and bibliographies.
+- The default style is Chicago author-date, which is also pandoc's default.
+- Bundled styles: Chicago author-date, Chicago notes-bibliography, APA, MLA, IEEE, DIN 1505-2. Admins can add any CSL style.
+- Switching to a note-based style turns citations into footnotes automatically.
+
+### 10.2 Sources
+
+| Source | How | Refresh |
+|---|---|---|
+| Zotero Web API | Per-user, read-only API key for a user or group library, optionally one collection. Fetched server-side as CSL-JSON (`format=csljson`), incrementally with `since=<version>` and the `Last-Modified-Version` header | Every 15 min and on demand |
+| Project files | `.json` (CSL-JSON) used directly; `.bib` and `.ris` converted with `bib2csl` | When the file changes |
+| Better BibTeX auto-export | Better BibTeX keeps a `.bib` or CSL-JSON export current on the user's machine. Placed in a synced folder or the project, it is picked up like any project file and carries citation keys chosen in Zotero | On sync |
+
+Not supported: Zotero's local API on `localhost:23119`, because web pages can't reach it. A small desktop helper could add this later ([§23](#23-open-questions)).
+
+### 10.3 Citation keys
+
+Pandoc uses the CSL-JSON `id` as the citation key. For Zotero Web API items, DocWizard sets `id` from the first of these that exists:
+
+1. the CSL `citation-key` field;
+2. a `Citation Key: …` line in the item's Extra field (Better BibTeX's pinned keys);
+3. a generated author-year key (`smith2020`, `smith2020a`, …).
+
+Generated keys are stored in `citation_keys`, so a key never changes once it has been used.
+
+### 10.4 Editor support
+
+- `[@` or `@` opens autocomplete, with fuzzy search over author, title, year and key, run in a worker.
+- Hovering or long-pressing a citation shows author, year, title and container, plus a link to the item in the Zotero web library when there is one.
+- An insert-citation dialog lets you pick items, add a locator (`p. 23`), a prefix or suffix, or suppress the author (`[-@key]`).
+- Unknown keys are flagged inline. A references panel lists every cited item.
+
+## 11. Storage
+
+### 11.1 Data directories
+
+```text
+/var/lib/docwizard/              app only, back this up
+├── docwizard.db                 SQLite (plus docwizard.db-wal, docwizard.db-shm)
+├── projects/<project-id>/       materialized project folders, mirrored by sync
+│   ├── paper.md
+│   ├── references.json
+│   ├── figures/…
+│   └── _layouts/<name>/…        project layouts (optional)
+├── blobs/<sha256>               immutable, content-addressed: assets, merge and sync bases
+├── layouts/<id>/                instance and user layouts
+├── citations/<source-id>.json   citation cache, rebuilt from sources
+└── renders/                     render cache, safe to delete
+
+/var/lib/docwizard-publish/      published sites; app writes, proxy reads
+/var/lib/docwizard-cache/        layouts by hash, Typst packages; app writes, worker reads only
+/var/lib/docwizard-jobs/         worker scratch space; no backup needed
+├── run/<job-id>/                one directory per job, mode 0700, owned by its job user
+└── latex/<build-id>/            persistent latexmk build directories, mode 0700
+/run/secrets/docwizard_key       AES-256-GCM master key (file or container secret)
+```
+
+### 11.2 Canonical state
+
+**Invariant:** for every document, the committed snapshot plus the operations after it in SQLite are authoritative, whether or not the document is loaded. For every asset, the database row and its blob are authoritative. Project files are a materialized copy and an interface for outside edits. They are never authoritative on their own.
+
+- **Text documents:** the materializer first records what it is about to write (`pending_sha256`), then writes the file atomically, then records the written content as a blob (`materialized_sha256`) together with the file's stat. After a crash, a file matching `pending_sha256` is recognized as DocWizard's own write, not an outside edit.
+- **Assets:** content goes into `blobs/<sha256>` before the row that refers to it is committed. The file in the project folder is a copy.
+- **Outside edits** (an admin editing on disk, a sync client pointed at the data directory) are detected by comparing a file with its last materialized state, by stat first and hash on mismatch.
+  - For text, the change from the last materialized content to the file is reconciled into the document like any outside edit ([§12.3](#123-reconciling-outside-edits)).
+  - For binary files, the new content becomes a blob and the row is updated.
+  - Files that appear are imported as new documents or assets. Files that disappear move the document or asset to the trash.
+
+**Startup** (and loading a room) follows the same rules:
+
+1. Rebuild each document's text from its latest snapshot plus operations.
+2. Compare the file on disk with the last materialized state.
+3. If the file is unchanged but the database is newer (`materialized_version < version`, for example after a crash between commit and materialization), rewrite the file from the database.
+4. If the file changed outside DocWizard, reconcile the change, using the last materialized content as the base. Neither side overwrites the other.
+5. Materialize the result.
+
+A crash at any point loses nothing that was committed. The database is never rolled back to match an older file.
+
+### 11.3 File rules
+
+- Text files are UTF-8. Files with invalid UTF-8 are rejected on import.
+- Paths are relative and normalized to NFC. They may not contain `..`, be absolute, contain control characters or use names reserved on Windows.
+- Symlinks are never followed (`O_NOFOLLOW`), and resolved paths must stay inside the project.
+- Writes are atomic: temp file, `fsync`, `rename`.
+- Per-user quotas count project files and assets. Renders and caches don't count.
+
+### 11.4 Backups
+
+The database is authoritative and asset content lives in an immutable blob store, so a consistent backup needs no global pause. `docwizard backup <dest>`:
+
+1. takes a lock that pauses blob garbage collection;
+2. copies the database with SQLite's online backup API, which gives a consistent snapshot while edits continue;
+3. copies `blobs/`. Blobs are written before any row refers to them and never change, so every blob the database copy references already exists. Blobs added in the meantime are harmless extras;
+4. copies `layouts/`.
+
+Project folders, published sites, the citation cache, the render cache and the jobs and cache volumes are not backed up. `docwizard restore <src>` copies the database, blobs and layouts back, then rebuilds every project folder from the database and blobs and republishes all publications.
+
+The master key is backed up separately, not next to the data it encrypts. Restores are tested from backups taken while edits, sync and renders are running ([§20](#20-testing)).
+
+## 12. Sync
+
+### 12.1 Model
+
+- A sync target connects one project folder to one remote folder over WebDAV. Sync is two-way and polling-based.
+- Supported servers:
+  - Nextcloud and ownCloud;
+  - Seafile, through its WebDAV server SeafDAV, which an admin must enable;
+  - any standards-compliant WebDAV server.
+- For every file DocWizard keeps the **base**: its content and remote ETag at the last successful sync (`sync_state`, with content in `blobs/`).
+
+### 12.2 Algorithm
+
+On each poll, DocWizard lists the remote tree with `PROPFIND` (`Depth: 1`, walking folders). Nextcloud updates folder ETags when their contents change, so unchanged subtrees are skipped. Then, for every path that exists locally, remotely or in the base:
+
+| Local vs base | Remote vs base | Action |
+|---|---|---|
+| unchanged | unchanged | nothing |
+| changed | unchanged | `PUT` with `If-Match: <etag>`; on 412, poll again |
+| unchanged | changed | download; text: apply the diff as an update to the authority; binary: replace the file |
+| changed | changed | text: reconcile ([§12.3](#123-reconciling-outside-edits)), then `PUT`; binary: keep local, save the remote version as `name (conflict YYYY-MM-DD HHMM).ext` |
+| deleted | unchanged | `DELETE` remote |
+| unchanged | deleted | move to the trash ([§7.4](#74-data-model)), purged after 30 days |
+| deleted | changed | restore from remote (the change wins) |
+| changed | deleted | upload again (the change wins) |
+| new | absent | `MKCOL` parents, `PUT` with `If-None-Match: *` |
+| absent | new | download |
+
+After each successful transfer, the base is updated.
+
+**Renames keep their document id.** Comments, versions, recent pins and publications are keyed by `doc_id`, so a rename must not become a delete plus a new document:
+
+- **Outgoing:** renames made in DocWizard are sent as WebDAV `MOVE`.
+- **Incoming:** within one poll, a remote delete and a remote create are paired as a rename, and the sync engine updates `documents.path` (or `assets.path`) in place:
+  1. on Nextcloud and ownCloud, when both have the same `oc:fileid`, which survives renames even when the content also changed;
+  2. elsewhere (Seafile, generic WebDAV), when the new file's SHA-256 equals the deleted file's base hash.
+- Unpaired deletes and creates are handled as in the table above.
+
+### 12.3 Reconciling outside edits
+
+This routine handles edits from a sync server, edits made directly on disk, and clients returning from a longer offline period. Unlike live editing, the two sides didn't see each other's changes. A mechanical merge could produce a clean-looking sentence whose meaning nobody wrote. In academic writing, a visible conflict is better than that.
+
+The inputs are `base` (the last common text), `ours` (the authority's current text) and `theirs` (the outside version).
+
+1. **Diff by words, not characters.** Both `base → ours` and `base → theirs` are diffed by line first, then by word inside changed lines. Tokens are words, runs of whitespace and punctuation marks. Character-level diffs can splice fragments of different words together.
+2. **Find conflicts.** A change from `theirs` conflicts with a change from `ours` when their ranges in `base` overlap or touch, or when both fall in the same sentence. A sentence ends at `.`, `?`, `!` or `:` followed by whitespace, or at a line end.
+3. **Apply the rest.** Non-conflicting changes from `theirs` are mapped onto `ours` and applied as one update from a system author (for example "Sync: Nextcloud"), so they show up in history.
+4. **Record conflicts.** For each conflict, the document keeps `ours` in place. A conflict record (`conflicts`) stores the base text and the `theirs` alternative, anchored to the region and mapped through later edits like a comment ([§8.8](#88-comments)).
+5. **Keep everything recoverable.** The complete `theirs` text is saved as a named version, for example "Remote version, Nextcloud, 13 Nov 22:10". For sync, it is also written as a conflict copy, `name (conflict YYYY-MM-DD HHMM).md`, next to the file on both sides, so people working outside DocWizard see it too.
+
+```text
+Base:    The result is positive.
+Ours:    The result is negative.
+Theirs:  The result is inconclusive.
+Result:  The result is negative.     + conflict "inconclusive" (Nextcloud), unresolved
+```
+
+**Resolving conflicts in the editor:**
+
+- Each conflict shows a mark in the gutter and opens a panel with both versions and three actions: keep ours, use theirs, or edit by hand.
+- Until all conflicts are resolved, the editor's status bar and the export dialog show how many remain.
+- Resolving a conflict is an ordinary edit, plus `resolved_at` on the record.
+
+### 12.4 Providers and credentials
+
+- **Nextcloud**: Login Flow v2 gets an app password without the user typing their main password into DocWizard. Remote URL: `…/remote.php/dav/files/<user>/<path>`.
+- **Seafile**: `…/seafdav/<library>/<path>`, with the user's Seafile credentials or a dedicated account.
+- **Generic WebDAV**: URL, username and password or token.
+- Credentials are stored encrypted with AES-256-GCM. Outbound hosts are subject to the outbound request policy ([§15](#15-security-model)).
+
+### 12.5 Limits and failures
+
+- Default poll interval is 60 s per target, plus a sync 5 s after local changes settle. Maximum file size and file count per target are configurable.
+- Errors are recorded on the target and shown in the project. After repeated failures, polling backs off exponentially, up to 1 hour.
+- Requests use `urllib` in threads. XML responses are parsed with `defusedxml`.
+
+## 13. Accounts, authentication and authorization
+
+### 13.1 Identity types
+
+- **Users** sign in with a local password, OIDC, or both.
+- **Guests** have no account. They are created from a share link with a display name and are limited to that project.
+- **Admins** are users with `instance_role = admin`.
+
+Registration mode is an admin setting: `open`, `invite` (invitation by email or link), `oidc-only` or `closed`.
+
+### 13.2 Local accounts
+
+- **Passwords**:
+  - hashed with `hashlib.scrypt`, N=2¹⁷, r=8, p=1 and a 16-byte salt;
+  - stored as `scrypt$17$8$1$<salt>$<hash>`, so parameters can be raised later and old hashes upgraded at login;
+  - each hash uses about 128 MiB, so a semaphore limits concurrent hashing (default 2) to prevent memory exhaustion.
+- **Password policy**: minimum length (default 12), checked against a bundled list of common passwords; no composition rules.
+- **Login throttling**: token buckets per account and per IP, kept in memory, with generic error messages.
+- **Password reset and invitations**: sent by email via `smtplib`, using single-use tokens stored hashed and valid for 1 hour. Without SMTP, admins reset passwords.
+- **TOTP** (optional): RFC 6238, implemented with `hmac`, plus one-time recovery codes. Admins can require it.
+
+### 13.3 Sessions and CSRF
+
+- **Session cookie**: named `__Host-docwizard`, holding a random 256-bit token, with `Secure`, `HttpOnly`, `SameSite=Lax` and `Path=/`. The database stores only its SHA-256.
+- **Lifetime**: idle timeout of 14 days for users and 24 hours for guests (configurable). Sessions are rotated at login and when privileges change, and users can list and revoke them in settings.
+- **CSRF**: unsafe requests need a matching `Origin` header and an `X-CSRF-Token` header equal to the session's CSRF token, which pages receive in a meta tag. Server-rendered forms carry it as a hidden field.
+- **WebSocket**: the upgrade checks `Origin` and the session.
+
+### 13.4 OIDC
+
+- **Flow**: authorization code with PKCE (S256), `state` and `nonce`. DocWizard is a confidential client (`client_secret_basic` or `client_secret_post`).
+- **Discovery and keys**: discovery via `/.well-known/openid-configuration` and the JWKS are both cached. The JWKS is refreshed when a token has an unknown `kid`.
+- **ID token validation**:
+  - the signature is verified with joserfc against the provider's JWKS, with an explicit algorithm allowlist (RS256, PS256, ES256, EdDSA);
+  - `iss`, `aud`, `azp`, `exp`, `iat` (with small clock skew) and `nonce` are checked;
+  - `none` and HMAC algorithms are rejected.
+- **Account matching**:
+  - users are matched by `(issuer, sub)`, never by email alone;
+  - linking an OIDC identity to an existing local account requires being logged in to that account, or an admin action;
+  - automatic account creation is configurable per provider.
+- **Claim mapping** per provider covers username, display name, email and groups. `allowed_groups` restricts who can log in. `admin_groups` grants admin rights and is re-evaluated at every login.
+- **Logout** ends the local session. If the provider has an `end_session_endpoint`, the user is redirected there (RP-initiated logout). Back-channel logout comes later.
+- Tested against at least Keycloak and Authentik.
+
+### 13.5 Roles and permissions
+
+| Capability | Owner | Editor | Commenter | Viewer |
+|---|:-:|:-:|:-:|:-:|
+| Read, preview, export | ✓ | ✓ | ✓ | ✓ |
+| See other people's presence | ✓ | ✓ | ✓ | ✓ |
+| Comment | ✓ | ✓ | ✓ | |
+| Resolve comments | ✓ | ✓ | | |
+| Edit text, upload assets | ✓ | ✓ | | |
+| Change layout and options | ✓ | ✓ | | |
+| Create named versions, restore | ✓ | ✓ | | |
+| Create share links (up to their own role) | ✓ | configurable | | |
+| Publish, unpublish | ✓ | configurable | | |
+| Configure sync targets | ✓ | | | |
+| Manage members, delete, transfer | ✓ | | | |
+
+Instance roles:
+
+- **admin**: everything a user can do, plus the admin area;
+- **user**: creates projects within their quota;
+- **guest**: only what a share link grants.
+
+All checks live in `auth/permissions.py`. Handlers call `require(actor, capability, project)`. The collaboration authority applies the same rules per connection, so pushes from viewers and commenters are rejected.
+
+### 13.6 Admin
+
+The admin area covers:
+
+- **Users**: create, invite, disable, delete, reset password, set role and quota, require TOTP, view sessions.
+- **Instance settings**: registration mode, guest policy, default layout, limits (render, upload, sync), SMTP status, outbound request policy.
+- **OIDC providers**: configured in `docwizard.toml` so secrets stay out of the database. The admin area shows their status and can run a test login.
+- **Layouts**: install layouts, approve Lua filters by hash, set the instance default, manage CSL styles and Typst packages.
+- **Health**: tool versions (pandoc, Typst, TeX), worker status, queue depth, disk usage, recent errors.
+- **Audit log**.
+
+The CLI (`python -m docwizard …`) provides `serve`, `migrate`, `create-admin`, `reset-password`, `backup`, `check` (tools, sandbox, file permissions) and `rotate-key`.
+
+## 14. Sharing, guests and publishing
+
+### 14.1 Share links
+
+- A link looks like `https://<host>/s/<token>`. The token is 128-bit random and stored hashed.
+- Each link has a role (viewer, commenter or editor), an optional expiry and an optional password (scrypt-hashed), and can be revoked.
+- When someone opens a link:
+  - logged-in users are added to the project with the link's role (or keep their higher role);
+  - everyone else becomes a guest after entering a display name, and the password if one is set.
+- Admins can cap the highest role a link may grant, or turn guest access off.
+
+### 14.2 Guests
+
+- Guest sessions are limited to one project, expire after 24 hours of inactivity, and can never see other projects or users.
+- Guest edits and comments are attributed as "Name (guest)".
+- **Scratch projects** (admin setting, off by default): visitors can create a temporary project without an account. It is deleted after N days unless they register and claim it.
+
+### 14.3 Recent documents
+
+`recent` is updated whenever a user opens a document. The home page shows pinned documents first, then the last 20 opened, then all projects. The list is mirrored in IndexedDB, so it appears instantly and works offline. Guests' recent documents are stored only in their browser.
+
+### 14.4 Publishing
+
+- Owners, and editors if allowed, can publish a document as a static site. DocWizard renders the `html` target with the layout's template and writes it to `/var/lib/docwizard-publish/<slug>/`, with images and an optional PDF download.
+- Published sites are served by the proxy from a **separate origin** (for example `pub.example.org`) with a strict CSP and no scripts. Documents can contain raw HTML, which must never run on the app origin.
+- Visibility is public or unlisted (unguessable slug). Republishing is manual by default; "update automatically" re-renders once edits settle.
+- Slugs match `[a-z0-9][a-z0-9-]{2,63}`. Every path starting with `_` on the publish host (such as `/_preview/`) is reserved for DocWizard and can never be a slug.
+- Unpublishing deletes the folder.
+
+## 15. Security model
+
+| Threat | Mitigation |
+|---|---|
+| Code execution via documents and layouts (LaTeX, Lua filters, Typst, pandoc bugs) | Every render job is treated as untrusted code, and the job is the isolation boundary. Each job runs as its own Unix user in a `0700` directory, so concurrent jobs can't read, write, signal or trace each other ([§9.2](#92-render-jobs)). The worker runs in its own container: no network, read-only root, tmpfs, `no-new-privileges`, process and memory limits, and only the capabilities needed to switch users. Shared caches are mounted read-only. Each job gets its own `HOME`, `TMPDIR` and `TEXMFVAR`, `resource` limits (CPU, address space, file size, processes) and a wall-clock timeout. Where bubblewrap can run, each job also gets its own namespaces. LaTeX runs without shell escape and with `openin_any=p` / `openout_any=p`. Lua filters only run from admin-approved layouts (approval by hash), with `LUA_PATH` limited to them, and `defaults.json` is reduced to an allowlist ([§9.3](#93-layouts)). Typst is confined to `--root` |
+| XSS via raw HTML in documents | Previews are served from a separate preview origin through capability URLs, with a CSP that blocks scripts, inside a sandboxed iframe. Published sites live on a separate origin with `script-src 'none'` ([§6.4](#64-preview), [§14.4](#144-publishing)) |
+| Stored XSS via uploaded assets or exported files (HTML, SVG) opened on the app origin | Only PDFs and raster images are served inline. Everything else is sent as an attachment, and every response except PDFs carries `Content-Security-Policy: sandbox`, plus `nosniff` and `Cross-Origin-Resource-Policy: same-origin` ([§7.5](#75-http-api)) |
+| XSS in the app itself | Jinja2 templates with autoescaping always on; DOM built with `textContent` and `<template>`. CSP with a fresh nonce per response: `default-src 'self'; script-src 'self' 'nonce-…'; style-src 'self' 'nonce-…'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; frame-src 'self' <preview origin>; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`. The nonce goes on the inline import map ([§6.1](#61-constraints)), and CodeMirror's injected styles get it via `EditorView.cspNonce`. Style attributes are allowed because editor decorations and Temml's MathML may set them, and style attributes can't run script |
+| Path traversal, symlinks, zip slip | Normalized relative paths, `O_NOFOLLOW`, resolved paths must stay inside the project, zip imports checked entry by entry |
+| SSRF via user-supplied URLs (WebDAV, Zotero, OIDC discovery) | `netpolicy.py` resolves each host once and refuses private, loopback, link-local and cloud metadata addresses unless an admin allows them (common for a Nextcloud on the LAN). It then connects to the validated IP itself, through a custom `HTTPSConnection` that keeps the original hostname for SNI, certificate verification and the `Host` header. A DNS change between check and connect (DNS rebinding) therefore has no effect. Every redirect goes through the same check, and timeouts and response size limits apply |
+| Account takeover | scrypt, throttling, TOTP, session rotation, `__Host-` cookies, OIDC matched by `(iss, sub)`, no automatic linking by email |
+| CSRF and cross-site WebSocket hijacking | `SameSite=Lax`, `Origin` checks, CSRF token header |
+| Malicious collaboration updates | Role check on every push; ChangeSets validated against document length and surrogate boundaries; size and rate limits |
+| Denial of service | Body and frame limits, render concurrency per user, job timeouts, quotas, scrypt semaphore, disconnecting slow clients; the proxy enforces connection limits |
+| Secrets at rest | WebDAV and Zotero credentials and TOTP secrets are encrypted with AES-256-GCM, using a master key kept outside the database. Each ciphertext records its key id, so keys can be rotated |
+| Supply chain | Hash-pinned Python packages, vendored frontend code with checksums, verified binaries, CI check for new dependencies ([§17.5](#175-updating)) |
+| Leaks between users | Every query is scoped by permission checks. The render cache is keyed by content but served only to users with access to the project |
+
+The publish and preview origins allow inline styles (`style-src 'self' 'unsafe-inline'`), because pandoc's syntax highlighting and user layouts may emit them. Nothing sensitive lives on those origins.
+
+**Remaining risk.** With a separate user per job, concurrent jobs can at most see each other's command lines in `/proc`, and every path they reveal is closed to them. What remains is a kernel or container escape from inside a job. DocWizard can't prevent that, but limits it: the worker has no network and no access to the app's data, and bubblewrap namespaces narrow the attack surface further where available.
+
+## 16. Performance budget
+
+These are targets on reference hardware. CI checks the size budgets, and `scripts/bench_render.py` checks the render timings.
+
+| Metric | Budget |
+|---|---|
+| Home page HTML, compressed | ≤ 30 KB, usable without JS |
+| Editor route JS, compressed, excluding lazy modules | ≤ 150 KB |
+| CSS, compressed | ≤ 20 KB |
+| Web fonts in the UI | none |
+| Text visible, repeat visit | < 300 ms |
+| Text visible, cold, broadband | < 1 s |
+| Keystroke to paint | < 16 ms |
+| HTML preview after typing pauses, 20-page paper | < 500 ms |
+| Typst PDF after typing pauses, 20-page paper | < 1.5 s |
+| Server time per typical collaboration push (≤ 1 KB of change, documents up to 1 MB), excluding the commit flush | < 5 ms |
+| Push to broadcast, including the `synchronous=FULL` group commit, on SSD | < 30 ms |
+
+How:
+
+- No framework and no runtime build. One bundled vendor module plus our own modules, preloaded.
+- Every page is server-rendered. The editor shell embeds the document snapshot, so text appears before the WebSocket connects.
+- Release-prefixed immutable static assets and a precaching service worker.
+- Lazy loading for Temml, PDF.js, preview code and admin code.
+- Citation search and statistics run in workers. CodeMirror renders only the visible part of the document.
+- On the server: in-memory rooms with a chunked text buffer and a cap on change size per push, a shared render cache, debounced and deduplicated renders, prepared SQL, and full-text indexing kept out of the commit path.
+
+## 17. Dependencies
+
+### 17.1 Policy
+
+A dependency is added only if all of these hold:
+
+1. It replaces code that is security-critical or full of edge cases.
+2. It brings at most two transitive packages.
+3. It comes from an established, actively maintained project.
+4. It can be pinned by hash and, for frontend code, vendored.
+
+Frameworks that only save typing don't qualify. Every new dependency needs an entry here and a line in [§22](#22-key-decisions).
+
+The goal is to own as little difficult code as possible, not to minimize the package count. The count is an inventory. Authentication protocols and output escaping are where hand-written code most often goes wrong, so custom code there needs a stronger reason than a library does.
+
+### 17.2 Runtime inventory
+
+**Python**: 11 packages including transitive ones.
+
+| Package | Why | License |
+|---|---|---|
+| uvicorn | ASGI server, so we don't own an HTTP parser | BSD-3-Clause |
+| click | uvicorn dependency | BSD-3-Clause |
+| h11 | HTTP/1.1 protocol (via uvicorn) | MIT |
+| wsproto | WebSocket protocol for uvicorn | MIT |
+| cryptography | AES-GCM for stored secrets; used by joserfc | Apache-2.0 or BSD-3-Clause |
+| cffi | cryptography dependency | MIT |
+| pycparser | cffi dependency | BSD-3-Clause |
+| joserfc | OIDC ID token and JWKS verification, so we don't own JWT code (from the Authlib project; needs only cryptography) | BSD-3-Clause |
+| Jinja2 | Server-rendered pages and emails with autoescaping | BSD-3-Clause |
+| MarkupSafe | Jinja2 dependency (escaping) | BSD-3-Clause |
+| defusedxml | Hardened XML parsing for WebDAV responses | PSF-2.0 |
+
+**Browser**: vendored.
+
+| Package | Why | Loaded | License |
+|---|---|---|---|
+| CodeMirror 6: `state`, `view`, `commands`, `language`, `search`, `autocomplete`, `collab` | Editor | Editor route | MIT |
+| Lezer: `common`, `highlight`, `lr`, `markdown` | Parsing, highlighting | Editor route | MIT |
+| CodeMirror helpers: `style-mod`, `w3c-keyname`, `crelt` | Internal dependencies, same maintainer | Editor route | MIT |
+| Temml | LaTeX to MathML in the editor | When a document contains math | MIT |
+| PDF.js (optional) | Better PDF preview, SyncTeX | On demand | Apache-2.0 |
+
+The exact package list and versions are recorded in `web/vendor/MANIFEST`.
+
+**Binaries**
+
+| Tool | Why | Where | License |
+|---|---|---|---|
+| pandoc ≥ 3.9 | Parsing, citeproc, every writer | Worker | GPL-2.0-or-later |
+| Typst (pinned) | Fast PDF | Worker | Apache-2.0 |
+| TeX Live (optional image variant) | LaTeX documents and layouts | Worker | various free licenses |
+| bubblewrap (optional) | Per-job sandbox outside Docker | Worker host | LGPL-2.0-or-later |
+| Reverse proxy (Caddy recommended) | TLS, static files, publish origin | Proxy | Apache-2.0 (Caddy) |
+
+**Data**: CSL styles (CC BY-SA 3.0), shipped with attribution.
+
+**Dev-only** (never shipped): esbuild (vendoring), pytest, hypothesis, Node's built-in test runner, and optionally Playwright for end-to-end tests.
+
+### 17.3 Explicitly rejected
+
+| Rejected | Instead |
+|---|---|
+| Django, FastAPI, Starlette | Own raw-ASGI router and auth module |
+| Yjs, pycrdt, pycrdt-websocket | `@codemirror/collab` plus a Python authority |
+| allauth, Authlib | Own thin OIDC code flow; tokens verified with joserfc |
+| httpx, aiohttp, requests | `urllib` in threads |
+| SQLAlchemy or any ORM; Postgres | `sqlite3` with plain SQL |
+| PyYAML | JSON layout manifests; front matter via pandoc's `$meta-json$` |
+| python-multipart | Raw `PUT` uploads |
+| argon2-cffi | `hashlib.scrypt` |
+| Celery, Redis, RQ | asyncio tasks plus the worker socket |
+| KaTeX, MathJax | MathML from pandoc; Temml in the editor |
+| paged.js | Typst for paged output |
+| pyzotero | Zotero Web API via `urllib` |
+| pandoc-crossref | `crossref.lua` |
+| `@codemirror/lang-markdown` | `@lezer/markdown` plus own commands |
+| Workbox, bundlers at runtime, frontend frameworks | Hand-written service worker, native ES modules |
+
+### 17.4 Licensing
+
+DocWizard is licensed AGPL-3.0-or-later. All runtime dependencies are compatible: they are permissively licensed, and pandoc and TeX run as separate programs.
+
+AGPL section 13 requires offering the source to network users. Every page footer links to `/source`, which points to the exact source of the running release (`source_url` in the config, plus the release id). Anyone running a modified version must point this link at their modified source.
+
+### 17.5 Updating
+
+- **Python**: `requirements.lock` with hashes, installed with `pip install --require-hashes --no-deps`.
+- **Frontend**: `scripts/vendor.sh` fetches exact versions, bundles CodeMirror and Lezer, and writes `web/vendor/MANIFEST` (versions, licenses, SHA-256). CI verifies the checksums.
+- **Binaries**: versions and SHA-256 are pinned in the Dockerfiles.
+- **Guard**: `scripts/check_deps.py` fails CI if `pip freeze` lists anything not in [§17.2](#172-runtime-inventory).
+
+## 18. Deployment and operations
+
+### 18.1 Containers
+
+| Container | Contents | Notes |
+|---|---|---|
+| `app` | Python slim, the 11 packages, `server/` | Unix socket in the shared `run` volume |
+| `worker` | Python slim (stdlib only), pandoc, Typst; TeX Live in the `-tex` variant | No network, read-only root, shared caches read-only. Starts as root with only the five capabilities needed to run each job as its own user |
+| `proxy` | Caddy with `web/` under `/srv/static/<release>/` | The only public ports |
+
+```yaml
+# deploy/compose.yaml (sketch)
+services:
+  app:
+    build: { context: .., dockerfile: deploy/Dockerfile.app }
+    restart: unless-stopped
+    user: "10001:10001"          # docwizard-app
+    volumes:
+      - data:/var/lib/docwizard
+      - publish:/var/lib/docwizard-publish
+      - jobs:/var/lib/docwizard-jobs
+      - render-cache:/var/lib/docwizard-cache
+      - run:/run/docwizard
+      - ./docwizard.toml:/etc/docwizard/docwizard.toml:ro
+    secrets: [docwizard_key]
+    depends_on: [worker]
+
+  worker:
+    build: { context: .., dockerfile: deploy/Dockerfile.worker, args: { TEX: "none" } }
+    restart: unless-stopped
+    user: "0:0"                  # supervisor only; every job runs as its own user (§9.2)
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, SETUID, SETGID, KILL]   # no DAC_OVERRIDE: can't read job files
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 512
+    mem_limit: 4g
+    tmpfs: ["/tmp"]
+    volumes:
+      - jobs:/var/lib/docwizard-jobs
+      - render-cache:/var/lib/docwizard-cache:ro
+
+  proxy:
+    build: { context: .., dockerfile: deploy/Dockerfile.proxy }
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    volumes:
+      - run:/run/docwizard
+      - publish:/srv/publish:ro
+      - caddy:/data
+
+volumes: { data: {}, publish: {}, jobs: {}, render-cache: {}, run: {}, caddy: {} }
+
+secrets:
+  docwizard_key: { file: ./secrets/docwizard_key }
+```
+
+```caddyfile
+# deploy/Caddyfile (sketch)
+write.example.org {
+	encode zstd gzip
+
+	handle_path /static/* {
+		root * /srv/static
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	handle {
+		reverse_proxy unix//run/docwizard/app.sock
+	}
+}
+
+pub.example.org {
+	encode zstd gzip
+
+	# Previews: served by the app through capability URLs; the app sets their headers.
+	handle /_preview/* {
+		reverse_proxy unix//run/docwizard/app.sock
+	}
+
+	handle {
+		root * /srv/publish
+		header {
+			Content-Security-Policy "default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+			X-Content-Type-Options "nosniff"
+		}
+		file_server
+	}
+}
+```
+
+**Bring your own proxy**: with `serve_static = true`, the app serves `/static/` itself with immutable caching and gzip files precompressed at startup using the standard library. Any proxy that can forward to a Unix socket (or a local port) works, as long as it sends both the app host and `/_preview/` on the preview host to the app.
+
+### 18.2 Bare metal
+
+- systemd units for the app and the worker (`deploy/systemd/`).
+- The worker runs as `docwizard-worker`, never the app's user, with the same five capabilities granted by systemd (`AmbientCapabilities=`). It runs each job as its own user from the pool, and under bubblewrap where available.
+- Any reverse proxy.
+
+### 18.3 Upgrades
+
+1. Back up.
+2. Replace the images or code.
+3. Start. Migrations run automatically and are forward-only.
+
+Release notes call out breaking config changes. The service worker picks up the new release prefix on the next load and removes old caches.
+
+### 18.4 Observability
+
+- JSON-lines logs on stdout via stdlib `logging`, with request id, user id, route, status and duration.
+- `/healthz` reports app liveness and whether the worker is reachable.
+- Optional `/metrics` in Prometheus text format (hand-written), admin-only or on a separate socket.
+- The admin health page ([§13.6](#136-admin)).
+
+## 19. Configuration
+
+Configuration lives in `docwizard.toml`, read with `tomllib`. Every key can be overridden by an environment variable `DOCWIZARD_<SECTION>_<KEY>`. Secrets can be read from files (`*_file` keys).
+
+```toml
+[server]
+public_url   = "https://write.example.org"
+publish_url  = "https://pub.example.org"
+preview_url  = "https://pub.example.org/_preview"   # any origin other than public_url
+socket       = "/run/docwizard/app.sock"
+data_dir     = "/var/lib/docwizard"
+publish_dir  = "/var/lib/docwizard-publish"
+jobs_dir     = "/var/lib/docwizard-jobs"
+cache_dir    = "/var/lib/docwizard-cache"
+durability   = "full"                       # or "normal", see §7.3
+serve_static = false
+source_url   = "https://git.example.org/docwizard"     # AGPL source offer
+
+[security]
+secret_key_file        = "/run/secrets/docwizard_key"
+allow_private_outbound = ["nextcloud.lan"]          # exceptions to the SSRF policy
+session_idle_days      = 14
+guest_session_hours    = 24
+
+[accounts]
+registration            = "invite"   # open | invite | oidc-only | closed
+guests                  = true
+guest_max_role          = "editor"
+scratch_projects        = false
+require_totp_for_admins = true
+min_password_length     = 12
+
+[smtp]
+host          = "smtp.example.org"
+port          = 587
+starttls      = true
+username      = "docwizard@example.org"
+password_file = "/run/secrets/smtp_password"
+from          = "DocWizard <docwizard@example.org>"
+
+[[oidc]]
+id                 = "keycloak"
+label              = "University login"
+issuer             = "https://id.example.org/realms/main"
+client_id          = "docwizard"
+client_secret_file = "/run/secrets/oidc_keycloak"
+scopes             = ["openid", "profile", "email", "groups"]
+username_claim     = "preferred_username"
+groups_claim       = "groups"
+allowed_groups     = ["students", "staff"]
+admin_groups       = ["docwizard-admins"]
+auto_create        = true
+
+[render]
+worker_socket       = "/var/lib/docwizard-jobs/worker.sock"
+concurrency         = 4
+timeout_seconds     = 90
+memory_mb           = 1536
+preview_debounce_ms = 300
+default_layout      = "default"
+
+[limits]
+max_document_bytes  = 5_000_000
+max_upload_bytes    = 50_000_000
+default_quota_bytes = 2_000_000_000
+
+[sync]
+default_poll_seconds = 60
+max_files_per_target = 5000
+
+[collab]
+op_retention_days = 7
+snapshot_every    = 500
+max_push_churn    = 1_000_000   # inserted + deleted code units per push
+```
+
+## 20. Testing
+
+| Layer | Tooling | Focus |
+|---|---|---|
+| Unit (Python) | pytest | Permissions, sessions, CSRF, OIDC validation with tampered tokens, WebDAV XML parsing, path rules, the `defaults.json` allowlist, the outbound policy including DNS rebinding (a resolver that answers differently the second time) |
+| Property: transformation (Python) | hypothesis | ChangeSet `apply` / `map` / `compose` laws (both transformation orders converge), UTF-16 handling, the chunked buffer behaving exactly like a plain string, comment, conflict and presence anchor mapping |
+| Property: reconciliation (Python) | hypothesis | Non-conflicting changes from each side appear exactly once; changes that overlap, touch or share a sentence always become conflicts, never blended text; `base`, `ours` and `theirs` can always be recovered from the document, its conflicts and its versions |
+| Cross-check | Node's test runner with CodeMirror | Python ChangeSet results match CodeMirror's on generated cases (shared JSON fixtures) |
+| Protocol (adversarial) | pytest with fault injection | Commit failures and crashes at every step of a push; lost acknowledgments; duplicate, reordered and replayed messages and `mergeId`s; forged and foreign `clientID`s; pushes from viewers; malformed and oversized ChangeSets; reads during an in-flight commit never seeing uncommitted text |
+| Crash and recovery | pytest, killing the process at random points | After restart, every committed edit is present, files match the database, and an outside edit made during the outage becomes a reconciled change or conflict, never a silent overwrite. Power loss is simulated by discarding unsynced writes |
+| Backup and restore | pytest | Restore from a backup taken while edits, sync and renders are running; every committed document and asset is intact and project folders are rebuilt |
+| Integration | pytest with real binaries | Each render target with reference documents, including multi-file builds. Sandbox escape attempts must fail: network access, files outside the job, other jobs' directories, signalling or tracing concurrent jobs, writes to shared caches, unapproved Lua via `require()` or `defaults.json`, file access through `\directlua`, fork bombs |
+| Sync | pytest with Nextcloud and Seafile containers | Every row of the [§12.2](#122-algorithm) table, conflicts, ETag races, renames in both directions keeping `doc_id` |
+| OIDC | pytest with a Keycloak container | Login, group mapping, logout |
+| Frontend unit | Node's built-in test runner | Pandoc syntax extensions, citation search, word count |
+| End-to-end | Playwright (optional, dev-only) | Two browsers editing one document, offline reload and reconnect, share links, preview scroll sync without new history entries in Chromium, Firefox and WebKit, uploaded HTML/SVG never running on the app origin |
+| Performance | `scripts/` | Size budgets, render timings on a reference paper |
+
+## 21. Roadmap
+
+The roadmap is a thin vertical slice first. The **first release gate** is: *I can write a real paper, recover it after failures, and produce acceptable submissions.* M0 and M1 together must pass it before anything else starts.
+
+| Milestone | Scope | Done when |
+|---|---|---|
+| M0 Reliable single-user editing | ASGI app, SQLite migrations with `synchronous=FULL`, sessions, one local account, admin CLI, server-rendered home, vendored CodeMirror with pandoc syntax and live preview, single-user authority as a room actor, materializer, startup reconstruction, outside-edit detection, backup and restore | Killing the process or the machine at any point loses no committed edit; outside edits are reconciled; a restore works |
+| M1 Submission-ready output | Render worker with per-job users, one layout (term-paper), file-based citations (CSL-JSON and `.bib`), citation autocomplete, crossref filter, HTML preview on the preview origin, Typst PDF, DOCX | A real term paper with Chicago author-date citations exports to PDF and DOCX that would be accepted. **First release gate** |
+| M2 Two-client collaboration | Multi-client OT, server-issued client IDs, presence, full adversarial protocol and crash tests | Two editors under injected failures never diverge or lose a committed edit |
+| M3 Sharing and comments | Share links, guests, roles, comments, recent documents, named versions | Two users and a guest review a paper through a link |
+| M4 Offline and reconciliation | Service worker, IndexedDB, offline shells, offline `merge`, conflicts and the conflict panel | A day of offline work comes back as clean changes plus visible conflicts, never blended text |
+| M5 Integrations, one at a time | WebDAV sync (Nextcloud first, then Seafile and generic), Zotero Web API, OIDC, publishing | Each integration passes its own test suite before the next starts |
+| M6 LaTeX and polish | LaTeX documents and multi-file builds, latexmk, optional PDF.js and SyncTeX, more layouts, TOTP, admin dashboard, German UI, full-text search | Beta release |
+
+## 22. Key decisions
+
+| # | Decision | Alternatives | Why |
+|---|---|---|---|
+| D1 | Plain text plus layouts, no WYSIWYG | ProseMirror / TipTap rich text | Lossless Markdown, one renderer, simpler and faster |
+| D2 | CodeMirror 6 | Own contenteditable editor, Monaco | IME, mobile, accessibility and large documents are solved; small and modular |
+| D3 | OT with a central authority (`@codemirror/collab`) | Yjs / CRDTs | There is always a central server; no CRDT stack in Python; small server |
+| D4 | Python, raw ASGI on uvicorn | Django, FastAPI | Minimal dependencies; the HTTP surface is small |
+| D5 | SQLite only | Postgres | Single process anyway; no operations burden; trivial backups |
+| D6 | Pandoc as the only renderer, citeproc everywhere | Client-side Markdown renderer, Typst citations, biblatex | One source of truth for output; identical citations in every format |
+| D7 | Typst as the default PDF engine, LaTeX optional | LaTeX only, browser printing | Fast and small, with real pagination and footnotes; LaTeX kept for compatibility |
+| D8 | Plain files on disk plus WebDAV sync | Database-only storage, provider-specific APIs | No lock-in; WebDAV covers Nextcloud, Seafile and more |
+| D9 | Render worker in a separate sandbox | Rendering in the app process | Pandoc filters, LaTeX and Typst process untrusted input |
+| D10 | Own OIDC code flow; ID tokens verified with joserfc | allauth, Authlib, own JWT code | The flow is small and well specified, and keeping it gives full control over account linking. Token verification is where subtle bugs hide, so it uses a maintained library |
+| D11 | Publishing on a separate origin | Same origin with HTML sanitizing | Raw HTML stays possible without risk to the app |
+| D12 | AGPL-3.0-or-later | GPL, MPL | Copyleft that also covers use over a network |
+| D13 | HTML previews on a separate origin via capability URLs | Sandboxed `srcdoc` iframe on the app origin | Assets load without cookies; raw HTML never runs next to the app; scroll sync works without any script in the preview |
+| D14 | Jinja2 for server-rendered pages | Own template helper | XSS is the most likely bug in server-generated HTML; autoescaping from a maintained library beats our own |
+| D15 | The database is authoritative; project files are materialized | Files authoritative while a document is unloaded | One owner of truth, so a crash can never roll committed edits back to an older file |
+| D16 | Outside and offline edits are reconciled with explicit conflicts | Transforming them like live edits | Blending edits nobody saw can change a sentence's meaning without anyone noticing |
+| D17 | Each render job runs as its own Unix user | Shared worker user, isolation only through bubblewrap | Works in plain Docker without user namespaces, and makes the job the isolation boundary |
+
+## 23. Open questions
+
+1. **Sharing granularity**: v1 shares whole projects. Is per-document sharing needed?
+2. **Typst as a source format**: should the editor support writing Typst directly, not only as output?
+3. **Suggestion mode**: worth building on top of the operation log after v1?
+4. **LaTeX live preview**: is latexmk fast enough for long documents, or are draft-mode or partial compiles needed?
+5. **OIDC in the UI**: should providers be editable in the admin area (secrets encrypted in the database) instead of only in the config file?
+6. **Zotero desktop helper**: is a small helper for Zotero's local API worth it?
+7. **Mobile**: what is the minimum acceptable editing experience on phones?
+8. **Scaling**: is more than one app process (with sticky routing per document) needed for any realistic deployment?
+9. **Two-way scroll sync**: a small nonce-allowed script in the preview could report its scroll position to the editor via `postMessage`. Is that worth the extra surface on the preview origin?
+
+## 24. Glossary
+
+| Term | Meaning |
+|---|---|
+| Authority | The server-side owner of a document's version history; orders and validates all updates |
+| Base | The last text both sides had in common (for sync: the content at the last successful sync), used to reconcile outside edits |
+| Build inputs | The root document, or ordered list of files, that a project renders as one document |
+| ChangeSet | CodeMirror's description of an edit: unchanged lengths and replacements, in UTF-16 code units |
+| Conflict | An outside or offline edit that overlapped a local one; kept as an alternative next to the text until someone resolves it |
+| Layout | A versioned bundle of templates, styles, CSL and options that decides what output looks like |
+| Materializer | The task that writes a document's current text from the authority to its file on disk |
+| Preview origin | A separate origin that serves HTML previews through capability URLs |
+| Project | A folder of documents and assets; the unit of sharing and sync |
+| Publication | A document rendered to a static site on the publish origin |
+| Render job | One run of pandoc / Typst / LaTeX in the sandboxed worker |
+| Scratch project | A temporary project created without an account (optional) |
+| Share link | A tokenized URL granting a role on a project, used by users and guests |
+| Target | An output format: `html`, `pdf-typst`, `docx`, and so on |
+| Worker | The sandboxed process that runs render jobs |
+
+## 25. Design guide
+
+DocWizard's interface is a tool, not a brand. The reference point is [dufs](https://github.com/sigoden/dufs): one toolbar, one table, the system font and nothing else. The document text is the most important thing on screen, and everything else stays out of its way.
+
+OLED dark is the default and the reference design. Light mode is the same design with different token values.
+
+### 25.1 Principles
+
+1. **Black means black.** In dark mode every large surface is `#000000`, so OLED pixels are off. There are no "dark gray" panels.
+2. **Content first.** The document text is the brightest and largest thing on screen. The UI around it is quiet.
+3. **Lines, not boxes.** Areas are separated by 1px lines. No cards, shadows, gradients, blur or tinted panels.
+4. **One accent color.** It marks what you can interact with and where focus is. Nothing else is colored, except errors and collaborators' cursors.
+5. **Words before icons.** Actions are labeled with words. Icons appear only next to a label, or where the meaning is universal and a tooltip and `aria-label` exist.
+6. **No motion.** State changes are instant.
+7. **Native elements.** Use `<button>`, `<table>`, `<dialog>`, `<details>`, the `popover` attribute and native form controls, styled minimally.
+8. **Nothing decorative.** No illustrations, empty-state art, emoji, mascots or logo graphics in the UI. The wordmark is the word "DocWizard" in the UI font at weight 600. The favicon is a single monochrome SVG glyph.
+
+### 25.2 Themes
+
+- **Settings:** Dark (default), Light or System. The choice is saved in the user's profile and in a cookie (in the browser only for guests). The server sets `data-theme` on `<html>`, so the page never flashes the wrong theme.
+- **Implementation:** `color-scheme` plus CSS `light-dark()`, giving one set of tokens with both values side by side ([§25.3](#253-color-tokens)). Switching themes changes only the attribute.
+- **True black, not near-black:** on OLED screens, very dark grays cause visible smearing when scrolling and keep pixels lit. Large areas stay `#000000`. Non-black fills appear only on small, temporary elements (a hovered row, a selection).
+- **Off-white text:** dark-mode text is `#e6e6e6`, not pure white, to reduce glare on black. Contrast is still 16.8:1.
+- **Theme color:** `<meta name="theme-color">` is `#000000` or `#ffffff` to match. With System, two meta tags with `media` queries are emitted.
+
+### 25.3 Color tokens
+
+| Token | Dark | Light | Used for | Contrast on `--bg` (dark / light) |
+|---|---|---|---|---|
+| `--bg` | `#000000` | `#ffffff` | Every surface | – |
+| `--fg` | `#e6e6e6` | `#141414` | Text | 16.8 / 18.4 |
+| `--muted` | `#8c8c8c` | `#616161` | Secondary text, table headers, Markdown marks | 6.3 / 6.2 |
+| `--line` | `#262626` | `#e3e3e3` | Dividers between areas (decorative) | 1.4 / 1.3 |
+| `--edge` | `#6b6b6b` | `#8a8a8a` | Borders of inputs and buttons | 3.9 / 3.5 |
+| `--hover` | `#141414` | `#f2f2f2` | Hovered row or menu item only | – |
+| `--accent` | `#4da3ff` | `#0b57d0` | Links, focus ring, primary button, caret | 8.0 / 6.4 |
+| `--on-accent` | `#000000` | `#ffffff` | Text on the primary button | 8.0 / 6.4 (on accent) |
+| `--danger` | `#ff6b6b` | `#c5221f` | Errors, destructive actions | 7.6 / 5.8 |
+| `--sel` | accent at 35 % | accent at 20 % | Text selection, search matches | – |
+
+Text tokens meet WCAG AA (≥ 4.5:1) and control borders meet the 3:1 rule for UI components. `--line` is only used for separators that carry no information. Muted and accent text stay above 4.5:1 on `--hover` as well.
+
+**Collaborator colors** are used for remote cursors and presence dots, assigned by peer index. All are ≥ 3:1 on the background.
+
+| # | Dark | Light |
+|---|---|---|
+| 0 | `#ff6b6b` | `#e03131` |
+| 1 | `#ffa94d` | `#d9480f` |
+| 2 | `#ffd43b` | `#b35c00` |
+| 3 | `#69db7c` | `#2f9e44` |
+| 4 | `#38d9a9` | `#0c8599` |
+| 5 | `#4dabf7` | `#1971c2` |
+| 6 | `#9775fa` | `#7048e8` |
+| 7 | `#f783ac` | `#c2255c` |
+
+```css
+/* web/css/app.css — tokens */
+:root {
+  color-scheme: dark;                                   /* OLED dark is the default */
+  --bg:        light-dark(#ffffff, #000000);
+  --fg:        light-dark(#141414, #e6e6e6);
+  --muted:     light-dark(#616161, #8c8c8c);
+  --line:      light-dark(#e3e3e3, #262626);
+  --edge:      light-dark(#8a8a8a, #6b6b6b);
+  --hover:     light-dark(#f2f2f2, #141414);
+  --accent:    light-dark(#0b57d0, #4da3ff);
+  --on-accent: light-dark(#ffffff, #000000);
+  --danger:    light-dark(#c5221f, #ff6b6b);
+  --sel:       light-dark(rgb(11 87 208 / .2), rgb(77 163 255 / .35));
+
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", "DejaVu Sans Mono", monospace;
+  --radius: 2px;
+}
+:root[data-theme="light"]  { color-scheme: light; }
+:root[data-theme="system"] { color-scheme: light dark; }
+
+@media (prefers-contrast: more) {
+  :root { --muted: var(--fg); --line: var(--edge); }
+}
+```
+
+### 25.4 Typography
+
+- **UI:** `--font` at 14px, line height 1.4. Only two weights: 400 and 600. No all-caps, no letter-spacing tweaks, no italics in the UI.
+- **No UI headings above 16px.** A page's title is the last part of the toolbar breadcrumb.
+- **Editor:** `--font` at 17px, line height 1.6, measure at most 72ch. Settings let users switch to `--mono` and pick a size from 15 to 20px.
+- **Numbers in tables** use `font-variant-numeric: tabular-nums`, so columns line up.
+- **No web fonts in the UI.** Fonts belong to layouts and appear only in the output.
+
+### 25.5 Spacing and layout
+
+- **Spacing scale:** 4, 8, 12, 16, 24, 32 px. Nothing else.
+- **Controls:** 28px high, or 40px under `@media (pointer: coarse)`.
+- **Page structure:** a 40px toolbar, the content, and an optional 24px status bar, laid out as a grid over `100dvh`.
+- **Widths:**
+  - tables span the full width with 16px side padding;
+  - settings and admin forms are at most 40rem wide;
+  - editor text is at most 72ch wide, centered when the preview is closed.
+- **One breakpoint, at 900px.** Below it, the editor/preview split becomes an "Edit · Preview" switch, and side panels (outline, comments) open over the editor at full width.
+
+### 25.6 Screens
+
+Home: recent documents and projects, two plain tables.
+
+```text
+DocWizard                                     [ Search…        ]   New project   Jane ▾
+──────────────────────────────────────────────────────────────────────────────────────
+Recent
+Name                                   Project               Opened              Size
+──────────────────────────────────────────────────────────────────────────────────────
+★ paper.md                             Urban infrastructure  3 min ago          48 KB
+  notes.md                             Seminar notes         yesterday          12 KB
+
+Projects
+Name ▴                                 Layout                Modified        Members
+──────────────────────────────────────────────────────────────────────────────────────
+  Seminar notes                        default               yesterday             1
+  Thesis draft                         thesis                12 Nov 2026           3
+  Urban infrastructure                 term-paper            3 min ago             2
+```
+
+Editor: breadcrumb, presence, save state and three actions in the toolbar; text and preview below; facts in the status bar.
+
+```text
+Projects / Urban infrastructure / paper.md     ● ● Jane, Ali   Saved   Preview  Export  Share
+──────────────────────────────────────────────────────────────────────────────────────
+                                            │
+  # Introduction                             │   Introduction
+                                            │
+  Cities depend on infrastructure            │   Cities depend on infrastructure
+  [Smith 2020] that most residents           │   (Smith 2020) that most residents
+  never see.                                 │   never see.
+                                            │
+──────────────────────────────────────────────────────────────────────────────────────
+1 248 words · Markdown · term-paper · Nextcloud synced 1 min ago
+```
+
+Settings: plain links as navigation (the current one in bold), then a simple form.
+
+```text
+DocWizard / Settings                                                           Jane ▾
+──────────────────────────────────────────────────────────────────────────────────────
+Profile   Security   Citations   Sync   Layouts
+
+Display name   [ Jane Doe                 ]
+Email          [ jane@example.org         ]
+Theme          (•) Dark   ( ) Light   ( ) System
+Editor font    [ Sans ▾ ]   Size [ 17 ▾ ]
+
+                                                                             [ Save ]
+```
+
+### 25.7 Components
+
+| Component | Look |
+|---|---|
+| Button | Text label, transparent background, 1px `--edge` border, `--radius`, 28px high, 0 12px padding |
+| Primary button | `--accent` background, `--on-accent` text, no border. At most one per screen ("Save", "Create", "Export") |
+| Destructive button | `--danger` text and border. Always confirmed in a dialog that names the item |
+| Text input, select | Transparent background, 1px `--edge` border, `--radius`. Placeholder in `--muted` |
+| Checkbox, radio | Native, with `accent-color: var(--accent)` |
+| Link | `--accent`, no underline; underlined on hover and focus |
+| Table | Full width, no zebra stripes, 1px `--line` between rows, header text in `--muted`, sortable headers show ▴ or ▾. Row hover uses `--hover`. A whole row is clickable when it opens something |
+| Navigation | Plain text links; the current one in weight 600. No tab bars |
+| Dialog | Native `<dialog>`, `--bg` fill, 1px `--line` border, backdrop `rgb(0 0 0 / .6)`, max width 32rem. Title, text, then buttons right-aligned with the primary last |
+| Menu | `popover` element, `--bg` fill, 1px `--line` border, 28px rows, `--hover` on the hovered item |
+| Toast | One line at the bottom left, text only, 1px `--line` border. Disappears after 4 s; errors stay until dismissed. At most one at a time |
+| Presence | 8px dots in collaborator colors followed by names. No avatars |
+| Status | Plain text: "Saved", "Saving…", "Offline · 3 changes waiting", "Reconnecting…" |
+| Splitter | 1px `--line`, 8px invisible hit area |
+| Badge | Muted text in parentheses, e.g. "(guest)". No pills |
+
+### 25.8 Editor
+
+- **Text** is `--fg`. Markdown marks (`#`, `**`, `[ ]`, `:::`) are `--muted` and hidden away from the cursor line in live-preview mode.
+- **Headings** use weight 600 at 1.5, 1.3 and 1.15em for levels 1 to 3, and 1em from level 4. No colors.
+- **Emphasis** is italic, strong is weight 600, and links are `--accent` with the URL hidden away from the cursor line.
+- **Citations** appear as chips with a 1px `--edge` border, `--radius` and `--fg` text. Unknown keys get a wavy `--danger` underline.
+- **Math** is rendered MathML in `--fg`.
+- **Code, front matter and raw blocks** use `--mono` at 0.9em. YAML keys are `--muted`.
+- **Caret, selection and search:**
+  - the caret is 2px in `--accent`;
+  - selections and search matches use `--sel`, and the current match also gets a 1px `--accent` outline;
+  - there is no active-line highlight.
+- **Comments** mark their anchored text with a 2px dotted `--accent` underline. Resolved comments leave no mark.
+- **Remote cursors** are 2px bars in the collaborator's color, with the name shown on hover.
+- **Diagnostics** show a `--danger` dot in the gutter for errors and a `--muted` dot for warnings, with the message on hover and in the status bar.
+- **Conflicts** show a 2px `--danger` bar in the gutter next to the affected lines. Clicking it opens the conflict panel with both versions as plain text.
+- **Theming:** CodeMirror is themed with `EditorView.theme()` using the same CSS variables, so the editor follows the theme without separate light and dark theme objects.
+
+### 25.9 Icons
+
+- **One SVG sprite** (`web/icons.svg`) with at most 16 icons, used via `<svg><use href="…#name"></svg>`.
+- **Style:** 16px, 1.5px stroke, `currentColor`, no fills.
+- **The set:** folder, file, upload, download, share, search, settings, more, close, check, warning, offline, user, comment, history, external link.
+- **Labels:** every icon has a visible label next to it, or an `aria-label` plus a `title` tooltip. No icon fonts.
+
+### 25.10 Preview
+
+- **The preview shows the output, not the UI.** HTML and PDF previews keep the layout's own colors, usually black on white, even in dark mode.
+- **"Dark paper" toggle (for comfort):**
+  - reloads the HTML preview with `?paper=dark`. The preview server then adds a stylesheet that inverts the page (`filter: invert(1) hue-rotate(180deg)`) and re-inverts images. The app page can't style a cross-origin document, and inverting the whole `<iframe>` element would invert images too;
+  - never affects exports;
+  - the browser's built-in PDF viewer can't be themed. With the optional PDF.js integration, the same filter applies to its pages.
+- **While rendering**, the preview keeps showing the last result, and its header says "Updating…". Errors replace the header text with the first diagnostic, and the old preview stays visible.
+
+### 25.11 Feedback and states
+
+- **Loading:** nothing for the first 300ms, then the text "Loading…". No spinners, no skeletons, no progress animations.
+- **Saving and sync** are plain text in the toolbar or status bar ([§25.7](#257-components)).
+- **Errors** appear inline next to their cause, in `--danger`, saying what happened and what to do next. Errors that block a whole page are a plain text page with one action.
+- **Empty states:** one sentence and one action, e.g. "No projects yet. New project".
+- **Confirmation** only for destructive or irreversible actions. Everything else either can be undone or doesn't need asking.
+
+### 25.12 Writing
+
+- **Style:** sentence case, short sentences, plain words. No exclamation marks, emoji, jokes, "Oops" or marketing language.
+- **Buttons** start with a verb: "Export PDF", "Create share link", "Publish".
+- **Consistent terms:** the same word for the same thing everywhere, using the glossary in [§24](#24-glossary).
+- **Dates:** relative for the last 7 days ("3 min ago", "yesterday"), then the locale date. The absolute time appears on hover.
+- **Sizes:** KB, MB, GB, with numbers formatted for the locale.
+
+### 25.13 CSS structure
+
+- **One stylesheet,** `web/css/app.css`, targeting under 10 KB compressed (the budget in [§16](#16-performance-budget) is 20 KB).
+- **Cascade layers:** `@layer tokens, base, layout, components, editor;`.
+- **Elements first:** style `button`, `input`, `table`, `dialog` and friends directly. Use classes only for layout and the few components above.
+- **Shallow selectors:** at most two levels deep.
+- **Nothing extra:** no utility classes, preprocessors or CSS frameworks.
+- **No transitions or animations.** `prefers-reduced-motion` needs no special handling because there is nothing to reduce.
+- **Theme switching** only changes `data-theme` on `<html>`.
+
+### 25.14 Accessibility
+
+- **Contrast:** text ≥ 4.5:1 and controls ≥ 3:1 in both themes (verified values in [§25.3](#253-color-tokens)). `prefers-contrast: more` raises muted text and dividers.
+- **Focus:** always visible: `:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }`.
+- **Never color alone:** errors have text, presence has names, diagnostics have messages, and sort direction has an arrow.
+- **Zoom:** usable at 200% zoom without horizontal scrolling. The 900px breakpoint handles this.
+- **Touch:** controls grow to 40px on coarse pointers.
+
+### 25.15 Review checklist
+
+Before a UI change is merged:
+
+- [ ] Large surfaces in dark mode are `#000000`; no gray panels, cards, shadows, gradients or blur.
+- [ ] Only tokens from [§25.3](#253-color-tokens) are used; no new colors.
+- [ ] At most one primary button on the screen.
+- [ ] Every icon has a visible label or an `aria-label` and tooltip.
+- [ ] No spinners, skeletons, transitions or animations.
+- [ ] Works in dark, light and system themes, at 200% zoom and on a 375px-wide screen.
+- [ ] Keyboard-only use works, and focus is always visible.
+- [ ] Copy is sentence case, short and uses glossary terms.
+- [ ] `app.css` stays under budget.

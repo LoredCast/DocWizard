@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}{{ doc.path }} · {{ project.name }} · DocWizard{% endblock %}
+{% block body_class %}page editor-page{% endblock %}
+{% block head %}
+<script type="importmap" nonce="{{ nonce }}">{"imports": {"codemirror": "{{ static }}/vendor/codemirror.js", "temml": "{{ static }}/vendor/temml/temml.mjs"}}</script>
+<link rel="modulepreload" href="{{ static }}/vendor/codemirror.js">
+<link rel="modulepreload" href="{{ static }}/app/editor/main.js">
+<meta name="csp-nonce" content="{{ nonce }}">
+{% endblock %}
+{% block crumbs %}<a class="wordmark" href="/">DocWizard</a><span>/</span><a href="/p/{{ project.id }}">{{ project.name }}</a><span>/</span><span>{{ doc.path }}</span>{% endblock %}
+{% block actions %}
+<span class="status" id="save-state" role="status">Saved</span>
+<button type="button" id="toggle-preview" aria-pressed="true">Preview</button>
+<button type="button" id="open-export">Export</button>
+<button type="button" id="open-versions">Versions</button>
+{% endblock %}
+{% block main_class %}workspace{% endblock %}
+{% block content %}
+<script type="application/json" id="snapshot">{{ snapshot|safe }}</script>
+<div class="split" id="split">
+  <section class="pane editor-pane" aria-label="Editor"><div id="editor"></div></section>
+  <section class="pane preview-pane" id="preview-pane" aria-label="Preview">
+    <div class="pane-head">
+      <span id="preview-state">Preview</span>
+      <span class="spacer"></span>
+      <label class="choice"><input type="radio" name="preview-target" value="html" checked> HTML</label>
+      <label class="choice"><input type="radio" name="preview-target" value="pdf"> PDF</label>
+      <label class="choice"><input type="checkbox" id="dark-paper"> Dark paper</label>
+      <button type="button" id="open-options">Layout options</button>
+    </div>
+    <iframe id="preview" title="Preview" sandbox referrerpolicy="no-referrer"></iframe>
+  </section>
+</div>
+<dialog id="export-dialog" aria-labelledby="export-title">
+  <form method="dialog" class="form" id="export-form">
+    <h2 id="export-title">Export</h2>
+    <label>Format
+      <select name="target">
+        <option value="pdf-typst">PDF</option>
+        <option value="docx">Word (DOCX)</option>
+        <option value="odt">OpenDocument (ODT)</option>
+        <option value="html">HTML</option>
+        <option value="md-resolved">Markdown with citations resolved</option>
+        <option value="md-gfm">GitHub Markdown</option>
+        <option value="typ-source">Typst source</option>
+        <option value="tex-source">LaTeX source</option>
+        <option value="md-source">Project source (zip)</option>
+      </select>
+    </label>
+    <p id="export-status" class="muted" role="status"></p>
+    <div class="buttons">
+      <button type="button" data-close-dialog>Close</button>
+      <button type="submit" class="primary" value="export">Export</button>
+    </div>
+  </form>
+</dialog>
+<dialog id="options-dialog" aria-labelledby="options-title">
+  <form method="dialog" class="form" id="options-form">
+    <h2 id="options-title">Layout options · {{ layout.name }}</h2>
+    <div id="options-fields"></div>
+    <div class="buttons">
+      <button type="button" data-close-dialog>Cancel</button>
+      <button type="submit" class="primary" value="save">Save</button>
+    </div>
+  </form>
+</dialog>
+<dialog id="versions-dialog" aria-labelledby="versions-title">
+  <div class="form">
+    <h2 id="versions-title">Versions</h2>
+    <form class="row" id="version-form">
+      <input name="label" placeholder="Name this version" required aria-label="Version name">
+      <button type="submit">Save version</button>
+    </form>
+    <ul class="plain" id="versions-list"></ul>
+    <div class="buttons"><button type="button" data-close-dialog>Close</button></div>
+  </div>
+</dialog>
+{% endblock %}
+{% block footer %}
+<footer class="statusbar" id="statusbar">
+  <span id="word-count"></span>
+  <span>{{ "Markdown" if doc.kind == "markdown" else doc.kind|capitalize }}</span>
+  <span>{{ layout.name }}</span>
+  <span id="conflict-count"></span>
+  <span id="diagnostic"></span>
+  <span class="spacer"></span>
+  <a href="/source">Source code</a>
+</footer>
+{% endblock %}
+{% block scripts %}<script type="module" src="{{ static }}/app/editor/main.js"></script>{% endblock %}

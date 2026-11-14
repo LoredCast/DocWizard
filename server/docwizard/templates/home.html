@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block actions %}<button type="button" class="primary" data-open-dialog="new-project">New project</button>{% endblock %}
+{% block content %}
+{% if error %}<p class="error pad" role="alert">{{ error }}</p>{% endif %}
+<h2 class="pad">Recent</h2>
+{% if recent %}
+<table>
+  <thead><tr><th>Name</th><th>Project</th><th>Opened</th><th class="num">Size</th></tr></thead>
+  <tbody>
+  {% for d in recent %}
+  <tr data-href="{{ doc_url(d.project_id, d.path) }}">
+    <td><a href="{{ doc_url(d.project_id, d.path) }}">{% if d.pinned %}★ {% endif %}{{ d.path }}</a></td>
+    <td>{{ d.project }}</td>
+    <td title="{{ d.opened_at }}">{{ d.opened_at|reltime }}</td>
+    <td class="num">{{ d.size|filesize }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="pad muted">Documents you open appear here.</p>
+{% endif %}
+<h2 class="pad">Projects</h2>
+{% if projects %}
+<table>
+  <thead><tr><th>Name ▴</th><th>Layout</th><th>Modified</th><th class="num">Members</th></tr></thead>
+  <tbody>
+  {% for p in projects %}
+  <tr data-href="/p/{{ p.id }}">
+    <td><a href="/p/{{ p.id }}">{{ p.name }}</a></td>
+    <td>{{ p.layout_id }}</td>
+    <td title="{{ p.updated_at }}">{{ p.updated_at|reltime }}</td>
+    <td class="num">{{ p.members }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="pad">No projects yet. <button type="button" class="link" data-open-dialog="new-project">New project</button></p>
+{% endif %}
+<dialog id="new-project" aria-labelledby="new-project-title">
+  <form method="post" action="/projects" class="form">
+    <h2 id="new-project-title">New project</h2>
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <label>Name <input name="name" required maxlength="120" autofocus></label>
+    <label>Layout
+      <select name="layout">
+        {% for lay in layouts %}<option value="{{ lay.id }}" {% if lay.id == default_layout %}selected{% endif %}>{{ lay.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="choice"><input type="checkbox" name="starter" value="1" checked> Start with a paper and a references file</label>
+    <div class="buttons">
+      <button type="button" data-close-dialog>Cancel</button>
+      <button type="submit" class="primary">Create</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}
+{% block scripts %}<script type="module" src="{{ static }}/app/main.js"></script>{% endblock %}

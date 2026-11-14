@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en" data-theme="{{ theme }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{% if theme == "light" %}
+<meta name="theme-color" content="#ffffff">
+{% elif theme == "system" %}
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+{% else %}
+<meta name="theme-color" content="#000000">
+{% endif %}
+<meta name="csrf-token" content="{{ csrf }}">
+<title>{% block title %}DocWizard{% endblock %}</title>
+<link rel="icon" href="{{ static }}/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="{{ static }}/css/app.css">
+{% block head %}{% endblock %}
+</head>
+<body class="{% block body_class %}page{% endblock %}">
+<header class="toolbar">
+  <nav class="crumbs" aria-label="Breadcrumb">{% block crumbs %}<a class="wordmark" href="/">DocWizard</a>{% endblock %}</nav>
+  <div class="actions">
+    {% block actions %}{% endblock %}
+    {% if user %}
+    <a href="/settings">{{ user.display_name }}</a>
+    <form method="post" action="/logout" class="inline">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <button type="submit">Log out</button>
+    </form>
+    {% endif %}
+  </div>
+</header>
+<main class="{% block main_class %}content{% endblock %}">
+{% block content %}{% endblock %}
+</main>
+{% block footer %}
+<footer class="statusbar"><a href="/source">Source code</a><span>DocWizard {{ release }}</span></footer>
+{% endblock %}
+{% block scripts %}{% endblock %}
+</body>
+</html>

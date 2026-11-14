@@ -1,0 +1,6 @@
+# Caddy with the static files under /srv/static/<release>/ (ARCHITECTURE.md §18.1).
+FROM caddy:2.10-alpine
+
+ARG RELEASE=0.1.0
+COPY web /srv/static/${RELEASE}
+COPY deploy/Caddyfile /etc/caddy/Caddyfile
