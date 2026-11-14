@@ -7,7 +7,7 @@
 <link rel="modulepreload" href="{{ static }}/app/editor/main.js">
 <meta name="csp-nonce" content="{{ nonce }}">
 {% endblock %}
-{% block crumbs %}<a class="wordmark" href="/">DocWizard</a><span>/</span><a href="/p/{{ project.id }}">{{ project.name }}</a><span>/</span><span>{{ doc.path }}</span>{% endblock %}
+{% block crumbs %}<a class="wordmark" href="/">DocWizard</a><span>/</span><a href="/p/{{ project.id }}" id="crumb-project">{{ project.name }}</a><span>/</span><span id="crumb-doc">{{ doc.path }}</span>{% endblock %}
 {% block actions %}
 <span class="presence" id="presence" aria-label="Also here"></span>
 <span class="status" id="save-state" role="status">Saved</span>
@@ -90,7 +90,7 @@
 {% endif %}
 <dialog id="options-dialog" aria-labelledby="options-title">
   <form method="dialog" class="form" id="options-form">
-    <h2 id="options-title">Layout options · {{ layout.name }}</h2>
+    <h2 id="options-title">Layout options · <span data-layout-name>{{ layout.name }}</span></h2>
     <div id="options-fields"></div>
     <div class="buttons">
       <button type="button" data-close-dialog>Cancel</button>
@@ -113,8 +113,8 @@
 {% block footer %}
 <footer class="statusbar" id="statusbar">
   <span id="word-count"></span>
-  <span>{{ "Markdown" if doc.kind == "markdown" else doc.kind|capitalize }}</span>
-  <span>{{ layout.name }}</span>
+  <span id="doc-kind">{{ "Markdown" if doc.kind == "markdown" else doc.kind|capitalize }}</span>
+  <span data-layout-name>{{ layout.name }}</span>
   <span id="conflict-count"></span>
   <span id="diagnostic"></span>
   <span class="spacer"></span>

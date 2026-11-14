@@ -1,5 +1,7 @@
 // Small DOM and fetch helpers shared by every page.
 
+import { currentOwner, forgetAccount } from "../store/idb.js";
+
 export const $ = (sel, root = document) => root.querySelector(sel);
 export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
@@ -68,6 +70,7 @@ export function confirmDialog(message, actionLabel = "Delete") {
 
 // Shared behaviour: dialogs, clickable rows, confirmations.
 export function wireCommon(root = document) {
+  registerServiceWorker();
   root.addEventListener("click", (event) => {
     const open = event.target.closest("[data-open-dialog]");
     if (open) {
@@ -89,6 +92,14 @@ export function wireCommon(root = document) {
   });
   root.addEventListener("submit", async (event) => {
     const form = event.target;
+    if (form.getAttribute("action") === "/logout" && !form.dataset.forgotten) {
+      // Nothing of this account stays in the browser, except edits still on their way.
+      event.preventDefault();
+      await forgetAccount();
+      form.dataset.forgotten = "1";
+      form.requestSubmit();
+      return;
+    }
     if (form.dataset.confirm && !form.dataset.confirmed) {
       event.preventDefault();
       if (await confirmDialog(form.dataset.confirm)) {
@@ -97,4 +108,11 @@ export function wireCommon(root = document) {
       }
     }
   });
+}
+
+// Signed-in pages install the service worker that keeps the app usable offline (§6.5).
+function registerServiceWorker() {
+  if (!currentOwner() || !document.querySelector('meta[name="dw-user"]')) return;
+  if (!("serviceWorker" in navigator)) return;
+  navigator.serviceWorker.register("/sw.js").catch(() => { /* e.g. an untrusted certificate */ });
 }

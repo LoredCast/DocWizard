@@ -3,7 +3,7 @@
 // this session moves them over the socket, keeps one push in flight, and takes the
 // merge path after long offline periods, pruned history or a rejected update (§8.6).
 import { ChangeSet, ViewPlugin, collab, getSyncedVersion, receiveUpdates, sendableUpdates } from "codemirror";
-import { deleteDoc, putDoc } from "../store/idb.js";
+import { putDoc } from "../store/idb.js";
 
 const REBASE_LIMIT = 5 * 60 * 1000;
 const MAX_PUSH = 100;
@@ -38,6 +38,7 @@ export class DocSession {
     this.persistTimer = null;
     this.retryTimer = null;
     this.lastStatus = "";
+    this.keep = {}; // {url, meta, pinned}: what the offline editor needs besides the text
   }
 
   extension(version) {
@@ -83,6 +84,28 @@ export class DocSession {
     }
     this.persistSoon();
     return this.merges.length > 0;
+  }
+
+  // Reopening this browser's copy without the server (§6.5): the editor starts at the
+  // synced text, and the edits made on top of it become unconfirmed changes again.
+  resume(record) {
+    this.merges = Array.isArray(record.merges) ? record.merges : [];
+    this.offlineSince = record.offlineSince ?? Date.now();
+    this.keep = { url: record.url, meta: record.meta, pinned: record.pinned };
+    const base = record.baseText;
+    const text = record.text;
+    if (text !== base) {
+      let start = 0;
+      while (start < base.length && start < text.length && base[start] === text[start]) start++;
+      let endB = base.length;
+      let endT = text.length;
+      while (endB > start && endT > start && base[endB - 1] === text[endT - 1]) { endB--; endT--; }
+      // Never split a surrogate pair.
+      if (start > 0 && /[\uD800-\uDBFF]/.test(base[start - 1])) start--;
+      if (endB < base.length && /[\uDC00-\uDFFF]/.test(base[endB])) { endB++; endT++; }
+      this.view.dispatch({ changes: { from: start, to: endB, insert: text.slice(start, endT) },
+                           userEvent: "input.offline" });
+    }
   }
 
   unconfirmed() {
@@ -300,14 +323,12 @@ export class DocSession {
     this.persistTimer = setTimeout(() => this.persistNow(), PERSIST_DELAY);
   }
 
+  // Every open document is kept, not only ones with waiting edits, so it opens offline (§6.5).
   persistNow() {
     clearTimeout(this.persistTimer);
     if (!this.view) return;
-    if (!this.unconfirmed() && !this.merges.length) {
-      deleteDoc(this.docId);
-      return;
-    }
     putDoc({
+      ...this.keep,
       docId: this.docId,
       clientID: this.clientID,
       syncedVersion: this.version(),

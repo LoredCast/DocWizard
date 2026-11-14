@@ -1,7 +1,16 @@
 // Page bootstrapping for server-rendered pages (home, project, settings).
-import { $$, api, toast, wireCommon } from "./ui/dom.js";
+import { markPinned, putRecent } from "./store/idb.js";
+import { $, $$, api, toast, wireCommon } from "./ui/dom.js";
 
 wireCommon();
+
+// The home page's recent list is mirrored for the offline home page (§6.5).
+const recentData = $("#recent-data");
+if (recentData) {
+  const items = JSON.parse(recentData.textContent);
+  putRecent(items);
+  markPinned(new Set(items.filter((d) => d.pinned).map((d) => d.docId)));
+}
 
 for (const form of $$("form[data-upload]")) {
   form.addEventListener("submit", async (event) => {

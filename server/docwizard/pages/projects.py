@@ -63,7 +63,11 @@ def register(app) -> None:
             return svc.list_recent(c, uid), svc.list_projects(c, uid)
 
         recent, projects = await app.db.read(load)
+        # Mirrored into IndexedDB so the offline home page can list them (§6.5).
+        mirror = [{"docId": d["id"], "url": doc_url(d["project_id"], d["path"]), "path": d["path"],
+                   "project": d["project"], "openedAt": d["opened_at"], "pinned": bool(d["pinned"])} for d in recent]
         return app.page(req, "home.html", recent=recent, projects=projects, layouts=app.layouts.list(),
+                        recent_json=script_json(mirror),
                         default_layout=app.policy("default_layout"), doc_url=doc_url, error=req.query.get("error"))
 
     async def new_project(req: Request) -> Response:
@@ -180,8 +184,12 @@ def register(app) -> None:
                                                      guest.id if guest else None, now, now))
             if user is not None:
                 svc.touch_recent(c, user.id, doc["id"])
+                row = c.execute("SELECT pinned FROM recent WHERE user_id = ? AND doc_id = ?",
+                                (user.id, doc["id"])).fetchone()
+                return bool(row and row["pinned"])
+            return False
 
-        await app.db.write(work)
+        pinned = await app.db.write(work)
         room = await app.rooms.get(doc["id"])
         text, version = await room.call(lambda: _text_version(room))
         tree = await app.db.read(lambda c: svc.tree(c, pid))
@@ -192,7 +200,7 @@ def register(app) -> None:
         except ValueError:
             options = {}
         snapshot = {
-            "doc": {"id": doc["id"], "path": doc["path"], "kind": doc["kind"]},
+            "doc": {"id": doc["id"], "path": doc["path"], "kind": doc["kind"], "pinned": pinned},
             "project": {"id": pid, "name": project["name"]},
             "version": version,
             "text": text,

@@ -12,6 +12,7 @@
 <meta name="theme-color" content="#000000">
 {% endif %}
 <meta name="csrf-token" content="{{ csrf }}">
+{% if user %}<meta name="dw-user" content="u{{ user.id }}">{% elif guest %}<meta name="dw-user" content="g{{ guest.id }}">{% endif %}
 <title>{% block title %}DocWizard{% endblock %}</title>
 <link rel="icon" href="{{ static }}/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="{{ static }}/css/app.css">

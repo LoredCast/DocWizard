@@ -5,21 +5,43 @@ import { PresenceSender, PresenceView, peersField } from "../collab/presence.js"
 import { Socket } from "../collab/socket.js";
 import { HtmlPreview, headingId } from "../preview/html.js";
 import { PdfPreview } from "../preview/pdf.js";
-import { getDoc, prune } from "../store/idb.js";
+import { getCitations, getDoc, getDocByUrl, prune, putCitations, putLayout } from "../store/idb.js";
 import { $, api, confirmDialog, el, toast, wireCommon } from "../ui/dom.js";
 import { AnchorLoader, anchorsField, conflictGutter } from "./anchors.js";
 import { setLibrary } from "./citations.js";
 import { CommentsPanel } from "./comments.js";
 import { baseExtensions } from "./setup.js";
 
-const snap = JSON.parse($("#snapshot").textContent);
+wireCommon();
+
+// Online, the page embeds a snapshot. Offline, the service worker serves the editor
+// shell without one, and the document opens from this browser's copy (§6.5).
+let snap = JSON.parse($("#snapshot").textContent);
+const offlineRecord = snap ? null : await getDocByUrl(location.pathname);
+if (!snap) {
+  if (!offlineRecord?.meta) {
+    $("#split").replaceChildren(el("section", { class: "pad" },
+      el("h2", {}, "Not available offline"),
+      el("p", {}, "This document hasn't been opened in this browser recently. Open it again when you're online."),
+      el("p", {}, el("a", { href: "/" }, "Documents available offline"))));
+    await new Promise(() => {}); // nothing else on this page can work
+  }
+  snap = { ...offlineRecord.meta, text: offlineRecord.baseText, version: offlineRecord.syncedVersion,
+           clientID: offlineRecord.clientID };
+  document.title = `${snap.doc.path} · ${snap.project.name} · DocWizard`;
+  $("#crumb-project").textContent = snap.project.name;
+  $("#crumb-project").href = `/p/${snap.project.id}`;
+  $("#crumb-doc").textContent = snap.doc.path;
+  $("#doc-kind").textContent = snap.doc.kind === "markdown" ? "Markdown"
+    : snap.doc.kind.charAt(0).toUpperCase() + snap.doc.kind.slice(1);
+  for (const node of document.querySelectorAll("[data-layout-name]")) node.textContent = snap.layout?.name ?? "";
+}
 const docId = snap.doc.id;
 const projectId = snap.project.id;
 const kind = snap.doc.kind;
 const readOnly = !snap.can.edit;
 const isMarkdown = kind === "markdown";
 
-wireCommon();
 const split = $("#split");
 
 // -- Preferences ---------------------------------------------------------
@@ -70,18 +92,30 @@ const view = new EditorView({
     if (trs.some((tr) => tr.selection)) cursorMoved();
   },
 });
+const { text: _text, version: _version, clientID: _clientID, ...meta } = snap;
+session.keep = { url: location.pathname, meta, pinned: Boolean(snap.doc.pinned) };
 session.start(view);
 view.focus();
 
-getDoc(docId).then((record) => {
-  if (record && record.clientID !== undefined && session.restore(record)) {
-    toast("Unsaved edits from this browser are being merged in.");
-    session.reportStatus();
-  }
-  prune();
-});
+if (!offlineRecord) {
+  getDoc(docId).then((record) => {
+    if (record && record.clientID !== undefined && session.restore(record)) {
+      toast("Unsaved edits from this browser are being merged in.");
+      session.reportStatus();
+    }
+    session.persistSoon();
+    prune();
+  });
+  if (snap.layout) putLayout(snap.layout);
+}
 
 function showStatus({ state, waiting }) {
+  // The offline editor has no CSRF token or server data: once everything it held is
+  // on the server, the real page takes over.
+  if (offlineRecord && state === "saved") {
+    location.reload();
+    return;
+  }
   const label = {
     saved: "Saved",
     saving: "Saving…",
@@ -172,6 +206,14 @@ function docChanged() {
 let citationsEtag = "";
 async function loadCitations() {
   if (!isMarkdown) return;
+  if (!citationsEtag) {
+    const cached = await getCitations(projectId);
+    if (cached) {
+      citationsEtag = cached.etag;
+      library = new Map(cached.items.map((item) => [item.id, item]));
+      view.dispatch({ effects: setLibrary.of(library) });
+    }
+  }
   try {
     const res = await fetch(`/api/projects/${projectId}/citations`, {
       credentials: "same-origin", headers: citationsEtag ? { "If-None-Match": citationsEtag } : {},
@@ -179,6 +221,7 @@ async function loadCitations() {
     if (res.status === 304 || !res.ok) return;
     citationsEtag = res.headers.get("etag") ?? "";
     const data = await res.json();
+    putCitations(projectId, citationsEtag, data.items);
     library = new Map(data.items.map((item) => [item.id, item]));
     view.dispatch({ effects: setLibrary.of(library) });
   } catch {
@@ -598,3 +641,11 @@ document.addEventListener("keydown", (event) => {
     if (snap.can.comment) comments.compose();
   }
 });
+
+// Last, once everything above exists: the offline editor starts at the synced version
+// and replays this browser's edits on top as unconfirmed changes, which are sent (or
+// merged, after a long time) once the server is back.
+if (offlineRecord) {
+  session.resume(offlineRecord);
+  session.reportStatus();
+}

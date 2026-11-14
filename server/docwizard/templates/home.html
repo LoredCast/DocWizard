@@ -3,6 +3,7 @@
 {% block content %}
 {% if error %}<p class="error pad" role="alert">{{ error }}</p>{% endif %}
 <h2 class="pad">Recent</h2>
+<script type="application/json" id="recent-data">{{ recent_json|safe }}</script>
 {% if recent %}
 <table>
   <thead><tr><th>Name</th><th>Project</th><th>Opened</th><th class="num">Size</th><th><span class="visually-hidden">Pin</span></th></tr></thead>
