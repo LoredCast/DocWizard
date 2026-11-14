@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import secrets
 import shutil
 from dataclasses import dataclass, field
@@ -72,7 +73,10 @@ def new_job_id() -> str:
     return "j_" + secrets.token_hex(16)
 
 
-def metadata(layout: Layout, project_options: dict, inputs: list[str]) -> dict:
+CSL_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,80}$")
+
+
+def metadata(layout: Layout, project_options: dict, inputs: list[str], layout_dir: Path | None = None) -> dict:
     """Option precedence: front matter, then project settings, then layout defaults (§9.3).
 
     The values go in a --metadata-file, which pandoc lets the document override.
@@ -87,6 +91,21 @@ def metadata(layout: Layout, project_options: dict, inputs: list[str]) -> dict:
     if "link-citations" in defaults:
         meta.setdefault("link-citations", defaults["link-citations"])
     meta.setdefault("pagetitle", os.path.splitext(os.path.basename(inputs[0]))[0] if inputs else "Document")
+    # The citation style: a layout option naming a bundled style, else the layout's own CSL
+    # file. Front matter `csl:` still wins, since the document overrides the metadata file.
+    style = meta.pop("citation-style", None)
+    if layout_dir is not None:
+        own = layout.manifest.get("csl")
+        for choice in (style, own):
+            if not isinstance(choice, str) or not choice:
+                continue
+            bundled = layout_dir / "_csl" / f"{choice.removesuffix('.csl')}.csl"
+            if CSL_ID.match(choice.removesuffix(".csl")) and bundled.is_file():
+                meta["csl"] = bundled.name  # found through --resource-path, so no server path shows in outputs
+                break
+            if choice is own and ".." not in choice and (layout_dir / choice).is_file():
+                meta["csl"] = str(layout_dir / choice)
+                break
     return meta
 
 
@@ -96,7 +115,7 @@ def pandoc_steps(layout: Layout, layout_dir: Path, target: str, inputs: list[str
     L = str(layout_dir)
     spec = layout.targets.get(target if target != "typ-source" else "pdf-typst", {})
     common = [*inputs, "--from", "markdown", "--standalone", "--metadata-file", "../options.json",
-              "--resource-path", "."]
+              "--resource-path", f".:{L}/_csl"]
     for name in layout.manifest.get("filters", []):
         if name in BUILTIN_FILTERS:
             common += ["--lua-filter", f"{L}/_builtin/{name}.lua"]

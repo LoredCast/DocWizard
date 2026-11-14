@@ -398,7 +398,7 @@ function optionField(name, spec, value) {
   if (spec.type === "enum") {
     return el("label", {}, label,
       el("select", { name }, spec.values.map((v) =>
-        el("option", { value: v, selected: v === current }, v === "" ? "None" : v))));
+        el("option", { value: v, selected: v === current }, spec.labels?.[v] ?? (v === "" ? "None" : v)))));
   }
   if (spec.type === "number") {
     return el("label", {}, label,

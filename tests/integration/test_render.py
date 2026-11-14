@@ -201,3 +201,27 @@ async def test_zotero_bibliography_resolves(rapp, rclient):
     assert data["status"] == "ok", data
     out = (await rclient.get(data["url"])).text
     assert "Zotfamily" in out and "From Zotero" in out and "Doe" in out
+
+
+async def test_citation_styles_and_article_layout(rapp, rclient):
+    pid = await new_project(rclient)
+    snap = await open_editor(rclient, pid)
+    project = dict(await rapp.db.fetchone("SELECT * FROM projects WHERE id = ?", (pid,)))
+    path = snap["doc"]["path"]
+    chicago = await rapp.renderer.render(project, "md-resolved", doc_path=path)
+    apa = await rapp.renderer.render(project, "md-resolved", doc_path=path, options={"citation-style": "apa"})
+    ieee = await rapp.renderer.render(project, "md-resolved", doc_path=path, options={"citation-style": "ieee"})
+    texts = []
+    for res in (chicago, apa, ieee):
+        assert res.status == "ok", res.diagnostics
+        texts.append((rapp.renderer.renders_dir / res.key / res.output).read_text())
+    assert "[Doe 2020, 4]" in texts[0] and "Doe, Jane. 2020." in texts[0]
+    assert "[Doe, 2020, p. 4]" in texts[1] and "Doe, J. (2020)." in texts[1]
+    assert "[\\[1, p. 4\\]]" in texts[2]
+    assert "/cache/" not in texts[0]  # no server paths in exports
+    if HAS_TYPST:
+        art = await rapp.renderer.render(project, "pdf-typst", doc_path=path, layout_id="article")
+        assert art.status == "ok", art.diagnostics
+        one = await rapp.renderer.render(project, "pdf-typst", doc_path=path, layout_id="article",
+                                         options={"columns": "1", "citation-style": "din-1505-2"})
+        assert one.status == "ok", one.diagnostics

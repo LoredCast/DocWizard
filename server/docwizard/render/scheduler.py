@@ -215,7 +215,7 @@ class Renderer:
         layout_dir = await asyncio.to_thread(self.app.layouts.cached_dir, layout)
         approved = self.app.layouts.filters_approved(layout)
         steps, copies = jobs.pandoc_steps(layout, layout_dir, target, inputs, options, approved)
-        meta = jobs.metadata(layout, options, inputs)
+        meta = jobs.metadata(layout, options, inputs, layout_dir)
         limits = {"cpu_seconds": self.cfg.render.timeout_seconds, "memory_mb": self.cfg.render.memory_mb,
                   "wall_seconds": self.cfg.render.timeout_seconds}
         job = {"id": job_id, "kind": "render", "inputs": inputs, "target": target, "layout": layout.content_sha256,

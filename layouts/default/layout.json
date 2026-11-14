@@ -2,20 +2,90 @@
   "id": "default",
   "name": "Default",
   "version": "1.0.0",
-  "description": "Clean single-column output. A4, 11 pt, Chicago author-date citations.",
+  "description": "Clean single-column output. A4, 11 pt, Chicago author-date citations by default.",
   "targets": {
-    "html": {"template": "html/template.html", "css": ["html/style.css"]},
-    "pdf-typst": {"template": "typst/template.typ"},
+    "html": {
+      "template": "html/template.html",
+      "css": [
+        "html/style.css"
+      ]
+    },
+    "pdf-typst": {
+      "template": "typst/template.typ"
+    },
     "docx": {},
     "odt": {}
   },
   "defaultPdf": "pdf-typst",
-  "filters": ["crossref"],
+  "filters": [
+    "crossref"
+  ],
   "variables": {
-    "papersize": {"type": "enum", "values": ["a4", "us-letter"], "default": "a4", "label": "Paper size"},
-    "fontsize": {"type": "enum", "values": ["10pt", "11pt", "12pt"], "default": "11pt", "label": "Font size"},
-    "linestretch": {"type": "number", "min": 1, "max": 2, "step": 0.25, "default": 1.25, "label": "Line spacing"},
-    "section-numbering": {"type": "enum", "values": ["", "1.1", "1.a", "I.1"], "default": "", "label": "Section numbering"},
-    "toc": {"type": "boolean", "default": false, "label": "Table of contents"}
+    "papersize": {
+      "type": "enum",
+      "values": [
+        "a4",
+        "us-letter"
+      ],
+      "default": "a4",
+      "label": "Paper size"
+    },
+    "fontsize": {
+      "type": "enum",
+      "values": [
+        "10pt",
+        "11pt",
+        "12pt"
+      ],
+      "default": "11pt",
+      "label": "Font size"
+    },
+    "linestretch": {
+      "type": "number",
+      "min": 1,
+      "max": 2,
+      "step": 0.25,
+      "default": 1.25,
+      "label": "Line spacing"
+    },
+    "section-numbering": {
+      "type": "enum",
+      "values": [
+        "",
+        "1.1",
+        "1.a",
+        "I.1"
+      ],
+      "default": "",
+      "label": "Section numbering"
+    },
+    "toc": {
+      "type": "boolean",
+      "default": false,
+      "label": "Table of contents"
+    },
+    "citation-style": {
+      "type": "enum",
+      "values": [
+        "chicago-author-date",
+        "chicago-notes-bibliography",
+        "apa",
+        "modern-language-association",
+        "harvard-cite-them-right",
+        "ieee",
+        "din-1505-2"
+      ],
+      "labels": {
+        "chicago-author-date": "Chicago author-date",
+        "chicago-notes-bibliography": "Chicago notes and bibliography",
+        "apa": "APA 7th edition",
+        "modern-language-association": "MLA 9th edition",
+        "harvard-cite-them-right": "Harvard (Cite Them Right)",
+        "ieee": "IEEE",
+        "din-1505-2": "DIN 1505-2 (German)"
+      },
+      "default": "chicago-author-date",
+      "label": "Citation style"
+    }
   }
 }

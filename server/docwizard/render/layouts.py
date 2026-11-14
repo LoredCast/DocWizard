@@ -18,6 +18,7 @@ from pathlib import Path
 
 REPO_LAYOUTS = Path(__file__).resolve().parents[3] / "layouts"
 REPO_FILTERS = Path(__file__).resolve().parents[3] / "filters"
+REPO_CSL = Path(__file__).resolve().parents[3] / "csl"
 _BUILTIN_HASH: list[str] = []
 
 
@@ -26,6 +27,8 @@ def builtin_filters_hash() -> str:
     if not _BUILTIN_HASH:
         h = hashlib.sha256()
         for f in sorted(REPO_FILTERS.glob("*.lua")) if REPO_FILTERS.is_dir() else []:
+            h.update(f.name.encode() + b"\0" + f.read_bytes())
+        for f in sorted(REPO_CSL.glob("*.csl")) if REPO_CSL.is_dir() else []:
             h.update(f.name.encode() + b"\0" + f.read_bytes())
         _BUILTIN_HASH.append(h.hexdigest())
     return _BUILTIN_HASH[0]
@@ -39,6 +42,15 @@ DEFAULTS_ALLOWLIST = {
 }
 TARGET_KEYS = {"template", "css", "reference", "engine"}
 _ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
+
+
+def bundled_styles() -> dict[str, str]:
+    """Citation styles shipped with DocWizard: id -> title."""
+    out = {}
+    for f in sorted(REPO_CSL.glob("*.csl")) if REPO_CSL.is_dir() else []:
+        m = re.search(r"<title>([^<]+)</title>", f.read_text(encoding="utf-8", errors="replace")[:4000])
+        out[f.stem] = m.group(1) if m else f.stem
+    return out
 
 
 class LayoutError(ValueError):
@@ -251,6 +263,11 @@ class Layouts:
             (tmp / "_builtin").mkdir(parents=True, exist_ok=True)
             for f in REPO_FILTERS.glob("*.lua"):
                 shutil.copyfile(f, tmp / "_builtin" / f.name)
+        # Bundled citation styles (§10.1).
+        if REPO_CSL.is_dir():
+            (tmp / "_csl").mkdir(parents=True, exist_ok=True)
+            for f in REPO_CSL.glob("*.csl"):
+                shutil.copyfile(f, tmp / "_csl" / f.name)
         try:
             tmp.rename(target)
         except OSError:
