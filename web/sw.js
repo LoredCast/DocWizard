@@ -1,8 +1,9 @@
 // Service worker (ARCHITECTURE.md §6.5). The app serves this file at /sw.js with the
-// release's manifest injected, so each release precaches its own assets and the two
-// offline shells, and drops the caches of older releases.
+// release's manifest injected, so each version of the static files is precached with
+// the two offline shells, and the caches of older versions are dropped.
 const MANIFEST = self.__MANIFEST__;
-const CACHE = `docwizard-${MANIFEST.release}`;
+// The version changes whenever a static file does, not only with the release.
+const CACHE = `docwizard-${MANIFEST.version}`;
 const [HOME_SHELL, EDITOR_SHELL] = MANIFEST.shells;
 
 self.addEventListener("install", (event) => {
