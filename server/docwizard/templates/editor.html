@@ -11,9 +11,12 @@
 {% block actions %}
 <span class="presence" id="presence" aria-label="Also here"></span>
 <span class="status" id="save-state" role="status">Saved</span>
+<button type="button" id="new-comment" title="Comment on the selection (Ctrl+Alt+M)">Comment</button>
+<button type="button" id="open-comments" aria-pressed="false">Comments</button>
 <button type="button" id="toggle-preview" aria-pressed="true">Preview</button>
 <button type="button" id="open-export">Export</button>
 <button type="button" id="open-versions">Versions</button>
+{% if can(role, "share", project) and not guest %}<button type="button" id="open-share">Share</button>{% endif %}
 {% endblock %}
 {% block main_class %}workspace{% endblock %}
 {% block content %}
@@ -31,6 +34,10 @@
     </div>
     <iframe id="preview" title="Preview" sandbox referrerpolicy="no-referrer"></iframe>
   </section>
+  <aside class="pane side-panel" id="side-panel" aria-label="Comments" hidden>
+    <div class="pane-head"><span>Comments</span><span class="spacer"></span><button type="button" id="close-panel">Close</button></div>
+    <div class="panel-body" id="comments-list"></div>
+  </aside>
 </div>
 <dialog id="export-dialog" aria-labelledby="export-title">
   <form method="dialog" class="form" id="export-form">
@@ -48,6 +55,7 @@
         <option value="md-source">Project source (zip)</option>
       </select>
     </label>
+    <p id="export-conflicts" class="error"></p>
     <p id="export-status" class="muted" role="status"></p>
     <div class="buttons">
       <button type="button" data-close-dialog>Close</button>
@@ -55,6 +63,31 @@
     </div>
   </form>
 </dialog>
+{% if can(role, "share", project) and not guest %}
+<dialog id="share-dialog" aria-labelledby="share-title">
+  <div class="form">
+    <h2 id="share-title">Share {{ project.name }}</h2>
+    <p class="muted">Anyone with a link can open this project with the link's role. People with an account join as members; everyone else enters a name and joins as a guest.</p>
+    <p class="muted" id="share-guest-note" hidden>Guest access is turned off on this server, so people need an account.</p>
+    <ul class="plain" id="share-links"></ul>
+    <form class="form" id="share-form">
+      <div class="row">
+        <label>Role <select name="role"></select></label>
+        <label>Expires
+          <select name="expires_days"><option value="">Never</option><option value="1">In 1 day</option><option value="7">In 7 days</option><option value="30">In 30 days</option></select>
+        </label>
+      </div>
+      <label>Password (optional) <input name="password" type="password" autocomplete="new-password" minlength="6"></label>
+      <label>Name (optional) <input name="label" maxlength="80" placeholder="Seminar group"></label>
+      <div class="row" id="share-result"></div>
+      <div class="buttons">
+        <button type="button" data-close-dialog>Close</button>
+        <button type="submit" class="primary">Create share link</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+{% endif %}
 <dialog id="options-dialog" aria-labelledby="options-title">
   <form method="dialog" class="form" id="options-form">
     <h2 id="options-title">Layout options · {{ layout.name }}</h2>

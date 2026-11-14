@@ -84,6 +84,9 @@ export function wireCommon(root = document) {
       location.href = row.dataset.href;
     }
   });
+  root.addEventListener("focusin", (event) => {
+    if (event.target.matches?.("[data-select-on-focus]")) event.target.select();
+  });
   root.addEventListener("submit", async (event) => {
     const form = event.target;
     if (form.dataset.confirm && !form.dataset.confirmed) {

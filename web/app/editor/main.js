@@ -1,5 +1,5 @@
 // The editor page: wires the editor, collaboration, preview, export, layout options and versions.
-import { EditorState, EditorView } from "codemirror";
+import { EditorSelection, EditorState, EditorView } from "codemirror";
 import { DocSession } from "../collab/peer.js";
 import { PresenceSender, PresenceView, peersField } from "../collab/presence.js";
 import { Socket } from "../collab/socket.js";
@@ -7,17 +7,20 @@ import { HtmlPreview, headingId } from "../preview/html.js";
 import { PdfPreview } from "../preview/pdf.js";
 import { getDoc, prune } from "../store/idb.js";
 import { $, api, confirmDialog, el, toast, wireCommon } from "../ui/dom.js";
+import { AnchorLoader, anchorsField, conflictGutter } from "./anchors.js";
 import { setLibrary } from "./citations.js";
+import { CommentsPanel } from "./comments.js";
 import { baseExtensions } from "./setup.js";
 
 const snap = JSON.parse($("#snapshot").textContent);
 const docId = snap.doc.id;
 const projectId = snap.project.id;
 const kind = snap.doc.kind;
-const readOnly = !["owner", "editor"].includes(snap.role);
+const readOnly = !snap.can.edit;
 const isMarkdown = kind === "markdown";
 
 wireCommon();
+const split = $("#split");
 
 // -- Preferences ---------------------------------------------------------
 const root = document.documentElement;
@@ -35,15 +38,24 @@ const store = (key, value) => {
 const socket = new Socket();
 const base = baseExtensions({ kind, readOnly });
 let library = new Map();
+// Clicking commented text opens its thread.
+const markClicks = EditorView.domEventHandlers({
+  click(event) {
+    const mark = event.target.closest?.("[data-thread]");
+    if (mark) comments.focusThread(Number(mark.dataset.thread));
+    return false;
+  },
+});
 let layoutOptions = { ...snap.layoutOptions };
 
 const session = new DocSession({
   socket, docId, clientID: snap.clientID, text: snap.text, version: snap.version,
-  makeState: (text, version) => EditorState.create({ doc: text, extensions: [base, peersField,
-                                                                              session.extension(version)] }),
+  makeState: (text, version) => EditorState.create({ doc: text, extensions: [
+    base, peersField, anchorsField, conflictGutter((id) => openConflicts(id)), markClicks,
+    session.extension(version)] }),
   onStatus: showStatus,
   onEvent: handleEvent,
-  onUpdates: () => presence.flush(),
+  onUpdates: () => { presence.flush(); comments.flush(); conflictLoader.flush(); },
 });
 const presenceSender = new PresenceSender(session, socket, docId);
 const presence = new PresenceView(session, showPeers);
@@ -93,6 +105,8 @@ function handleEvent(msg) {
   switch (msg.t) {
     case "opened":
       presence.replaceAll(msg.version, msg.peers ?? []);
+      comments.load();
+      loadConflicts();
       presenceSender.reset();
       presenceSender.send(true);
       if (msg.role && msg.role !== snap.role && ["viewer", "commenter"].includes(msg.role) && !readOnly) {
@@ -113,6 +127,9 @@ function handleEvent(msg) {
       break;
     case "conflicts":
       loadConflicts();
+      break;
+    case "comments":
+      comments.load();
       break;
     case "rendered":
       showRendered(msg);
@@ -173,7 +190,6 @@ loadCitations();
 window.addEventListener("focus", loadCitations);
 
 // -- Preview -------------------------------------------------------------
-const split = $("#split");
 const pane = $("#preview-pane");
 const frame = $("#preview");
 const html = new HtmlPreview(frame);
@@ -424,50 +440,148 @@ $("#version-form").addEventListener("submit", async (event) => {
   }
 });
 
-// -- Conflicts ------------------------------------------------------------
+// -- Comments ---------------------------------------------------------------
+const sidePanel = $("#side-panel");
+const comments = new CommentsPanel({
+  session, docId, panel: sidePanel, list: $("#comments-list"),
+  onCount: (n) => { $("#open-comments").textContent = n ? `Comments (${n})` : "Comments"; },
+});
+sidePanel.addEventListener("toggle", () => {
+  split.classList.toggle("with-panel", !sidePanel.hidden);
+  $("#open-comments").setAttribute("aria-pressed", String(!sidePanel.hidden));
+});
+$("#open-comments").addEventListener("click", () => (comments.open ? comments.hide() : comments.show()));
+$("#close-panel").addEventListener("click", () => comments.hide());
+$("#new-comment").hidden = !snap.can.comment;
+$("#new-comment").addEventListener("click", () => comments.compose());
+
+// -- Conflicts (§12.3) ------------------------------------------------------
 let conflicts = [];
-async function loadConflicts() {
-  try {
-    ({ conflicts } = await api("GET", `/api/documents/${docId}/conflicts`));
-  } catch {
-    return;
-  }
+const conflictLoader = new AnchorLoader(session, "conflict", async () => {
+  const data = await api("GET", `/api/documents/${docId}/conflicts`);
+  conflicts = data.conflicts;
+  showConflictCount();
+  return { version: data.version, items: conflicts };
+});
+const loadConflicts = () => conflictLoader.load();
+
+function showConflictCount() {
   const slot = $("#conflict-count");
   slot.replaceChildren();
   if (conflicts.length) {
-    slot.append(el("button", { type: "button", class: "link", onclick: openConflicts },
+    slot.append(el("button", { type: "button", class: "link danger-text", onclick: () => openConflicts() },
       `${conflicts.length} ${conflicts.length === 1 ? "conflict" : "conflicts"}`));
   }
+  const note = $("#export-conflicts");
+  note.textContent = conflicts.length
+    ? `${conflicts.length} ${conflicts.length === 1 ? "conflict is" : "conflicts are"} not resolved yet.` : "";
 }
-loadConflicts();
 
-function openConflicts() {
-  const items = conflicts.map((c) => el("li", {},
-    el("p", { class: "muted" }, `${c.version_label ?? c.source}`),
-    el("p", {}, "Their text: ", el("q", {}, c.theirs_text || "(deleted)")),
-    el("div", { class: "buttons" },
-      el("button", { type: "button", onclick: () => navigator.clipboard?.writeText(c.theirs_text) }, "Copy their text"),
-      readOnly ? null : el("button", { type: "button", onclick: () => resolveConflict(c, dialog) }, "Mark resolved"))));
-  const dialog = el("dialog", { "aria-label": "Conflicts" },
-    el("div", { class: "form" },
-      el("h2", {}, "Conflicts"),
-      el("p", { class: "muted" }, "Both sides changed these passages. The document kept its current text; the other side's text is below, and their whole version is saved under Versions."),
-      el("ul", { class: "plain" }, items),
+function conflictRange(id) {
+  return view.state.field(anchorsField).conflict.find((a) => a.id === id);
+}
+
+function openConflicts(focusId = null) {
+  if (!conflicts.length) return;
+  const dialog = el("dialog", { "aria-labelledby": "conflicts-title", class: "wide" });
+  const render = () => {
+    if (!conflicts.length) { dialog.close(); return; }
+    const items = conflicts.map((c) => {
+      const range = conflictRange(c.id);
+      const ours = range ? view.state.sliceDoc(range.from, range.to) : c.ours_text;
+      return el("li", { class: c.id === focusId ? "conflict active" : "conflict" },
+        el("p", { class: "muted" }, c.version_label ?? c.source),
+        el("div", { class: "compare" },
+          el("div", {}, el("p", { class: "muted" }, "Current text"), el("pre", { class: "alt" }, ours || "(empty)")),
+          el("div", {}, el("p", { class: "muted" }, "Their text"), el("pre", { class: "alt" }, c.theirs_text || "(deleted)"))),
+        readOnly ? null : el("div", { class: "buttons" },
+          el("button", { type: "button", onclick: () => resolveConflict(c, "ours") }, "Keep current text"),
+          el("button", { type: "button", onclick: () => resolveConflict(c, "theirs") }, "Use their text"),
+          el("button", { type: "button", onclick: () => resolveConflict(c, "edit") }, "Edit by hand")));
+    });
+    dialog.replaceChildren(el("div", { class: "form" },
+      el("h2", { id: "conflicts-title" }, "Conflicts"),
+      el("p", { class: "muted" }, "Both sides changed these passages. The document kept the current text; the whole other version is saved under Versions."),
+      el("ul", { class: "plain conflicts" }, items),
       el("div", { class: "buttons" }, el("button", { type: "button", "data-close-dialog": true }, "Close"))));
-  dialog.addEventListener("close", () => dialog.remove());
+  };
+
+  async function resolveConflict(c, how) {
+    const range = conflictRange(c.id);
+    if (how === "edit") {
+      dialog.close();
+      if (range) {
+        view.dispatch({ selection: EditorSelection.range(range.from, range.to), scrollIntoView: true });
+        view.focus();
+      }
+      toast("Edit the passage, then choose Keep current text to close the conflict.");
+      return;
+    }
+    if (how === "theirs" && range) {
+      view.dispatch({ changes: { from: range.from, to: range.to, insert: c.theirs_text } });
+    }
+    try {
+      await api("PATCH", `/api/documents/${docId}/conflicts/${c.id}`, {});
+      conflicts = conflicts.filter((x) => x.id !== c.id);
+      showConflictCount();
+      render();
+    } catch (err) {
+      toast(err.message, { error: true });
+    }
+  }
+
+  render();
+  dialog.addEventListener("close", () => { dialog.remove(); loadConflicts(); });
   document.body.append(dialog);
   dialog.showModal();
 }
 
-async function resolveConflict(c, dialog) {
-  try {
-    await api("PATCH", `/api/documents/${docId}/conflicts/${c.id}`, {});
-    dialog.close();
-    await loadConflicts();
-    if (conflicts.length) openConflicts();
-  } catch (err) {
-    toast(err.message, { error: true });
+// -- Share (§14.1) -------------------------------------------------------------
+const shareButton = $("#open-share");
+if (shareButton) {
+  const dialog = $("#share-dialog");
+  const list = $("#share-links");
+  const roleSelect = $("#share-form").elements.role;
+  async function loadLinks() {
+    list.replaceChildren(el("li", { class: "muted" }, "Loading…"));
+    try {
+      const data = await api("GET", `/api/projects/${projectId}/shares`);
+      roleSelect.replaceChildren(...data.roles.map((r) => el("option", { value: r }, r[0].toUpperCase() + r.slice(1))));
+      list.replaceChildren(...data.links.map((l) => el("li", {},
+        el("span", { class: "spacer" }, l.label || "Link", " ",
+          el("span", { class: "muted" }, `(${[l.role, l.has_password && "password", l.expired ? "expired" : l.expires_at && "expires",
+                                               l.guests && `${l.guests} ${l.guests === 1 ? "guest" : "guests"}`].filter(Boolean).join(", ")})`)),
+        el("button", { type: "button", class: "link", onclick: async () => {
+          await api("DELETE", `/api/projects/${projectId}/shares/${l.id}`);
+          loadLinks();
+        } }, "Revoke"))));
+      if (!data.links.length) list.append(el("li", { class: "muted" }, "No share links yet."));
+      $("#share-guest-note").hidden = data.guests;
+    } catch (err) {
+      list.replaceChildren(el("li", { class: "error" }, err.message));
+    }
   }
+  shareButton.addEventListener("click", () => {
+    $("#share-result").replaceChildren();
+    dialog.showModal();
+    loadLinks();
+  });
+  $("#share-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const f = event.target.elements;
+    try {
+      const { url } = await api("POST", `/api/projects/${projectId}/shares`, {
+        role: f.role.value, expires_days: f.expires_days.value, password: f.password.value, label: f.label.value });
+      const input = el("input", { readonly: true, value: url, "aria-label": "Share link", "data-select-on-focus": true });
+      $("#share-result").replaceChildren(input,
+        el("button", { type: "button", onclick: () => { navigator.clipboard?.writeText(url); toast("Link copied."); } }, "Copy link"));
+      input.focus();
+      event.target.reset();
+      loadLinks();
+    } catch (err) {
+      toast(err.message, { error: true });
+    }
+  });
 }
 
 // -- Keyboard -------------------------------------------------------------
@@ -479,5 +593,8 @@ document.addEventListener("keydown", (event) => {
   } else if (mod && event.key === "e" && !event.shiftKey) {
     event.preventDefault();
     $("#open-export").click();
+  } else if (mod && event.altKey && (event.key === "m" || event.code === "KeyM")) {
+    event.preventDefault();
+    if (snap.can.comment) comments.compose();
   }
 });
