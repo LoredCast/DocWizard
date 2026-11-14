@@ -238,10 +238,17 @@ const frame = $("#preview");
 const html = new HtmlPreview(frame);
 const pdf = new PdfPreview(pane);
 const narrow = window.matchMedia("(max-width: 900px)");
-let target = stored("dw.previewTarget", "html") === "pdf" ? "pdf-typst" : "html";
+// LaTeX documents preview the project's root as a PDF built with LaTeX; Markdown uses the
+// layout's PDF engine (§9.5).
+const isLatex = kind === "latex";
+const pdfTarget = isLatex ? "pdf-latex" : (snap.layout.defaultPdf === "pdf-latex" ? "pdf-latex" : "pdf-typst");
+let target = isLatex || stored("dw.previewTarget", "html") === "pdf" ? pdfTarget : "html";
 let previewOn = stored("dw.preview", "on") === "on";
 let previewTimer = null;
-let shown = { html: -1, "pdf-typst": -1 };
+let shown = { html: -1, "pdf-typst": -1, "pdf-latex": -1 };
+if (isLatex) {
+  for (const radio of document.querySelectorAll('input[name="preview-target"]')) radio.closest("label").hidden = true;
+}
 
 $(`input[name="preview-target"][value="${target === "html" ? "html" : "pdf"}"]`).checked = true;
 const darkPaper = $("#dark-paper");
@@ -284,7 +291,7 @@ $("#toggle-preview").addEventListener("click", () => {
 
 for (const radio of document.querySelectorAll('input[name="preview-target"]')) {
   radio.addEventListener("change", () => {
-    target = radio.value === "pdf" ? "pdf-typst" : "html";
+    target = radio.value === "pdf" ? pdfTarget : "html";
     store("dw.previewTarget", radio.value);
     applyPreviewLayout();
     requestPreview(0);
@@ -312,7 +319,8 @@ function showRendered(msg) {
   const errors = (msg.diagnostics ?? []).filter((d) => d.severity === "error");
   if (errors.length) {
     const d = errors[0];
-    diag.textContent = d.line ? `Line ${d.line}: ${d.message}` : d.message;
+    const elsewhere = d.file && !snap.doc.path.endsWith(d.file);
+    diag.textContent = d.line ? `${elsewhere ? `${d.file}, line` : "Line"} ${d.line}: ${d.message}` : d.message;
     diag.className = "diagnostic-error";
     diag.title = errors.map((e) => e.message).join("\n");
   } else {
@@ -431,7 +439,7 @@ $("#options-form").addEventListener("submit", async (event) => {
     await api("PATCH", `/api/projects/${projectId}`, { layoutOptions: next });
     layoutOptions = next;
     optionsDialog.close();
-    shown = { html: -1, "pdf-typst": -1 };
+    shown = { html: -1, "pdf-typst": -1, "pdf-latex": -1 };
     requestPreview(0);
   } catch (err) {
     toast(err.message, { error: true });

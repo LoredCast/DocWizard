@@ -225,3 +225,48 @@ async def test_citation_styles_and_article_layout(rapp, rclient):
         one = await rapp.renderer.render(project, "pdf-typst", doc_path=path, layout_id="article",
                                          options={"columns": "1", "citation-style": "din-1505-2"})
         assert one.status == "ok", one.diagnostics
+
+
+HAS_LATEX = shutil.which("latexmk", path=_path()) is not None and shutil.which("lualatex", path=_path()) is not None
+
+
+@pytest.mark.skipif(not HAS_LATEX, reason="needs latexmk and lualatex")
+async def test_latex_projects(rapp, rclient):
+    pid = await new_project(rclient)
+    main = ("\\documentclass{article}\n\\begin{document}\nHello from \\LaTeX.\n\\input{chapters/intro}\n"
+            "\\end{document}\n")
+    for path, text in (("main.tex", main), ("chapters/intro.tex", "An introduction.\n")):
+        r = await rclient.post(f"/api/projects/{pid}/documents", json={"path": path, "text": text})
+        assert r.status == 201, r.text
+    project = dict(await rapp.db.fetchone("SELECT * FROM projects WHERE id = ?", (pid,)))
+    # Editing a chapter builds the root.
+    res = await rapp.renderer.render(project, "pdf-latex", doc_path="chapters/intro.tex")
+    assert res.status == "ok", res.diagnostics
+    pdf = rapp.renderer.renders_dir / res.key / res.output
+    assert pdf.read_bytes().startswith(b"%PDF")
+    with pytest.raises(Exception):
+        await rapp.renderer.render(project, "html", doc_path="main.tex")
+
+    # Errors come back with their line.
+    doc = await rapp.db.fetchone("SELECT id FROM documents WHERE project_id = ? AND path = 'chapters/intro.tex'",
+                                 (pid,))
+    room = await rapp.rooms.get(doc["id"])
+
+    async def breakit():
+        return await room.apply_text("Fine.\n\\undefinedcommand\n", "t", 1)
+
+    await room.call(breakit)
+    bad = await rapp.renderer.render(project, "pdf-latex", doc_path="main.tex")
+    assert bad.status == "error"
+    err = next(d for d in bad.diagnostics if d["severity"] == "error")
+    assert "Undefined control sequence" in err["message"] and err.get("line") == 2, bad.diagnostics
+
+
+@pytest.mark.skipif(not HAS_LATEX, reason="needs latexmk and lualatex")
+async def test_markdown_to_pdf_via_latex(rapp, rclient):
+    pid = await new_project(rclient)
+    snap = await open_editor(rclient, pid)
+    project = dict(await rapp.db.fetchone("SELECT * FROM projects WHERE id = ?", (pid,)))
+    res = await rapp.renderer.render(project, "pdf-latex", doc_path=snap["doc"]["path"])
+    assert res.status == "ok", res.diagnostics
+    assert (rapp.renderer.renders_dir / res.key / res.output).read_bytes().startswith(b"%PDF")

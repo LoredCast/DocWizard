@@ -22,6 +22,7 @@ from .layouts import Layout
 OUTPUTS = {
     "html": "index.html",
     "pdf-typst": "document.pdf",
+    "pdf-latex": "document.pdf",
     "docx": "document.docx",
     "odt": "document.odt",
     "md-resolved": "document.md",
@@ -32,7 +33,13 @@ OUTPUTS = {
     "md-source": "project.zip",
 }
 TARGETS = set(OUTPUTS)
-PREVIEW_TARGETS = {"html", "pdf-typst"}
+PREVIEW_TARGETS = {"html", "pdf-typst", "pdf-latex"}
+# §9.6: no shell escape, file-line errors for diagnostics, SyncTeX for later source mapping. The worker
+# replaces {job} with the job directory: kpathsea's paranoid mode refuses ../ paths but allows
+# absolute ones below TEXMFOUTPUT, which the worker sets to the job directory.
+LATEXMK = ["-interaction=nonstopmode", "-halt-on-error", "-file-line-error", "-no-shell-escape", "-synctex=1",
+           "-jobname=document", "-outdir={job}/out", "-auxdir={job}/tmp/latex"]
+LATEX_ENGINES = {"lualatex", "xelatex", "pdflatex"}
 BUILTIN_FILTERS = {"crossref", "pagebreak", "wordcount"}
 
 
@@ -109,10 +116,21 @@ def metadata(layout: Layout, project_options: dict, inputs: list[str], layout_di
     return meta
 
 
+def latex_steps(layout: Layout, target: str, root: str) -> tuple[list[dict], list]:
+    """LaTeX projects build their root document with latexmk; pandoc isn't involved (§9.5)."""
+    if target != "pdf-latex":
+        raise ValueError("LaTeX documents export as PDF (LaTeX) or as the project source.")
+    engine = layout.targets.get("pdf-latex", {}).get("engine")
+    engine = engine if engine in LATEX_ENGINES else "lualatex"
+    return [{"tool": "latexmk", "args": [f"-{engine}", *LATEXMK, root], "log": "latex"}], []
+
+
 def pandoc_steps(layout: Layout, layout_dir: Path, target: str, inputs: list[str], options: dict,
                  approved_layout_filters: bool) -> tuple[list[dict], list[tuple[Path, str]]]:
     """Return (steps, files to copy into out/) for *target*. Paths are relative to the job's src/."""
     L = str(layout_dir)
+    if inputs and inputs[0].endswith(".tex"):
+        return latex_steps(layout, target, inputs[0])
     spec = layout.targets.get(target if target != "typ-source" else "pdf-typst", {})
     common = [*inputs, "--from", "markdown", "--standalone", "--metadata-file", "../options.json",
               "--resource-path", f".:{L}/_csl"]
@@ -146,6 +164,14 @@ def pandoc_steps(layout: Layout, layout_dir: Path, target: str, inputs: list[str
         typ = ".docwizard.typ"
         typst = ["compile", "--root", "..", "--ignore-system-fonts", "--font-path", f"{L}/fonts", typ, out]
         return [{"tool": "pandoc", "args": [*args, "-o", typ]}, {"tool": "typst", "args": typst}], copies
+    if target == "pdf-latex":
+        args = [*common, "--to", "latex"]
+        if spec.get("template"):
+            args += ["--template", f"{L}/{spec['template']}"]
+        tex = "_docwizard.tex"  # TeX refuses dot files in paranoid mode
+        engine = spec.get("engine") if spec.get("engine") in LATEX_ENGINES else "lualatex"
+        return [{"tool": "pandoc", "args": [*args, "-o", tex]},
+                {"tool": "latexmk", "args": [f"-{engine}", *LATEXMK, tex], "log": "latex"}], copies
     if target in ("docx", "odt"):
         args = [*common, "--to", target]
         ref = spec.get("reference")

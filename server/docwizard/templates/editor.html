@@ -45,7 +45,12 @@
     <h2 id="export-title">Export</h2>
     <label>Format
       <select name="target">
+        {% if doc.kind == "latex" %}
+        <option value="pdf-latex">PDF</option>
+        <option value="md-source">Project source (zip)</option>
+        {% else %}
         <option value="pdf-typst">PDF</option>
+        <option value="pdf-latex">PDF via LaTeX</option>
         <option value="docx">Word (DOCX)</option>
         <option value="odt">OpenDocument (ODT)</option>
         <option value="html">HTML</option>
@@ -54,6 +59,7 @@
         <option value="typ-source">Typst source</option>
         <option value="tex-source">LaTeX source</option>
         <option value="md-source">Project source (zip)</option>
+        {% endif %}
       </select>
     </label>
     <p id="export-conflicts" class="error"></p>

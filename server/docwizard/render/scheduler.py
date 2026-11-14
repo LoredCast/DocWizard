@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import logging
 import os
 import secrets
@@ -27,6 +28,13 @@ from .layouts import Layout, LayoutError
 from .worker_client import WorkerClient, WorkerUnavailable
 
 log = logging.getLogger("docwizard.render")
+
+_DOCCLASS = re.compile(r"^[ \t]*\\documentclass", re.M)
+
+
+def _is_root(text: str) -> bool:
+    return bool(_DOCCLASS.search(text))
+
 
 MAIN_CANDIDATES = ("main.md", "paper.md", "index.md", "thesis.md", "article.md")
 PREVIEW_TOKEN_TTL = 6 * 3600
@@ -124,7 +132,20 @@ class Renderer:
                 build = json.loads(project["build_inputs"])
             except ValueError:
                 build = None
+        if doc_path and doc_path.endswith(".tex"):
+            # LaTeX always builds the root: the build input, else main.tex, else a file with \documentclass.
+            if build and str(build[0]).endswith(".tex") and build[0] in snap.texts:
+                return [build[0]]
+            if _is_root(snap.texts.get(doc_path, "")):
+                return [doc_path]
+            roots = sorted((p for p in snap.texts if p.endswith(".tex") and _is_root(snap.texts[p])),
+                           key=lambda p: (p != "main.tex", p.count("/"), p))
+            if roots:
+                return [roots[0]]
+            raise HTTPError(400, "no_input", "No LaTeX file in this project has \\documentclass, so there's nothing "
+                                             "to build. Set the main document in the project settings.")
         if build:
+            build = [p for p in build if not str(p).endswith(".tex")] or build
             return [p for p in build if p in snap.texts] or build
         if doc_path and doc_path.endswith((".md", ".markdown")):
             return [doc_path]
@@ -161,6 +182,9 @@ class Renderer:
         options = layout.validate_options(options)
         snap, versions = await self.snapshot(project["id"])
         inputs = self.inputs_for(project, doc_path, snap) if target != "md-source" else []
+        if inputs and inputs[0].endswith(".tex") and target != "pdf-latex":
+            raise HTTPError(400, "bad_target", "LaTeX documents build as PDF with LaTeX, or export as the "
+                                               "project source.")
         key = jobs.cache_key(project["id"], snap.digest(), layout, target, inputs, options, self.worker.versions)
         version = max(versions.values(), default=0)
         cached = self._cached(key, target)
