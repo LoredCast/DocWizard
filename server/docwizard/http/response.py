@@ -105,7 +105,10 @@ def user_content(path: Path, name: str, *, cache: str = "private, no-cache") -> 
     if ctype not in INLINE_TYPES:
         safe = "".join(ch for ch in os.path.basename(name) if ch.isalnum() or ch in "._- ") or "download"
         resp.set_header("content-disposition", f'attachment; filename="{safe}"')
-    if ctype != "application/pdf":
+    if ctype == "application/pdf":
+        # The browser's PDF viewer doesn't run in a sandbox; the editor frames PDFs for the preview.
+        resp.set_header("content-security-policy", "frame-ancestors 'self'")
+    else:
         resp.set_header("content-security-policy", "sandbox; default-src 'none'")
     resp.set_header("x-content-type-options", "nosniff")
     resp.set_header("cross-origin-resource-policy", "same-origin")
