@@ -20,6 +20,8 @@ class User:
     email: str | None
     instance_role: str
     preferences: dict = field(default_factory=dict)
+    totp: bool = False  # two-step login is on
+    require_totp: bool = False  # an admin requires it
 
     @property
     def is_admin(self) -> bool:
@@ -42,7 +44,10 @@ def _from_row(row: sqlite3.Row | None) -> User | None:
         prefs = json.loads(row["preferences"] or "{}")
     except ValueError:
         prefs = {}
-    return User(row["id"], row["username"], row["display_name"], row["email"], row["instance_role"], prefs)
+    keys = row.keys()
+    return User(row["id"], row["username"], row["display_name"], row["email"], row["instance_role"], prefs,
+                totp="totp_secret_enc" in keys and row["totp_secret_enc"] is not None,
+                require_totp="require_totp" in keys and bool(row["require_totp"]))
 
 
 def get(conn: sqlite3.Connection, user_id: int) -> User | None:

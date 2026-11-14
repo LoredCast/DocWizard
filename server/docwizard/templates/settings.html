@@ -38,6 +38,52 @@
     {% if saved == "password" %}<p role="status">Password changed. Other sessions were logged out.</p>{% endif %}
     <div class="buttons"><button type="submit">Change password</button></div>
   </form>
+  <h2 id="totp">Two-step login</h2>
+  {% if totp_notice %}<p class="error" role="alert">Your account needs two-step login. Turn it on to continue using DocWizard.</p>{% endif %}
+  {% if recovery_codes %}
+  <div class="form" role="status">
+    <p><strong>Save these recovery codes</strong> somewhere safe, such as a password manager or a printout. Each one logs you in once when you don't have your phone. They won't be shown again.</p>
+    <ul class="plain recovery-codes">{% for c in recovery_codes %}<li><code>{{ c }}</code></li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+  {% if user.totp %}
+  <p>Two-step login is on. You have {{ recovery_left }} unused recovery {{ "code" if recovery_left == 1 else "codes" }}.</p>
+  <form method="post" action="/settings/totp" class="form">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="recovery">
+    <label>Current code from your app <input name="code" autocomplete="one-time-code" inputmode="numeric" required maxlength="8"></label>
+    <div class="buttons"><button type="submit">Make new recovery codes</button></div>
+  </form>
+  {% if not totp_required %}
+  <form method="post" action="/settings/totp" class="form">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="disable">
+    {% if has_password %}<label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+    {% else %}<label>Current code from your app <input name="code" autocomplete="one-time-code" inputmode="numeric" required maxlength="8"></label>{% endif %}
+    <div class="buttons"><button type="submit" class="danger">Turn off two-step login</button></div>
+  </form>
+  {% endif %}
+  {% elif totp_setup %}
+  <form method="post" action="/settings/totp" class="form">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="enable">
+    <p>Scan this code with an authenticator app such as Aegis, FreeOTP, 2FAS or Google Authenticator, then enter the six-digit code it shows.</p>
+    <div class="qr-box">{{ totp_setup.qr|safe }}</div>
+    <p class="muted">Can't scan it? Enter this key in the app: <code>{{ totp_setup.secret }}</code>, or <a href="{{ totp_setup.uri }}">open it in an app on this device</a>.</p>
+    <label>Code <input name="code" autocomplete="one-time-code" inputmode="numeric" required maxlength="8" autofocus></label>
+    {% if totp_error %}<p class="error" role="alert">{{ totp_error }}</p>{% endif %}
+    <div class="buttons"><a class="button" href="/settings#totp">Cancel</a><button type="submit" class="primary">Turn on</button></div>
+  </form>
+  {% else %}
+  <p class="muted">With two-step login, logging in also needs a code from an app on your phone.</p>
+  <form method="post" action="/settings/totp" class="form">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="begin">
+    <div class="buttons"><button type="submit">Set up two-step login</button></div>
+  </form>
+  {% endif %}
+  {% if totp_error and not totp_setup %}<p class="error" role="alert">{{ totp_error }}</p>{% endif %}
+  {% if saved == "totp-off" %}<p role="status">Two-step login is off.</p>{% endif %}
   {% if identities or linkable %}
   <h2 id="logins">Linked logins</h2>
   <ul class="plain">

@@ -272,6 +272,12 @@ class App:
             raise HTTPError(404, "not_found")
         if not opts.get("no_session"):
             await self.load_session(req)
+        if (req.user is not None and not req.user.totp and opts.get("auth", True) and not opts.get("totp_exempt")
+                and self.totp_required(req.user)):
+            # Two-step login is required for this account and isn't on yet (§13.2).
+            if req.wants_json:
+                raise HTTPError(403, "totp_required", "Turn on two-step login in your settings first.")
+            raise HTTPError(303, "totp_required", headers=[("location", "/settings?totp=required#totp")])
         if req.method not in csrf.SAFE_METHODS and not opts.get("csrf_exempt"):
             csrf.check_origin(req, self.cfg.app_origin)
             if req.session is None:

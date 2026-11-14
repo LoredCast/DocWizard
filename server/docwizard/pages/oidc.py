@@ -115,12 +115,9 @@ def register(app) -> None:
                 # Re-evaluated at every login (§13.4).
                 role = "admin" if groups.intersection(provider.admin_groups) else "user"
                 c.execute("UPDATE users SET instance_role = ? WHERE id = ?", (role, user_id))
-            c.execute("INSERT INTO audit_log(actor, action, meta_json) VALUES (?, 'login', ?)",
-                      (f"user:{user_id}", json.dumps({"ip": req.client_ip, "provider": provider.id})))
 
         await app.db.write(touch)
-        resp = redirect(pending.next)
-        await asyncio.to_thread(app.start_session, req, resp, user_id, provider.id)
+        resp = await app.finish_login(req, user_id, pending.next, provider.id)
         resp.delete_cookie(STATE_COOKIE, secure=cfg.secure_cookies)
         return resp
 

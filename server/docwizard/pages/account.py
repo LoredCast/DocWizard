@@ -59,11 +59,7 @@ def register(app) -> None:
         if passwords.needs_rehash(row["password_hash"]):
             new_hash = await asyncio.to_thread(passwords.hash_password, password)
             await app.db.write(lambda c: users.set_password(c, row["id"], new_hash))
-        resp = redirect(nxt)
-        await asyncio.to_thread(start_session, req, resp, row["id"])
-        await app.db.execute("INSERT INTO audit_log(actor, action, meta_json) VALUES (?, 'login', ?)",
-                             (f"user:{row['id']}", json.dumps({"ip": req.client_ip})))
-        return resp
+        return await app.finish_login(req, row["id"], nxt)
 
     async def logout(req: Request) -> Response:
         target = "/login"
@@ -124,6 +120,17 @@ def register(app) -> None:
         ctx.setdefault("zotero_error", None)
         ctx.setdefault("link_error", None)
         ctx.setdefault("zotero_values", {})
+        ctx.setdefault("totp_setup", None)
+        ctx.setdefault("totp_error", None)
+        ctx.setdefault("recovery_codes", None)
+        ctx.setdefault("saved", req.query.get("saved"))
+        ctx.setdefault("error", None)
+        ctx["totp_required"] = app.totp_required(req.user)
+        ctx["totp_notice"] = req.query.get("totp") == "required" and not req.user.totp
+        ctx["recovery_left"] = (await app.db.fetchone(
+            "SELECT COUNT(*) AS n FROM recovery_codes WHERE user_id = ? AND used_at IS NULL", (req.user.id,)))["n"]
+        ctx["has_password"] = (await app.db.fetchone(
+            "SELECT password_hash IS NOT NULL AS p FROM users WHERE id = ?", (req.user.id,)))["p"]
         return app.page(req, "settings.html", status, sources=[dict(r) for r in rows], **ctx)
 
     app.render_settings = render_settings
@@ -169,10 +176,10 @@ def register(app) -> None:
 
     app.router.add("GET", "/login", login_page, auth=False)
     app.router.add("POST", "/login", login, anonymous=True)
-    app.router.add("POST", "/logout", logout, anonymous=True)
+    app.router.add("POST", "/logout", logout, anonymous=True, totp_exempt=True)
     app.router.add("GET", "/register", register_page, auth=False)
     app.router.add("POST", "/register", register_post, anonymous=True)
-    app.router.add("GET", "/settings", settings_page)
+    app.router.add("GET", "/settings", settings_page, totp_exempt=True)
     app.router.add("POST", "/settings/profile", settings_profile)
-    app.router.add("POST", "/settings/password", settings_password)
-    app.router.add("GET", "/api/me", me, guest=True)
+    app.router.add("POST", "/settings/password", settings_password, totp_exempt=True)
+    app.router.add("GET", "/api/me", me, guest=True, totp_exempt=True)

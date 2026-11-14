@@ -100,6 +100,9 @@
   .content { padding-bottom: 32px; }
   .pad { padding: 0 16px; }
   .narrow { max-width: 40rem; padding: 0 16px; margin: 24px auto; }
+  .qr-box { width: 220px; max-width: 100%; }
+  .qr-box svg { display: block; width: 100%; height: auto; border-radius: 4px; }
+  .recovery-codes { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: 4px 16px; }
   .statusbar {
     display: flex; gap: 16px; align-items: center; padding: 0 16px; min-height: 24px;
     border-top: 1px solid var(--line); color: var(--muted); font-size: 12px;
