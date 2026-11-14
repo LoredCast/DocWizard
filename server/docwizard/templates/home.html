@@ -5,7 +5,7 @@
 <h2 class="pad">Recent</h2>
 {% if recent %}
 <table>
-  <thead><tr><th>Name</th><th>Project</th><th>Opened</th><th class="num">Size</th></tr></thead>
+  <thead><tr><th>Name</th><th>Project</th><th>Opened</th><th class="num">Size</th><th><span class="visually-hidden">Pin</span></th></tr></thead>
   <tbody>
   {% for d in recent %}
   <tr data-href="{{ doc_url(d.project_id, d.path) }}">
@@ -13,6 +13,13 @@
     <td>{{ d.project }}</td>
     <td title="{{ d.opened_at }}">{{ d.opened_at|reltime }}</td>
     <td class="num">{{ d.size|filesize }}</td>
+    <td class="num">
+      <form method="post" action="/d/{{ d.id }}/pin" class="inline">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <input type="hidden" name="pinned" value="{{ "0" if d.pinned else "1" }}">
+        <button type="submit" class="link">{{ "Unpin" if d.pinned else "Pin" }}</button>
+      </form>
+    </td>
   </tr>
   {% endfor %}
   </tbody>

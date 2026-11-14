@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import secrets
 import time
@@ -18,6 +19,7 @@ from .http.response import Response, apply_security_headers, error_json, guess_t
 from .http.router import Router
 from .http.templates import make_env
 from .logs import fields
+from .sharing import links
 
 log = logging.getLogger("docwizard")
 
@@ -33,6 +35,7 @@ class App:
         self.throttle = LoginThrottle()
         self.static_prefix = f"/static/{self.cfg.release}"
         self.started = False
+        self.settings: dict = {}
         self._tasks: list[asyncio.Task] = []
         self._startup_hooks: list = []
         self._shutdown_hooks: list = []
@@ -56,6 +59,35 @@ class App:
         pages.register(self)
         api.register(self)
 
+    # -- instance settings ------------------------------------------------
+    POLICY_KEYS = {"registration": "accounts", "guests": "accounts", "guest_max_role": "accounts",
+                   "scratch_projects": "accounts", "require_totp_for_admins": "accounts",
+                   "min_password_length": "accounts", "default_layout": "render"}
+
+    def policy(self, key: str):
+        """An instance setting: the admin area's value if set, else the config file's (§13.6)."""
+        if key in self.settings:
+            return self.settings[key]
+        return getattr(getattr(self.cfg, self.POLICY_KEYS[key]), key)
+
+    async def load_settings(self) -> None:
+        rows = await self.db.fetchall("SELECT key, value_json FROM settings")
+        values = {}
+        for r in rows:
+            try:
+                values[r["key"]] = json.loads(r["value_json"])
+            except ValueError:
+                continue
+        self.settings = {k: v for k, v in values.items() if k in self.POLICY_KEYS}
+
+    async def set_setting(self, key: str, value) -> None:
+        if key not in self.POLICY_KEYS:
+            raise KeyError(key)
+        await self.db.execute("INSERT INTO settings(key, value_json) VALUES (?, ?)"
+                              " ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json",
+                              (key, json.dumps(value)))
+        self.settings[key] = value
+
     # -- lifecycle ------------------------------------------------------
     def on_startup(self, fn) -> None:
         self._startup_hooks.append(fn)
@@ -73,6 +105,7 @@ class App:
             return
         self.cfg.data_dir.mkdir(parents=True, exist_ok=True)
         await asyncio.to_thread(self.db.open)
+        await self.load_settings()
         for hook in self._startup_hooks:
             await hook()
         await self.scanner.startup()
@@ -116,6 +149,7 @@ class App:
             await asyncio.sleep(3600)
             try:
                 await self.db.write(sessions.cleanup)
+                await self.db.write(links.cleanup)
             except Exception:  # noqa: BLE001
                 log.exception("session cleanup failed")
 
@@ -161,8 +195,15 @@ class App:
             if req.user is None:
                 req.session = None
                 return
+        elif sess.guest_id is not None:
+            max_role = self.policy("guest_max_role")
+            req.guest = await self.db.read(lambda c: links.load_guest(c, sess.guest_id, max_role))
+            if req.guest is None or not self.policy("guests"):
+                req.session = req.guest = None
+                return
         if sessions.needs_touch(sess):
-            idle = self.cfg.security.session_idle_days * 86400
+            idle = (self.cfg.security.session_idle_days * 86400 if sess.user_id is not None
+                    else self.cfg.security.guest_session_hours * 3600)
             await self.db.write(lambda c: sessions.touch(c, sess, idle))
 
     async def handle_http(self, scope, receive, send) -> None:
@@ -209,8 +250,13 @@ class App:
                     supplied = (await req.form()).get("_csrf")
                 csrf.check_token(supplied, req.session.csrf_token)
         if opts.get("auth", True) and not opts.get("anonymous") and req.user is None:
+            if req.guest is not None and opts.get("guest"):
+                return await route.handler(req)
             if req.wants_json:
                 raise HTTPError(401, "unauthenticated", "Log in to continue.")
+            if req.guest is not None:
+                # Guests only ever see their project.
+                raise HTTPError(303, "guest", headers=[("location", f"/p/{req.guest.project_id}")])
             raise HTTPError(303, "login_required", headers=[("location", "/login?next=" + req.path)])
         return await route.handler(req)
 
@@ -255,6 +301,7 @@ class App:
         theme = req.user.theme if req.user else (req.cookies.get("theme") or "dark")
         base = {
             "user": req.user,
+            "guest": req.guest,
             "csrf": req.session.csrf_token if req.session else "",
             "nonce": req.nonce,
             "static": self.static_prefix,

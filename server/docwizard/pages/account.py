@@ -35,14 +35,14 @@ def register(app) -> None:
         if req.user:
             return redirect(safe_next(req.query.get("next")))
         return app.page(req, "login.html", next=safe_next(req.query.get("next")), username="", error=None,
-                        registration_open=cfg.accounts.registration == "open")
+                        registration_open=app.policy("registration") == "open")
 
     async def login(req: Request) -> Response:
         form = await req.form()
         username = form.get("username", "").strip()
         password = form.get("password", "")
         nxt = safe_next(form.get("next"))
-        ctx = {"next": nxt, "username": username, "registration_open": cfg.accounts.registration == "open"}
+        ctx = {"next": nxt, "username": username, "registration_open": app.policy("registration") == "open"}
         if not app.throttle.allow(username, req.client_ip):
             return app.page(req, "login.html", 429, error="Too many attempts. Wait a few minutes and try again.", **ctx)
         row = await app.db.read(lambda c: users.get_by_username(c, username))
@@ -67,22 +67,22 @@ def register(app) -> None:
         return resp
 
     async def register_page(req: Request) -> Response:
-        if cfg.accounts.registration != "open":
+        if app.policy("registration") != "open":
             raise HTTPError(404, "not_found", "Registration is closed on this server.")
         return app.page(req, "register.html", username="", display_name="", error=None,
-                        min_length=cfg.accounts.min_password_length)
+                        min_length=app.policy("min_password_length"))
 
     async def register_post(req: Request) -> Response:
-        if cfg.accounts.registration != "open":
+        if app.policy("registration") != "open":
             raise HTTPError(404, "not_found", "Registration is closed on this server.")
         form = await req.form()
         username = form.get("username", "").strip()
         display_name = form.get("display_name", "").strip()[:80]
         password = form.get("password", "")
-        ctx = {"username": username, "display_name": display_name, "min_length": cfg.accounts.min_password_length}
+        ctx = {"username": username, "display_name": display_name, "min_length": app.policy("min_password_length")}
         if not app.throttle.allow("register", req.client_ip):
             return app.page(req, "register.html", 429, error="Too many attempts. Try again later.", **ctx)
-        problem = passwords.check_policy(password, cfg.accounts.min_password_length, username)
+        problem = passwords.check_policy(password, app.policy("min_password_length"), username)
         if problem:
             return app.page(req, "register.html", 400, error=problem, **ctx)
         pw_hash = await asyncio.to_thread(passwords.hash_password, password)
@@ -119,7 +119,7 @@ def register(app) -> None:
         row = await app.db.read(lambda c: users.get_by_username(c, user.username))
         if not await asyncio.to_thread(users.authenticate, row, form.get("current", "")):
             return app.page(req, "settings.html", 400, saved=None, error="The current password is wrong.")
-        problem = passwords.check_policy(form.get("new", ""), cfg.accounts.min_password_length, user.username)
+        problem = passwords.check_policy(form.get("new", ""), app.policy("min_password_length"), user.username)
         if problem:
             return app.page(req, "settings.html", 400, saved=None, error=problem)
         new_hash = await asyncio.to_thread(passwords.hash_password, form["new"])
@@ -133,7 +133,8 @@ def register(app) -> None:
         return redirect("/settings?saved=password")
 
     async def me(req: Request) -> Response:
-        return json_response({"user": req.user.public(), "csrf": req.session.csrf_token})
+        who = req.user.public() if req.user is not None else req.guest.public()
+        return json_response({"user": who, "csrf": req.session.csrf_token})
 
     app.router.add("GET", "/login", login_page, auth=False)
     app.router.add("POST", "/login", login, anonymous=True)
@@ -143,4 +144,4 @@ def register(app) -> None:
     app.router.add("GET", "/settings", settings_page)
     app.router.add("POST", "/settings/profile", settings_profile)
     app.router.add("POST", "/settings/password", settings_password)
-    app.router.add("GET", "/api/me", me)
+    app.router.add("GET", "/api/me", me, guest=True)

@@ -46,7 +46,7 @@ class RenderResult:
 class ExportJob:
     id: str
     project_id: str
-    user_id: int
+    user_id: str  # the actor key, "u12" or "g3"
     target: str
     status: str = "queued"
     result: RenderResult | None = None
@@ -140,7 +140,7 @@ class Renderer:
         try:
             return self.app.layouts.get(layout_id)
         except LayoutError:
-            return self.app.layouts.get(self.cfg.render.default_layout)
+            return self.app.layouts.get(self.app.policy("default_layout"))
 
     # -- rendering -----------------------------------------------------------
     async def render(self, project: dict, target: str, *, doc_path: str | None = None, options: dict | None = None,
@@ -338,7 +338,7 @@ class Renderer:
                                if self._preview_tasks.get(k) is t else None)
 
     # -- exports -------------------------------------------------------------
-    def start_export(self, project: dict, user_id: int, target: str, doc_path: str | None,
+    def start_export(self, project: dict, user_id: str, target: str, doc_path: str | None,
                      options: dict | None) -> ExportJob:
         now = time.time()
         for jid, job in list(self.exports.items()):

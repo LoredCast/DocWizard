@@ -16,6 +16,7 @@ from ..auth.throttle import TokenBucket
 from ..http.request import HTTPError, Request
 from ..logs import fields
 from ..projects import service as svc
+from ..sharing import links
 from .authority import Peer, PushError
 
 log = logging.getLogger("docwizard.hub")
@@ -26,10 +27,11 @@ MAX_QUEUED = 512
 
 
 class Connection:
-    def __init__(self, hub: Hub, send, user):
+    def __init__(self, hub: Hub, send, user, guest=None):
         self.hub = hub
         self._send = send
         self.user = user
+        self.guest = guest
         self.out: asyncio.Queue = asyncio.Queue()
         self.docs: dict[str, Peer] = {}
         self.rate = TokenBucket(200, 50)
@@ -72,17 +74,20 @@ class Hub:
             return
         token = req.cookies.get(cfg.cookie_name, "")
         sess = await self.app.db.read(lambda c: sessions.load(c, token))
-        user = None
+        user = guest = None
         if sess is not None and sess.user_id is not None:
             user = await self.app.db.read(lambda c: users.get(c, sess.user_id))
-        if user is None:
+        elif sess is not None and sess.guest_id is not None and self.app.policy("guests"):
+            max_role = self.app.policy("guest_max_role")
+            guest = await self.app.db.read(lambda c: links.load_guest(c, sess.guest_id, max_role))
+        if user is None and guest is None:
             await send({"type": "websocket.close", "code": 1008})
             return
         message = await receive()
         if message["type"] != "websocket.connect":
             return
         await send({"type": "websocket.accept"})
-        conn = Connection(self, send, user)
+        conn = Connection(self, send, user, guest)
         writer = asyncio.create_task(conn.writer())
         try:
             while not conn.closed:
@@ -183,26 +188,32 @@ class Hub:
             raise HTTPError(400, "bad_request", "Open needs a version and a client ID.")
         if doc_id not in conn.docs and len(conn.docs) >= MAX_OPEN_DOCS:
             raise HTTPError(429, "too_many_documents", "Close a document before opening another.")
-        user = conn.user
+        user, guest = conn.user, conn.guest
 
         def check(c):
             doc = svc.get_document(c, doc_id)
             if doc is None:
-                return None, None
-            role = svc.role_of(c, user.id, doc["project_id"])
-            owner = c.execute("SELECT user_id FROM collab_clients WHERE client_id = ? AND doc_id = ?",
+                return None, None, None
+            if user is not None:
+                role = svc.role_of(c, user.id, doc["project_id"])
+            else:
+                role = guest.role if guest.project_id == doc["project_id"] else None
+            owner = c.execute("SELECT user_id, guest_id FROM collab_clients WHERE client_id = ? AND doc_id = ?",
                               (client_id, doc_id)).fetchone()
-            return role, owner
+            return role, owner, doc["project_id"]
 
-        role, owner = await self.app.db.read(check)
+        role, owner, project_id = await self.app.db.read(check)
         if role is None:
             raise HTTPError(404, "not_found", "This document doesn't exist or you don't have access.")
         # Client IDs are issued by the server and only accepted from their owner (§8.3 rule 5).
-        if owner is None or owner["user_id"] != user.id:
+        if owner is None or (owner["user_id"] != (user.id if user else None)
+                             or owner["guest_id"] != (guest.id if guest else None)):
             raise HTTPError(403, "bad_client_id", "Reload the page to get a new client ID.")
         await self.app.db.execute("UPDATE collab_clients SET last_seen_at = ? WHERE client_id = ?",
                                   (time.time(), client_id))
-        peer = Peer(send=conn.send, user_id=user.id, name=user.display_name, role=role, client_id=client_id)
+        peer = Peer(send=conn.send, user_id=user.id if user else None,
+                    name=user.display_name if user else guest.label, role=role, client_id=client_id,
+                    guest_id=guest.id if guest else None, project_id=project_id)
         conn.docs[doc_id] = peer
         room = await self.app.rooms.get(doc_id)
         await room.call(lambda: room.open(conn.key, peer, version))

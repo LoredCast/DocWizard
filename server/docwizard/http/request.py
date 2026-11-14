@@ -61,6 +61,7 @@ class Request:
         # Filled in by middleware.
         self.session = None
         self.user = None
+        self.guest = None
         self.nonce: str = ""
         self.request_id: str = ""
 
@@ -142,6 +143,23 @@ class Request:
             raise HTTPError(415, "unsupported_media_type", "Expected a URL-encoded form.")
         raw = (await self.body(limit)).decode("utf-8", "replace")
         return {k: v[0] for k, v in parse_qs(raw, keep_blank_values=True).items()}
+
+    @property
+    def actor_key(self) -> str:
+        """Who is asking, for ownership of jobs and similar: "u12" or "g3"."""
+        if self.user is not None:
+            return f"u{self.user.id}"
+        if self.guest is not None:
+            return f"g{self.guest.id}"
+        return ""
+
+    @property
+    def actor_name(self) -> str:
+        if self.user is not None:
+            return self.user.display_name
+        if self.guest is not None:
+            return self.guest.label
+        return ""
 
     def param(self, name: str) -> str:
         # ASGI servers pass an already percent-decoded path.

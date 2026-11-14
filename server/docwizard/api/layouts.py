@@ -9,6 +9,6 @@ from ..http.response import Response, json_response
 def register(app) -> None:
     async def list_layouts(req: Request) -> Response:
         return json_response({"layouts": [lay.public() for lay in app.layouts.list()],
-                              "default": app.cfg.render.default_layout})
+                              "default": app.policy("default_layout")})
 
     app.router.add("GET", "/api/layouts", list_layouts)

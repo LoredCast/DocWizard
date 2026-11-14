@@ -35,16 +35,28 @@ def rank(role: str | None) -> int:
     return _RANK.get(role or "", -1)
 
 
-def can(role: str | None, capability: str) -> bool:
+# Capabilities owners can extend to editors per project (§13.5: "configurable").
+CONFIGURABLE = {"share": "editors_can_share", "publish": "editors_can_publish"}
+
+
+def can(role: str | None, capability: str, project=None) -> bool:
     needed = CAPABILITIES[capability]
-    return rank(role) >= _RANK[needed]
+    if rank(role) >= _RANK[needed]:
+        return True
+    column = CONFIGURABLE.get(capability)
+    if column and role == "editor" and project is not None:
+        try:
+            return bool(project[column])
+        except (KeyError, IndexError):
+            return False
+    return False
 
 
-def require(role: str | None, capability: str) -> None:
+def require(role: str | None, capability: str, project=None) -> None:
     if role is None:
         # Don't reveal whether a project exists to people without access.
         raise HTTPError(404, "not_found", "This project doesn't exist or you don't have access.")
-    if not can(role, capability):
+    if not can(role, capability, project):
         raise HTTPError(403, "forbidden", "Your role on this project doesn't allow this.")
 
 

@@ -79,6 +79,12 @@ class Peer:
         return {"id": self.id, "name": self.name, "color": self.color, "sel": self.sel}
 
 
+def map_range(cs: ChangeSet, frm: int, to: int) -> tuple[int, int]:
+    """Map an anchored range: text typed at either edge stays outside it (§8.8)."""
+    a, b = cs.map_pos(frm, 1), cs.map_pos(to, -1)
+    return a, max(a, b)
+
+
 def map_selection(sel: list, changesets) -> list:
     out = []
     for anchor, head in sel:
@@ -101,6 +107,9 @@ class Room:
         self.version = state.version
         self.peers: dict[int, Peer] = {}
         self.recent: deque[tuple[int, ChangeSet]] = deque(maxlen=RECENT_CHANGES)
+        # Comment and conflict anchors, kept current through every change (§8.8, §12.3).
+        self.anchors: dict[tuple[str, int], list[int]] = {}
+        self.anchors_dirty = False
         self._peer_seq = 0
         self.queue: asyncio.Queue = asyncio.Queue()
         self.ops_since_snapshot = state.version - doc.get("snapshot_version", 0)
@@ -308,15 +317,140 @@ class Room:
         for peer in self.peers.values():
             if peer.sel:
                 peer.sel = map_selection(peer.sel, changesets)
-        self.after_commit(changesets)
+        orphaned = self.after_commit(changesets)
         self.broadcast({"t": "updates", "doc": self.doc_id, "from": start_version, "updates": records})
         self.touch()
+        if orphaned:
+            try:
+                await self._orphan(orphaned)
+            except Exception:  # noqa: BLE001 - the edit itself is committed
+                log.exception("marking comments orphaned failed", extra=fields(doc=self.doc_id))
         if self.ops_since_snapshot >= self.rooms.cfg.collab.snapshot_every:
             await self.snapshot()
         return self.version
 
-    def after_commit(self, changesets: list[ChangeSet]) -> None:
-        """Map everything anchored to the text through committed changes."""
+    def after_commit(self, changesets: list[ChangeSet]) -> list[tuple[str, int]]:
+        """Map everything anchored to the text through committed changes.
+
+        Returns comment threads whose text was deleted entirely (now orphaned)."""
+        orphaned = []
+        for key, rng in self.anchors.items():
+            frm, to = rng
+            for cs in changesets:
+                frm, to = map_range(cs, frm, to)
+            if key[0] == "comment" and rng[1] > rng[0] and frm == to:
+                orphaned.append(key)
+            rng[0], rng[1] = frm, to
+        if self.anchors:
+            self.anchors_dirty = True
+        return orphaned
+
+    # -- anchors ----------------------------------------------------------
+    async def _changes_from(self, version: int) -> list[ChangeSet] | None:
+        """Changes from *version* to now, from memory or the operation log."""
+        changes = self.changes_since(version)
+        if changes is not None or version > self.version:
+            return changes
+        rows = await self.db.read(lambda c: svc.ops_since(c, self.doc_id, version))
+        if not rows or rows[0]["version"] != version or len(rows) < self.version - version:
+            return None
+        return [ChangeSet.from_json(json.loads(r["changes"])) for r in rows[:self.version - version]]
+
+    async def load_anchors(self) -> None:
+        def load(c):
+            comments = c.execute(
+                "SELECT id, anchor_from, anchor_to, anchor_version FROM comments WHERE doc_id = ? AND id = thread_id"
+                " AND resolved_at IS NULL AND orphaned = 0 AND anchor_from IS NOT NULL", (self.doc_id,)).fetchall()
+            conflicts = c.execute("SELECT id, anchor_from, anchor_to, anchor_version FROM conflicts"
+                                  " WHERE doc_id = ? AND resolved_at IS NULL", (self.doc_id,)).fetchall()
+            return [("comment", r) for r in comments] + [("conflict", r) for r in conflicts]
+
+        rows = await self.db.read(load)
+        if not rows:
+            return
+        cache: dict[int, list[ChangeSet] | None] = {}
+        orphaned = []
+        n = len(self.buf)
+        for kind, r in rows:
+            frm, to, version = r["anchor_from"], r["anchor_to"], r["anchor_version"]
+            if version not in cache:
+                cache[version] = await self._changes_from(version)
+            for cs in cache[version] or []:
+                frm, to = map_range(cs, frm, to)
+            frm = max(0, min(frm, n))
+            to = max(frm, min(to, n))
+            if kind == "comment" and r["anchor_to"] > r["anchor_from"] and frm == to:
+                orphaned.append(("comment", r["id"]))
+            self.anchors[(kind, r["id"])] = [frm, to]
+        self.anchors_dirty = True
+        if orphaned:
+            await self._orphan(orphaned)
+
+    async def _orphan(self, keys: list[tuple[str, int]]) -> None:
+        ids = [k[1] for k in keys]
+        for k in keys:
+            self.anchors.pop(k, None)
+        await self.db.write(lambda c: c.executemany("UPDATE comments SET orphaned = 1 WHERE id = ?",
+                                                    [(i,) for i in ids]))
+        self.broadcast({"t": "comments", "doc": self.doc_id})
+
+    async def persist_anchors(self) -> None:
+        if not self.anchors_dirty:
+            return
+        version = self.version
+        rows = [(rng[0], rng[1], version, key[1]) for key, rng in self.anchors.items()]
+
+        def work(c):
+            c.executemany("UPDATE comments SET anchor_from = ?, anchor_to = ?, anchor_version = ? WHERE id = ?",
+                          [r for r, key in zip(rows, self.anchors) if key[0] == "comment"])
+            c.executemany("UPDATE conflicts SET anchor_from = ?, anchor_to = ?, anchor_version = ? WHERE id = ?",
+                          [r for r, key in zip(rows, self.anchors) if key[0] == "conflict"])
+
+        await self.db.write(work)
+        self.anchors_dirty = False
+
+    async def anchor_snapshot(self) -> tuple[int, dict]:
+        return self.version, {f"{k[0]}:{k[1]}": list(v) for k, v in self.anchors.items()}
+
+    async def add_thread(self, version: int, frm: int, to: int, insert) -> dict:
+        """Anchor a new comment thread at [frm, to) of *version*; *insert(c, frm, to, version, quote)*
+        writes the row and returns its id."""
+        changes = await self._changes_from(version)
+        if changes is None:
+            raise PushError("stale", "The document changed too much. Select the text again.")
+        length = changes[0].length if changes else len(self.buf)
+        if not (0 <= frm <= to <= length):
+            raise PushError("bad_anchor", "The selection is outside the document.")
+        for cs in changes:
+            frm, to = map_range(cs, frm, to)
+        if not (self.buf.is_boundary(frm) and self.buf.is_boundary(to)):
+            raise PushError("bad_anchor", "The selection splits a character.")
+        quote = self.buf.slice(frm, to)[:500]
+        current = self.version
+        thread_id = await self.db.write(lambda c: insert(c, frm, to, current, quote))
+        self.anchors[("comment", thread_id)] = [frm, to]
+        self.broadcast({"t": "comments", "doc": self.doc_id})
+        return {"id": thread_id, "from": frm, "to": to, "version": current}
+
+    async def set_resolved(self, kind: str, item_id: int, resolved: bool, update) -> None:
+        """Resolve or reopen a comment thread or conflict; *update(c, anchor)* writes the row."""
+        key = (kind, item_id)
+        if resolved:
+            anchor = self.anchors.pop(key, None)
+            await self.db.write(lambda c: update(c, (anchor, self.version) if anchor else None))
+        else:
+            await self.db.write(lambda c: update(c, None))
+            row = await self.db.fetchone(
+                f"SELECT anchor_from, anchor_to, anchor_version FROM {'comments' if kind == 'comment' else 'conflicts'}"
+                " WHERE id = ?", (item_id,))
+            if row is not None and row["anchor_from"] is not None:
+                frm, to = row["anchor_from"], row["anchor_to"]
+                for cs in await self._changes_from(row["anchor_version"]) or []:
+                    frm, to = map_range(cs, frm, to)
+                n = len(self.buf)
+                self.anchors[key] = [min(frm, n), min(max(frm, to), n)]
+                self.anchors_dirty = True
+        self.broadcast({"t": "comments" if kind == "comment" else "conflicts", "doc": self.doc_id})
 
     async def apply_text(self, new_text: str, client_id: str, author: int | str | None = None) -> int:
         """Replace the text with *new_text* as one diff-based update (restores, merges)."""
@@ -356,18 +490,23 @@ class Room:
             def record(c):
                 c.execute("INSERT INTO doc_snapshots(doc_id, version, text, label, created_by) VALUES (?, ?, ?, ?, ?)",
                           (self.doc_id, version, theirs, f"{label}, {stamp}", user_of(author)))
+                ids = []
                 for k in result.conflicts:
-                    c.execute(
+                    ids.append(c.execute(
                         "INSERT INTO conflicts(doc_id, source, base_text, theirs_text, anchor_from, anchor_to,"
                         " anchor_version, version_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                         (self.doc_id, source, k.base_text, k.theirs_text, k.anchor_from, k.anchor_to, version,
-                         f"{label}, {stamp}"))
+                         f"{label}, {stamp}")).lastrowid)
+                return ids
 
-            await self.db.write(record)
+            ids = await self.db.write(record)
+            for cid, k in zip(ids, result.conflicts):
+                self.anchors[("conflict", cid)] = [k.anchor_from, k.anchor_to]
             self.broadcast({"t": "conflicts", "doc": self.doc_id, "count": len(result.conflicts)})
         return len(result.conflicts)
 
     async def snapshot(self, label: str | None = None, user_id: int | None = None) -> int:
+        await self.persist_anchors()
         text, version = self.text(), self.version
         retention = self.rooms.cfg.collab.op_retention_days * 86400
 
@@ -390,6 +529,7 @@ class Room:
     # -- files ------------------------------------------------------------
     async def materialize(self, force: bool = False) -> None:
         """Write the current text to the project folder (§11.2)."""
+        await self.persist_anchors()
         text, version = self.text(), self.version
         data = files.encode_text(text, self.line_ending)
         digest = files.sha256(data)
@@ -519,6 +659,10 @@ class Rooms:
                 raise KeyError(doc_id)
             room = Room(self, doc, state)
             self.rooms[doc_id] = room
+            try:
+                await room.call(room.load_anchors)
+            except Exception:
+                log.exception("loading anchors failed", extra=fields(doc=doc_id))
             try:
                 # Startup rules (§11.2): compare the file, reconcile, materialize.
                 await room.call(room.check_disk)

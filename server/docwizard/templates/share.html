@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}{{ link.project_name }} · DocWizard{% endblock %}
+{% block content %}
+<section class="narrow">
+  <p>You were invited to <strong>{{ link.project_name }}</strong> as {{ "an editor" if link.role == "editor" else "a " + link.role }}.</p>
+  {% if guests %}
+  <form method="post" action="/s/{{ token }}" class="form">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <label>Your name <input name="name" required maxlength="60" autocomplete="name" autofocus value="{{ guest_name }}"></label>
+    {% if link.password_hash %}
+    <label>Password <input name="password" type="password" required autocomplete="off"></label>
+    {% endif %}
+    {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+    <p class="muted">Others in the project see this name next to your edits and comments.</p>
+    <div class="buttons"><button type="submit" class="primary">Open as guest</button></div>
+  </form>
+  <p>Have an account? <a href="/login?next=/s/{{ token }}">Log in</a> to join the project instead.</p>
+  {% else %}
+  {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+  <p><a href="/login?next=/s/{{ token }}">Log in</a> to open this project.</p>
+  {% endif %}
+</section>
+{% endblock %}
