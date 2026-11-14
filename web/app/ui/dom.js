@@ -9,6 +9,16 @@ export function csrfToken() {
   return document.querySelector('meta[name="csrf-token"]')?.content ?? "";
 }
 
+// Interface strings (§21): the page carries its language's catalog; English is the source text.
+let catalog = null;
+export function t(message, values = {}) {
+  if (catalog === null) {
+    try { catalog = JSON.parse(document.getElementById("i18n")?.textContent ?? "{}"); } catch { catalog = {}; }
+  }
+  const text = catalog[message] ?? message;
+  return text.replace(/\{(\w+)\}/g, (m, name) => (name in values ? String(values[name]) : m));
+}
+
 export async function api(method, url, body, { raw = false } = {}) {
   const headers = { "X-CSRF-Token": csrfToken() };
   let payload = body;
@@ -20,7 +30,7 @@ export async function api(method, url, body, { raw = false } = {}) {
   let data = null;
   try { data = await res.json(); } catch { /* empty body */ }
   if (!res.ok) {
-    const message = data?.error?.message ?? `The request failed (${res.status}).`;
+    const message = data?.error?.message ?? t("The request failed ({status}).", { status: res.status });
     throw new Error(message);
   }
   return data;
@@ -47,20 +57,20 @@ export function toast(message, { error = false } = {}) {
   clearTimeout(toastTimer);
   const node = el("div", { class: error ? "toast error" : "toast", role: error ? "alert" : "status" }, message);
   if (error) {
-    node.append(" ", el("button", { type: "button", class: "link", onclick: () => node.remove() }, "Dismiss"));
+    node.append(" ", el("button", { type: "button", class: "link", onclick: () => node.remove() }, t("Dismiss")));
   } else {
     toastTimer = setTimeout(() => node.remove(), 4000);
   }
   document.body.append(node);
 }
 
-export function confirmDialog(message, actionLabel = "Delete") {
+export function confirmDialog(message, actionLabel = t("Delete")) {
   return new Promise((resolve) => {
     const finish = (value) => { dialog.close(); resolve(value); };
     const dialog = el("dialog", {},
       el("p", {}, message),
       el("div", { class: "buttons" },
-        el("button", { type: "button", onclick: () => finish(false) }, "Cancel"),
+        el("button", { type: "button", onclick: () => finish(false) }, t("Cancel")),
         el("button", { type: "button", class: "danger", onclick: () => finish(true) }, actionLabel)));
     dialog.addEventListener("close", () => { dialog.remove(); resolve(false); });
     document.body.append(dialog);

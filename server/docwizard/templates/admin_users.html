@@ -1,53 +1,54 @@
 {% extends "admin_base.html" %}
-{% block admin_title %}Users{% endblock %}
+{% block admin_title %}{{ _("Users") }}{% endblock %}
 {% block admin %}
-<h1>Users</h1>
-{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
-{% if notice %}<p role="status">{{ {"invited": "Invitation sent.", "reset-sent": "Reset link sent.", "delete": "Account deleted.", "disable": "Account disabled and logged out.", "enable": "Account enabled.", "logout": "Logged out everywhere."}.get(notice, "Saved.") }}</p>{% endif %}
+<h1>{{ _("Users") }}</h1>
+{% if error %}<p class="error" role="alert">{{ _(error) }}</p>{% endif %}
+{% if notice %}<p role="status">{{ _({"invited": "Invitation sent.", "reset-sent": "Reset link sent.", "delete": "Account deleted.", "disable": "Account disabled and logged out.", "enable": "Account enabled.", "logout": "Logged out everywhere."}.get(notice, "Saved.")) }}</p>{% endif %}
 {% if link %}
 <div class="form callout" role="status">
-  <p><strong>{{ "Invitation" if link.purpose == "invite" else "Password reset" }} link for {{ link.username }}</strong>.{% if link.why %} It couldn't be emailed: {{ link.why }}{% endif %} Pass it on privately. It works once, for {{ "7 days" if link.purpose == "invite" else "an hour" }}.</p>
-  <input readonly value="{{ link.url }}" aria-label="Link" data-select-on-focus>
+  <p><strong>{{ _("Invitation link for {username}", username=link.username) if link.purpose == "invite" else _("Password reset link for {username}", username=link.username) }}</strong>.{% if link.why %} {{ _("It couldn't be emailed: {reason}", reason=_(link.why)) }}{% endif %} {{ _("Pass it on privately. It works once, for 7 days.") if link.purpose == "invite" else _("Pass it on privately. It works once, for an hour.") }}</p>
+  <input readonly value="{{ link.url }}" aria-label="{{ _("Link") }}" data-select-on-focus>
 </div>
 {% endif %}
 <form method="get" class="row searchbar">
-  <input type="search" name="q" value="{{ q }}" placeholder="Search by name or email" aria-label="Search users">
-  <button type="submit">Search</button>
+  <input type="search" name="q" value="{{ q }}" placeholder="{{ _("Search by name or email") }}" aria-label="{{ _("Search users") }}">
+  <button type="submit">{{ _("Search") }}</button>
 </form>
 <table class="grid">
-  <thead><tr><th>User</th><th>Role</th><th>Two-step</th><th>Projects</th><th>Last login</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+  <thead><tr><th>{{ _("User") }}</th><th>{{ _("Role") }}</th><th>{{ _("Two-step") }}</th><th>{{ _("Projects") }}</th><th>{{ _("Last login") }}</th><th><span class="visually-hidden">{{ _("Actions") }}</span></th></tr></thead>
   <tbody>
   {% for u in users %}
   <tr{% if not u.active %} class="muted"{% endif %}>
-    <td><strong>{{ u.username }}</strong> {{ u.display_name }}{% if u.email %}<br><span class="muted">{{ u.email }}</span>{% endif %}{% if not u.active %} <span class="badge">disabled</span>{% endif %}{% if not u.password_hash %} <span class="badge">no password</span>{% endif %}</td>
-    <td>{{ "Admin" if u.instance_role == "admin" else "User" }}</td>
-    <td>{{ "On" if u.totp_secret_enc else "Off" }}{% if u.require_totp %} <span class="muted">(required)</span>{% endif %}</td>
+    <td><strong>{{ u.username }}</strong> {{ u.display_name }}{% if u.email %}<br><span class="muted">{{ u.email }}</span>{% endif %}{% if not u.active %} <span class="badge">{{ _("disabled") }}</span>{% endif %}{% if not u.password_hash %} <span class="badge">{{ _("no password") }}</span>{% endif %}</td>
+    <td>{{ _("Administrator") if u.instance_role == "admin" else _("User") }}</td>
+    <td>{{ _("On") if u.totp_secret_enc else _("Off") }}{% if u.require_totp %} <span class="muted">({{ _("required") }})</span>{% endif %}</td>
     <td>{{ u.owned }}</td>
-    <td>{{ u.last_login|reltime if u.last_login else "never" }}</td>
+    <td>{{ u.last_login|reltime if u.last_login else _("never") }}</td>
     <td>
       <details class="menu">
-        <summary>Manage</summary>
+        <summary>{{ _("Manage") }}</summary>
         <div class="menu-body">
           <form method="post" action="/admin/users/{{ u.id }}" class="form">
             <input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="q" value="{{ q }}">
             <input type="hidden" name="action" value="update">
-            <label>Email <input name="email" type="email" value="{{ u.email or "" }}"></label>
-            <label>Storage quota in GB (empty: default) <input name="quota_gb" inputmode="decimal" value="{{ (u.quota_bytes / 1000000000)|round(2) if u.quota_bytes else "" }}"></label>
-            <div class="buttons"><button type="submit">Save</button></div>
+            <label>{{ _("Email") }} <input name="email" type="email" value="{{ u.email or "" }}"></label>
+            <label>{{ _("Storage quota in GB (empty: default)") }} <input name="quota_gb" inputmode="decimal" value="{{ (u.quota_bytes / 1000000000)|round(2) if u.quota_bytes else "" }}"></label>
+            <div class="buttons"><button type="submit">{{ _("Save") }}</button></div>
           </form>
           <form method="post" action="/admin/users/{{ u.id }}" class="actions-list">
             <input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="q" value="{{ q }}">
-            {% if u.password_hash %}<button type="submit" name="action" value="reset-link">{{ "Email" if mail and u.email else "Make" }} a password reset link</button>
-            {% else %}<button type="submit" name="action" value="invite">{{ "Email" if mail and u.email else "Make" }} an invitation link</button>{% endif %}
+            {% set by_mail = mail and u.email %}
+            {% if u.password_hash %}<button type="submit" name="action" value="reset-link">{{ _("Email a password reset link") if by_mail else _("Make a password reset link") }}</button>
+            {% else %}<button type="submit" name="action" value="invite">{{ _("Email an invitation link") if by_mail else _("Make an invitation link") }}</button>{% endif %}
             {% if u.id != user.id %}
-            <button type="submit" name="action" value="{{ "make-user" if u.instance_role == "admin" else "make-admin" }}">{{ "Remove admin rights" if u.instance_role == "admin" else "Make admin" }}</button>
+            <button type="submit" name="action" value="{{ "make-user" if u.instance_role == "admin" else "make-admin" }}">{{ _("Remove admin rights") if u.instance_role == "admin" else _("Make admin") }}</button>
             {% endif %}
-            <button type="submit" name="action" value="{{ "unrequire-totp" if u.require_totp else "require-totp" }}">{{ "Don't require two-step login" if u.require_totp else "Require two-step login" }}</button>
-            {% if u.totp_secret_enc %}<button type="submit" name="action" value="reset-totp">Turn off two-step login (lost phone)</button>{% endif %}
-            <button type="submit" name="action" value="logout">Log out everywhere ({{ u.live_sessions }})</button>
+            <button type="submit" name="action" value="{{ "unrequire-totp" if u.require_totp else "require-totp" }}">{{ _("Don't require two-step login") if u.require_totp else _("Require two-step login") }}</button>
+            {% if u.totp_secret_enc %}<button type="submit" name="action" value="reset-totp">{{ _("Turn off two-step login (lost phone)") }}</button>{% endif %}
+            <button type="submit" name="action" value="logout">{{ _("Log out everywhere ({count})", count=u.live_sessions) }}</button>
             {% if u.id != user.id %}
-            <button type="submit" name="action" value="{{ "enable" if not u.active else "disable" }}">{{ "Enable account" if not u.active else "Disable account" }}</button>
-            <button type="submit" name="action" value="delete" class="danger" data-confirm="Delete {{ u.username }}? This can't be undone.">Delete account</button>
+            <button type="submit" name="action" value="{{ "enable" if not u.active else "disable" }}">{{ _("Enable account") if not u.active else _("Disable account") }}</button>
+            <button type="submit" name="action" value="delete" class="danger" data-confirm="{{ _("Delete {username}? This can't be undone.", username=u.username) }}">{{ _("Delete account") }}</button>
             {% endif %}
           </form>
         </div>
@@ -57,18 +58,18 @@
   {% endfor %}
   </tbody>
 </table>
-<h2>Add a user</h2>
+<h2>{{ _("Add a user") }}</h2>
 <form method="post" action="/admin/users" class="form narrow-form">
   <input type="hidden" name="_csrf" value="{{ csrf }}">
   <div class="row">
-    <label>Username <input name="username" required pattern="[A-Za-z0-9][A-Za-z0-9._\-]{1,39}" autocomplete="off"></label>
-    <label>Name <input name="display_name" maxlength="80"></label>
+    <label>{{ _("Username") }} <input name="username" required pattern="[A-Za-z0-9][A-Za-z0-9._\-]{1,39}" autocomplete="off"></label>
+    <label>{{ _("Name") }} <input name="display_name" maxlength="80"></label>
   </div>
   <div class="row">
-    <label>Email {% if not mail %}(optional){% endif %} <input name="email" type="email"></label>
-    <label>Role <select name="role"><option value="user">User</option><option value="admin">Admin</option></select></label>
+    <label>{{ _("Email (optional)") if not mail else _("Email") }} <input name="email" type="email"></label>
+    <label>{{ _("Role") }} <select name="role"><option value="user">{{ _("User") }}</option><option value="admin">{{ _("Administrator") }}</option></select></label>
   </div>
-  <p class="muted">{% if mail %}The new user gets an email with a link to choose a password. Without an email address, you get the link to pass on.{% else %}You get a link to pass on; the new user chooses a password with it.{% endif %}</p>
-  <div class="buttons"><button type="submit" class="primary">Add user</button></div>
+  <p class="muted">{{ _("The new user gets an email with a link to choose a password. Without an email address, you get the link to pass on.") if mail else _("You get a link to pass on; the new user chooses a password with it.") }}</p>
+  <div class="buttons"><button type="submit" class="primary">{{ _("Add user") }}</button></div>
 </form>
 {% endblock %}

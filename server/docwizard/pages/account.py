@@ -131,7 +131,9 @@ def register(app) -> None:
             "SELECT COUNT(*) AS n FROM recovery_codes WHERE user_id = ? AND used_at IS NULL", (req.user.id,)))["n"]
         ctx["has_password"] = (await app.db.fetchone(
             "SELECT password_hash IS NOT NULL AS p FROM users WHERE id = ?", (req.user.id,)))["p"]
-        return app.page(req, "settings.html", status, sources=[dict(r) for r in rows], **ctx)
+        from ..i18n import LANGUAGES
+
+        return app.page(req, "settings.html", status, sources=[dict(r) for r in rows], languages=LANGUAGES, **ctx)
 
     app.render_settings = render_settings
 
@@ -143,12 +145,18 @@ def register(app) -> None:
             prefs["theme"] = form["theme"]
         if form.get("editor_font") in ("sans", "mono"):
             prefs["editor_font"] = form["editor_font"]
+        from ..i18n import LANGUAGES
+
+        if form.get("language") in LANGUAGES:
+            prefs["language"] = form["language"]
         if form.get("editor_size", "").isdigit() and 15 <= int(form["editor_size"]) <= 20:
             prefs["editor_size"] = int(form["editor_size"])
         name = form.get("display_name", "").strip()[:80] or user.display_name
         await app.db.write(lambda c: users.update_profile(c, user.id, name, prefs))
         resp = redirect("/settings?saved=profile")
         resp.set_cookie("theme", prefs.get("theme", "dark"), max_age=365 * 86400, secure=cfg.secure_cookies)
+        if prefs.get("language"):
+            resp.set_cookie("lang", prefs["language"], max_age=365 * 86400, secure=cfg.secure_cookies)
         return resp
 
     async def settings_password(req: Request) -> Response:

@@ -182,9 +182,11 @@ def register(app) -> None:
         elif action == "delete":
             owned = (await app.db.fetchone("SELECT COUNT(*) FROM projects WHERE owner_id = ?", (uid,)))[0]
             if owned:
-                return await users_page(req, 400, error=f"{row['username']} owns {owned} "
-                                        f"{'project' if owned == 1 else 'projects'} (trashed ones included). "
-                                        "Delete them or wait until the trash is emptied, then try again.")
+                return await users_page(req, 400, error=app.t(
+                    req, "{username} owns 1 project (trashed ones included). Delete it or wait until the trash is"
+                    " emptied, then try again." if owned == 1 else "{username} owns {count} projects (trashed ones"
+                    " included). Delete them or wait until the trash is emptied, then try again.",
+                    username=row["username"], count=owned))
             try:
                 await app.db.execute("DELETE FROM users WHERE id = ?", (uid,))
             except sqlite3.IntegrityError:
@@ -256,8 +258,7 @@ def register(app) -> None:
         allow = [line.strip() for line in form.get("allow_private_outbound", "").splitlines() if line.strip()]
         bad = [a for a in allow if not HOST_OR_NET.match(a)]
         if bad:
-            return await settings_page(req, 400, error=f"Outbound requests: {bad[0]} isn't a host name, address or "
-                                                       "network.")
+            return await settings_page(req, 400, error=app.t(req, "Outbound requests: {value} isn't a host name, address or network.", value=bad[0]))
         new["allow_private_outbound"] = allow
         if new["require_totp_for_admins"] and not req.user.totp:
             return await settings_page(req, 400, error="Turn on two-step login for your own account first, or you "

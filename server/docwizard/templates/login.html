@@ -1,20 +1,20 @@
 {% extends "base.html" %}
-{% block title %}Log in · DocWizard{% endblock %}
+{% block title %}{{ _("Log in") }} · DocWizard{% endblock %}
 {% block content %}
 <section class="narrow">
   <form method="post" action="/login" class="form">
     <input type="hidden" name="next" value="{{ next }}">
-    <label>Username <input name="username" autocomplete="username" required autofocus value="{{ username }}"></label>
-    <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
-    {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
-    <div class="buttons"><button type="submit" class="primary">Log in</button></div>
+    <label>{{ _("Username") }} <input name="username" autocomplete="username" required autofocus value="{{ username }}"></label>
+    <label>{{ _("Password") }} <input name="password" type="password" autocomplete="current-password" required></label>
+    {% if error %}<p class="error" role="alert">{{ _(error) }}</p>{% endif %}
+    <div class="buttons"><button type="submit" class="primary">{{ _("Log in") }}</button></div>
   </form>
   {% if providers %}
   <div class="form">
-    {% for p in providers %}<a class="button" href="/login/oidc/{{ p.id }}?next={{ next|urlencode }}">Log in with {{ p.label }}</a>{% endfor %}
+    {% for p in providers %}<a class="button" href="/login/oidc/{{ p.id }}?next={{ next|urlencode }}">{{ _("Log in with {provider}", provider=p.label) }}</a>{% endfor %}
   </div>
   {% endif %}
-  <p><a href="/forgot">Forgot your password?</a></p>
-  {% if registration_open %}<p>No account yet? <a href="/register">Create an account</a></p>{% endif %}
+  <p><a href="/forgot">{{ _("Forgot your password?") }}</a></p>
+  {% if registration_open %}<p>{{ _("No account yet?") }} <a href="/register">{{ _("Create an account") }}</a></p>{% endif %}
 </section>
 {% endblock %}

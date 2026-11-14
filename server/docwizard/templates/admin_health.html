@@ -1,36 +1,36 @@
 {% extends "admin_base.html" %}
-{% block admin_title %}Health{% endblock %}
+{% block admin_title %}{{ _("Health") }}{% endblock %}
 {% block admin %}
-<h1>Health</h1>
+<h1>{{ _("Health") }}</h1>
 <dl class="facts">
-  <div><dt>Release</dt><dd>{{ release }}</dd></div>
-  <div><dt>Render worker</dt><dd>{% if worker_ok %}<span class="ok">Reachable</span>{% else %}<span class="error">Not reachable</span>{% endif %}</dd></div>
-  {% for tool, version in versions.items() %}<div><dt>{{ tool }}</dt><dd>{{ version or "not installed" }}</dd></div>{% endfor %}
-  <div><dt>Render jobs running or queued</dt><dd>{{ inflight }}</dd></div>
-  <div><dt>Documents open in memory</dt><dd>{{ rooms }}</dd></div>
-  <div><dt>Full-text search</dt><dd>{{ "Available" if fts else "Not available (SQLite without FTS5)" }}</dd></div>
+  <div><dt>{{ _("Release") }}</dt><dd>{{ release }}</dd></div>
+  <div><dt>{{ _("Render worker") }}</dt><dd>{% if worker_ok %}<span class="ok">{{ _("Reachable") }}</span>{% else %}<span class="error">{{ _("Not reachable") }}</span>{% endif %}</dd></div>
+  {% for tool, version in versions.items() %}<div><dt>{{ tool }}</dt><dd>{{ version or _("not installed") }}</dd></div>{% endfor %}
+  <div><dt>{{ _("Render jobs running or queued") }}</dt><dd>{{ inflight }}</dd></div>
+  <div><dt>{{ _("Documents open in memory") }}</dt><dd>{{ rooms }}</dd></div>
+  <div><dt>{{ _("Full-text search") }}</dt><dd>{{ _("Available") if fts else _("Not available (SQLite without FTS5)") }}</dd></div>
 </dl>
-<h2>Usage</h2>
+<h2>{{ _("Usage") }}</h2>
 <dl class="facts">
-  <div><dt>Users</dt><dd>{{ counts.users }}</dd></div>
-  <div><dt>Projects</dt><dd>{{ counts.projects }}</dd></div>
-  <div><dt>Documents</dt><dd>{{ counts.documents }}</dd></div>
-  <div><dt>Live sessions</dt><dd>{{ counts.sessions }}</dd></div>
-  <div><dt>Sync targets</dt><dd>{{ counts.sync }}{% if counts.sync_errors %} <span class="error">({{ counts.sync_errors }} failing)</span>{% endif %}</dd></div>
-  <div><dt>Published documents</dt><dd>{{ counts.publications }}</dd></div>
+  <div><dt>{{ _("Users") }}</dt><dd>{{ counts.users }}</dd></div>
+  <div><dt>{{ _("Projects") }}</dt><dd>{{ counts.projects }}</dd></div>
+  <div><dt>{{ _("Documents") }}</dt><dd>{{ counts.documents }}</dd></div>
+  <div><dt>{{ _("Live sessions") }}</dt><dd>{{ counts.sessions }}</dd></div>
+  <div><dt>{{ _("Sync targets") }}</dt><dd>{{ counts.sync }}{% if counts.sync_errors %} <span class="error">({{ _("{count} failing", count=counts.sync_errors) }})</span>{% endif %}</dd></div>
+  <div><dt>{{ _("Published documents") }}</dt><dd>{{ counts.publications }}</dd></div>
 </dl>
-<h2>Disk</h2>
+<h2>{{ _("Disk") }}</h2>
 <table class="grid">
-  <thead><tr><th>Folder</th><th>Used</th><th>Free on disk</th></tr></thead>
+  <thead><tr><th>{{ _("Folder") }}</th><th>{{ _("Used") }}</th><th>{{ _("Free on disk") }}</th></tr></thead>
   <tbody>
-  {% for d in disk %}<tr><td>{{ d.label }} <span class="muted">{{ d.path }}</span></td><td>{{ d.used|filesize }}</td><td>{{ d.free|filesize }}</td></tr>{% endfor %}
+  {% for d in disk %}<tr><td>{{ _(d.label) }} <span class="muted">{{ d.path }}</span></td><td>{{ d.used|filesize }}</td><td>{{ d.free|filesize }}</td></tr>{% endfor %}
   </tbody>
 </table>
-<h2>Recent errors</h2>
+<h2>{{ _("Recent errors") }}</h2>
 {% if errors %}
 <table class="grid">
-  <thead><tr><th>Time (UTC)</th><th>Where</th><th>Message</th></tr></thead>
+  <thead><tr><th>{{ _("Time (UTC)") }}</th><th>{{ _("Where") }}</th><th>{{ _("Message") }}</th></tr></thead>
   <tbody>{% for e in errors %}<tr><td>{{ e.at }}</td><td>{{ e.logger }}</td><td>{{ e.message }}{% if e.error %} <span class="muted">({{ e.error }})</span>{% endif %}</td></tr>{% endfor %}</tbody>
 </table>
-{% else %}<p class="muted">No errors since the server started.</p>{% endif %}
+{% else %}<p class="muted">{{ _("No errors since the server started.") }}</p>{% endif %}
 {% endblock %}

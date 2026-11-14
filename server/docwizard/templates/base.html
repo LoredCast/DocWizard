@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="{{ theme }}">
+<html lang="{{ lang }}" data-theme="{{ theme }}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -16,25 +16,26 @@
 <title>{% block title %}DocWizard{% endblock %}</title>
 <link rel="icon" href="{{ static }}/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="{{ static }}/css/app.css">
+{% if i18n_json %}<script type="application/json" id="i18n">{{ i18n_json|safe }}</script>{% endif %}
 {% block head %}{% endblock %}
 </head>
 <body class="{% block body_class %}page{% endblock %}">
 <header class="toolbar">
-  <nav class="crumbs" aria-label="Breadcrumb">{% block crumbs %}<a class="wordmark" href="/">DocWizard</a>{% endblock %}</nav>
+  <nav class="crumbs" aria-label="{{ _('Breadcrumb') }}">{% block crumbs %}<a class="wordmark" href="/">DocWizard</a>{% endblock %}</nav>
   <div class="actions">
     {% block actions %}{% endblock %}
     {% if user %}
-    {% if user.is_admin %}<a href="/admin">Admin</a>{% endif %}
+    {% if user.is_admin %}<a href="/admin">{{ _("Admin") }}</a>{% endif %}
     <a href="/settings">{{ user.display_name }}</a>
     <form method="post" action="/logout" class="inline">
       <input type="hidden" name="_csrf" value="{{ csrf }}">
-      <button type="submit">Log out</button>
+      <button type="submit">{{ _("Log out") }}</button>
     </form>
     {% elif guest %}
-    <span>{{ guest.display_name }} <span class="muted">(guest)</span></span>
+    <span>{{ guest.display_name }} <span class="muted">({{ _("guest") }})</span></span>
     <form method="post" action="/logout" class="inline">
       <input type="hidden" name="_csrf" value="{{ csrf }}">
-      <button type="submit">Leave</button>
+      <button type="submit">{{ _("Leave") }}</button>
     </form>
     {% endif %}
   </div>
@@ -43,7 +44,7 @@
 {% block content %}{% endblock %}
 </main>
 {% block footer %}
-<footer class="statusbar"><a href="/source">Source code</a><span>DocWizard {{ release }}</span></footer>
+<footer class="statusbar"><a href="/source">{{ _("Source code") }}</a><span>DocWizard {{ release }}</span></footer>
 {% endblock %}
 {% block scripts %}{% endblock %}
 </body>

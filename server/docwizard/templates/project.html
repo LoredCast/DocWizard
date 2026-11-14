@@ -2,63 +2,63 @@
 {% block title %}{{ project.name }} · DocWizard{% endblock %}
 {% block crumbs %}<a class="wordmark" href="/">DocWizard</a><span>/</span><span>{{ project.name }}</span>{% endblock %}
 {% block content %}
-{% if error %}<p class="error pad" role="alert">{{ error }}</p>{% endif %}
+{% if error %}<p class="error pad" role="alert">{{ _(error) }}</p>{% endif %}
 <table>
-  <thead><tr><th>Name ▴</th><th>Kind</th><th>Modified</th><th class="num">Size</th></tr></thead>
+  <thead><tr><th>{{ _("Name") }} ▴</th><th>{{ _("Kind") }}</th><th>{{ _("Modified") }}</th><th class="num">{{ _("Size") }}</th></tr></thead>
   <tbody>
   {% for e in tree %}
   <tr data-href="{{ doc_url(project.id, e.path) }}">
     <td><a href="{{ doc_url(project.id, e.path) }}">{{ e.path }}</a></td>
-    <td>{{ e.kind if e.type == "document" else "file" }}</td>
+    <td>{{ _(e.kind) if e.type == "document" else _("file") }}</td>
     <td title="{{ e.updatedAt }}">{{ e.updatedAt|reltime }}</td>
     <td class="num">{{ e.size|filesize }}</td>
   </tr>
   {% else %}
-  <tr><td colspan="4">No files yet.</td></tr>
+  <tr><td colspan="4">{{ _("No files yet.") }}</td></tr>
   {% endfor %}
   </tbody>
 </table>
 <div class="panels">
 {% if can(role, "edit") %}
 <section>
-  <h2>New document</h2>
+  <h2>{{ _("New document") }}</h2>
   <form method="post" class="row">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <input type="hidden" name="action" value="new-document">
-    <input name="path" placeholder="chapter.md" required aria-label="File name">
-    <button type="submit">Create document</button>
+    <input name="path" placeholder="chapter.md" required aria-label="{{ _('File name') }}">
+    <button type="submit">{{ _("Create document") }}</button>
   </form>
-  <h2>Upload</h2>
+  <h2>{{ _("Upload") }}</h2>
   <form class="row" data-upload="{{ project.id }}">
-    <input type="file" name="file" multiple aria-label="Files to upload">
-    <button type="submit">Upload</button>
+    <input type="file" name="file" multiple aria-label="{{ _('Files to upload') }}">
+    <button type="submit">{{ _("Upload") }}</button>
   </form>
   <p class="muted" data-upload-status></p>
 </section>
 <section>
-  <h2>Layout</h2>
+  <h2>{{ _("Layout") }}</h2>
   <form method="post" class="row">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <input type="hidden" name="action" value="layout">
-    <select name="layout" aria-label="Layout">
+    <select name="layout" aria-label="{{ _('Layout') }}">
       {% for lay in layouts %}<option value="{{ lay.id }}" {% if lay.id == project.layout_id %}selected{% endif %}>{{ lay.name }}</option>{% endfor %}
     </select>
-    <button type="submit">Change layout</button>
+    <button type="submit">{{ _("Change layout") }}</button>
   </form>
 </section>
 {% endif %}
 {% if not guest %}
 <section>
-  <h2>Members</h2>
+  <h2>{{ _("Members") }}</h2>
   <ul class="plain">
     {% for m in members %}
-    <li><span class="spacer">{{ m.display_name }} <span class="muted">({{ m.role }})</span></span>
+    <li><span class="spacer">{{ m.display_name }} <span class="muted">({{ _(m.role) }})</span></span>
       {% if can(role, "manage_members") and m.role != "owner" %}
       <form method="post" class="inline">
         <input type="hidden" name="_csrf" value="{{ csrf }}">
         <input type="hidden" name="action" value="remove-member">
         <input type="hidden" name="user_id" value="{{ m.id }}">
-        <button type="submit" class="link">Remove</button>
+        <button type="submit" class="link">{{ _("Remove") }}</button>
       </form>
       {% endif %}
     </li>
@@ -68,91 +68,91 @@
   <form method="post" class="row">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <input type="hidden" name="action" value="add-member">
-    <input name="username" placeholder="Username" required aria-label="Username">
-    <select name="role" aria-label="Role">
-      <option value="editor">Editor</option><option value="commenter">Commenter</option><option value="viewer">Viewer</option>
+    <input name="username" placeholder="{{ _('Username') }}" required aria-label="{{ _('Username') }}">
+    <select name="role" aria-label="{{ _('Role') }}">
+      <option value="editor">{{ _("Editor") }}</option><option value="commenter">{{ _("Commenter") }}</option><option value="viewer">{{ _("Viewer") }}</option>
     </select>
-    <button type="submit">Add member</button>
+    <button type="submit">{{ _("Add member") }}</button>
   </form>
   <form method="post" class="form">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <input type="hidden" name="action" value="sharing">
-    <label class="choice"><input type="checkbox" name="editors_can_share" value="1" {% if project.editors_can_share %}checked{% endif %}> Editors can create share links</label>
-    <label class="choice"><input type="checkbox" name="editors_can_publish" value="1" {% if project.editors_can_publish %}checked{% endif %}> Editors can publish</label>
-    <div><button type="submit">Save sharing settings</button></div>
+    <label class="choice"><input type="checkbox" name="editors_can_share" value="1" {% if project.editors_can_share %}checked{% endif %}> {{ _("Editors can create share links") }}</label>
+    <label class="choice"><input type="checkbox" name="editors_can_publish" value="1" {% if project.editors_can_publish %}checked{% endif %}> {{ _("Editors can publish") }}</label>
+    <div><button type="submit">{{ _("Save sharing settings") }}</button></div>
   </form>
   {% endif %}
 </section>
 {% endif %}
 {% if may_share %}
 <section id="share">
-  <h2>Share links</h2>
+  <h2>{{ _("Share links") }}</h2>
   {% if new_link %}
-  <p role="status">New link, copy it now: <input readonly value="{{ new_link }}" aria-label="New share link" data-select-on-focus></p>
+  <p role="status">{{ _("New link, copy it now:") }} <input readonly value="{{ new_link }}" aria-label="{{ _('New share link') }}" data-select-on-focus></p>
   {% endif %}
   <ul class="plain">
     {% for l in shares %}
-    <li><span class="spacer">{{ l.label or "Link" }} <span class="muted">({{ l.role }}{% if l.has_password %}, password{% endif %}{% if l.expired %}, expired{% elif l.expires_at %}, expires{% endif %}{% if l.guests %}, {{ l.guests }} {{ "guest" if l.guests == 1 else "guests" }}{% endif %})</span></span>
+    <li><span class="spacer">{{ l.label or _("Link") }} <span class="muted">({{ _(l.role) }}{% if l.has_password %}, {{ _("password") }}{% endif %}{% if l.expired %}, {{ _("expired") }}{% elif l.expires_at %}, {{ _("expires") }}{% endif %}{% if l.guests %}, {{ _("1 guest") if l.guests == 1 else _("{n} guests", n=l.guests) }}{% endif %})</span></span>
       <form method="post" class="inline">
         <input type="hidden" name="_csrf" value="{{ csrf }}">
         <input type="hidden" name="action" value="revoke-link">
         <input type="hidden" name="link_id" value="{{ l.id }}">
-        <button type="submit" class="link">Revoke</button>
+        <button type="submit" class="link">{{ _("Revoke") }}</button>
       </form>
     </li>
     {% else %}
-    <li class="muted">No share links.</li>
+    <li class="muted">{{ _("No share links.") }}</li>
     {% endfor %}
   </ul>
   <form method="post" class="form">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <input type="hidden" name="action" value="create-link">
-    <label>Role
-      <select name="role">{% for r in link_roles %}<option value="{{ r }}">{{ r|capitalize }}</option>{% endfor %}</select>
+    <label>{{ _("Role") }}
+      <select name="role">{% for r in link_roles %}<option value="{{ r }}">{{ _(r|capitalize) }}</option>{% endfor %}</select>
     </label>
-    <label>Expires
-      <select name="expires_days"><option value="">Never</option><option value="1">In 1 day</option><option value="7">In 7 days</option><option value="30">In 30 days</option></select>
+    <label>{{ _("Expires") }}
+      <select name="expires_days"><option value="">{{ _("Never") }}</option><option value="1">{{ _("In 1 day") }}</option><option value="7">{{ _("In 7 days") }}</option><option value="30">{{ _("In 30 days") }}</option></select>
     </label>
-    <label>Password (optional) <input name="password" type="password" autocomplete="new-password" minlength="6"></label>
-    <label>Name (optional) <input name="label" maxlength="80" placeholder="Seminar group"></label>
-    <div><button type="submit">Create share link</button></div>
+    <label>{{ _("Password (optional)") }} <input name="password" type="password" autocomplete="new-password" minlength="6"></label>
+    <label>{{ _("Name (optional)") }} <input name="label" maxlength="80" placeholder="{{ _('Seminar group') }}"></label>
+    <div><button type="submit">{{ _("Create share link") }}</button></div>
   </form>
 </section>
 {% endif %}
 {% if may_sync %}
 <section id="sync" data-project="{{ project.id }}">
-  <h2>Sync</h2>
+  <h2>{{ _("Sync") }}</h2>
   {% if sync %}
-  <p>Synced with {{ sync.label }}: <strong>{{ sync.remotePath or "/" }}</strong> <span class="muted">at {{ sync.url }}{% if sync.username %} as {{ sync.username }}{% endif %}</span></p>
+  <p>{{ _("Synced with {service}:", service=sync.label) }} <strong>{{ sync.remotePath or "/" }}</strong> <span class="muted">{{ _("at {url}", url=sync.url) }}{% if sync.username %} {{ _("as {user}", user=sync.username) }}{% endif %}</span></p>
   <p class="{{ "error" if sync.status == "error" else "muted" }}" id="sync-state" role="status">
-    {%- if sync.status == "error" %}Last sync failed: {{ sync.lastError }}
-    {%- elif sync.status == "paused" %}Paused.
-    {%- elif sync.lastSyncAt %}Last synced {{ sync.lastSyncAt|reltime }}.
-    {%- else %}Waiting for the first sync.{% endif %}</p>
+    {%- if sync.status == "error" %}{{ _("Last sync failed: {error}", error=sync.lastError) }}
+    {%- elif sync.status == "paused" %}{{ _("Paused.") }}
+    {%- elif sync.lastSyncAt %}{{ _("Last synced {when}.", when=sync.lastSyncAt|reltime) }}
+    {%- else %}{{ _("Waiting for the first sync.") }}{% endif %}</p>
   <div class="row">
-    <button type="button" data-sync-action="run">Sync now</button>
-    <button type="button" data-sync-action="{{ "resume" if sync.status == "paused" else "pause" }}">{{ "Resume" if sync.status == "paused" else "Pause" }}</button>
-    <button type="button" class="danger" data-sync-action="disconnect">Disconnect</button>
+    <button type="button" data-sync-action="run">{{ _("Sync now") }}</button>
+    <button type="button" data-sync-action="{{ "resume" if sync.status == "paused" else "pause" }}">{{ _("Resume") if sync.status == "paused" else _("Pause") }}</button>
+    <button type="button" class="danger" data-sync-action="disconnect">{{ _("Disconnect") }}</button>
   </div>
   {% else %}
-  <p class="muted">Keep this project in a folder on Nextcloud, Seafile or any WebDAV server. Changes go both ways; overlapping edits become conflicts to review.</p>
+  <p class="muted">{{ _("Keep this project in a folder on Nextcloud, Seafile or any WebDAV server. Changes go both ways; overlapping edits become conflicts to review.") }}</p>
   <form class="form" id="sync-nextcloud">
-    <label>Nextcloud address <input name="server" required placeholder="https://cloud.example.org" inputmode="url"></label>
-    <label>Folder <input name="remotePath" placeholder="Documents/{{ project.name }}" value="DocWizard/{{ project.name }}"></label>
-    <div><button type="submit" class="primary">Connect to Nextcloud</button></div>
+    <label>{{ _("Nextcloud address") }} <input name="server" required placeholder="https://cloud.example.org" inputmode="url"></label>
+    <label>{{ _("Folder") }} <input name="remotePath" placeholder="Documents/{{ project.name }}" value="DocWizard/{{ project.name }}"></label>
+    <div><button type="submit" class="primary">{{ _("Connect to Nextcloud") }}</button></div>
     <p class="muted" id="sync-flow" role="status" hidden></p>
   </form>
   <details>
-    <summary>Seafile or another WebDAV server</summary>
+    <summary>{{ _("Seafile or another WebDAV server") }}</summary>
     <form class="form" id="sync-webdav">
-      <label>Server
+      <label>{{ _("Server") }}
         <select name="kind"><option value="webdav">WebDAV</option><option value="seafile">Seafile (SeafDAV)</option></select>
       </label>
-      <label>WebDAV address <input name="url" required placeholder="https://dav.example.org/files" inputmode="url"></label>
-      <label>Folder <input name="remotePath" value="DocWizard/{{ project.name }}"></label>
-      <label>Username <input name="username" autocomplete="off"></label>
-      <label>Password or token <input name="password" type="password" autocomplete="new-password"></label>
-      <div><button type="submit">Connect</button></div>
+      <label>{{ _("WebDAV address") }} <input name="url" required placeholder="https://dav.example.org/files" inputmode="url"></label>
+      <label>{{ _("Folder") }} <input name="remotePath" value="DocWizard/{{ project.name }}"></label>
+      <label>{{ _("Username") }} <input name="username" autocomplete="off"></label>
+      <label>{{ _("Password or token") }} <input name="password" type="password" autocomplete="new-password"></label>
+      <div><button type="submit">{{ _("Connect") }}</button></div>
     </form>
   </details>
   {% endif %}
@@ -160,17 +160,17 @@
 {% endif %}
 {% if can(role, "delete_project") %}
 <section>
-  <h2>Project</h2>
+  <h2>{{ _("Project") }}</h2>
   <form method="post" class="row">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <input type="hidden" name="action" value="rename">
-    <input name="name" value="{{ project.name }}" required aria-label="Project name">
-    <button type="submit">Rename</button>
+    <input name="name" value="{{ project.name }}" required aria-label="{{ _('Project name') }}">
+    <button type="submit">{{ _("Rename") }}</button>
   </form>
-  <form method="post" class="row" data-confirm="Delete the project {{ project.name }}? It moves to the trash.">
+  <form method="post" class="row" data-confirm="{{ _('Delete the project {name}? It moves to the trash.', name=project.name) }}">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <input type="hidden" name="action" value="delete">
-    <button type="submit" class="danger">Delete project</button>
+    <button type="submit" class="danger">{{ _("Delete project") }}</button>
   </form>
 </section>
 {% endif %}

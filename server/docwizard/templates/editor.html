@@ -9,88 +9,88 @@
 {% endblock %}
 {% block crumbs %}<a class="wordmark" href="/">DocWizard</a><span>/</span><a href="/p/{{ project.id }}" id="crumb-project">{{ project.name }}</a><span>/</span><span id="crumb-doc">{{ doc.path }}</span>{% endblock %}
 {% block actions %}
-<span class="presence" id="presence" aria-label="Also here"></span>
-<span class="status" id="save-state" role="status">Saved</span>
-<button type="button" id="new-comment" title="Comment on the selection (Ctrl+Alt+M)">Comment</button>
-<button type="button" id="open-comments" aria-pressed="false">Comments</button>
-<button type="button" id="toggle-preview" aria-pressed="true">Preview</button>
-<button type="button" id="open-export">Export</button>
-<button type="button" id="open-versions">Versions</button>
-{% if can(role, "share", project) and not guest %}<button type="button" id="open-share">Share</button>{% endif %}
-{% if can(role, "publish", project) and not guest %}<button type="button" id="open-publish">Publish</button>{% endif %}
+<span class="presence" id="presence" aria-label="{{ _('Also here') }}"></span>
+<span class="status" id="save-state" role="status">{{ _("Saved") }}</span>
+<button type="button" id="new-comment" title="{{ _('Comment on the selection (Ctrl+Alt+M)') }}">{{ _("Comment") }}</button>
+<button type="button" id="open-comments" aria-pressed="false">{{ _("Comments") }}</button>
+<button type="button" id="toggle-preview" aria-pressed="true">{{ _("Preview") }}</button>
+<button type="button" id="open-export">{{ _("Export") }}</button>
+<button type="button" id="open-versions">{{ _("Versions") }}</button>
+{% if can(role, "share", project) and not guest %}<button type="button" id="open-share">{{ _("Share") }}</button>{% endif %}
+{% if can(role, "publish", project) and not guest %}<button type="button" id="open-publish">{{ _("Publish") }}</button>{% endif %}
 {% endblock %}
 {% block main_class %}workspace{% endblock %}
 {% block content %}
 <script type="application/json" id="snapshot">{{ snapshot|safe }}</script>
 <div class="split" id="split">
-  <section class="pane editor-pane" aria-label="Editor"><div id="editor"></div></section>
-  <section class="pane preview-pane" id="preview-pane" aria-label="Preview">
+  <section class="pane editor-pane" aria-label="{{ _('Editor') }}"><div id="editor"></div></section>
+  <section class="pane preview-pane" id="preview-pane" aria-label="{{ _('Preview') }}">
     <div class="pane-head">
-      <span id="preview-state">Preview</span>
+      <span id="preview-state">{{ _("Preview") }}</span>
       <span class="spacer"></span>
       <label class="choice"><input type="radio" name="preview-target" value="html" checked> HTML</label>
       <label class="choice"><input type="radio" name="preview-target" value="pdf"> PDF</label>
-      <label class="choice"><input type="checkbox" id="dark-paper"> Dark paper</label>
-      <button type="button" id="open-options">Layout options</button>
+      <label class="choice"><input type="checkbox" id="dark-paper"> {{ _("Dark paper") }}</label>
+      <button type="button" id="open-options">{{ _("Layout options") }}</button>
     </div>
-    <iframe id="preview" title="Preview" sandbox referrerpolicy="no-referrer"></iframe>
+    <iframe id="preview" title="{{ _('Preview') }}" sandbox referrerpolicy="no-referrer"></iframe>
   </section>
-  <aside class="pane side-panel" id="side-panel" aria-label="Comments" hidden>
-    <div class="pane-head"><span>Comments</span><span class="spacer"></span><button type="button" id="close-panel">Close</button></div>
+  <aside class="pane side-panel" id="side-panel" aria-label="{{ _('Comments') }}" hidden>
+    <div class="pane-head"><span>{{ _("Comments") }}</span><span class="spacer"></span><button type="button" id="close-panel">{{ _("Close") }}</button></div>
     <div class="panel-body" id="comments-list"></div>
   </aside>
 </div>
 <dialog id="export-dialog" aria-labelledby="export-title">
   <form method="dialog" class="form" id="export-form">
-    <h2 id="export-title">Export</h2>
-    <label>Format
+    <h2 id="export-title">{{ _("Export") }}</h2>
+    <label>{{ _("Format") }}
       <select name="target">
         {% if doc.kind == "latex" %}
         <option value="pdf-latex">PDF</option>
-        <option value="md-source">Project source (zip)</option>
+        <option value="md-source">{{ _("Project source (zip)") }}</option>
         {% else %}
         <option value="pdf-typst">PDF</option>
-        <option value="pdf-latex">PDF via LaTeX</option>
+        <option value="pdf-latex">{{ _("PDF via LaTeX") }}</option>
         <option value="docx">Word (DOCX)</option>
         <option value="odt">OpenDocument (ODT)</option>
         <option value="html">HTML</option>
-        <option value="md-resolved">Markdown with citations resolved</option>
+        <option value="md-resolved">{{ _("Markdown with citations resolved") }}</option>
         <option value="md-gfm">GitHub Markdown</option>
-        <option value="typ-source">Typst source</option>
-        <option value="tex-source">LaTeX source</option>
-        <option value="md-source">Project source (zip)</option>
+        <option value="typ-source">{{ _("Typst source") }}</option>
+        <option value="tex-source">{{ _("LaTeX source") }}</option>
+        <option value="md-source">{{ _("Project source (zip)") }}</option>
         {% endif %}
       </select>
     </label>
     <p id="export-conflicts" class="error"></p>
     <p id="export-status" class="muted" role="status"></p>
     <div class="buttons">
-      <button type="button" data-close-dialog>Close</button>
-      <button type="submit" class="primary" value="export">Export</button>
+      <button type="button" data-close-dialog>{{ _("Close") }}</button>
+      <button type="submit" class="primary" value="export">{{ _("Export") }}</button>
     </div>
   </form>
 </dialog>
 {% if can(role, "publish", project) and not guest %}
 <dialog id="publish-dialog" aria-labelledby="publish-title">
   <form class="form" id="publish-form">
-    <h2 id="publish-title">Publish {{ doc.path }}</h2>
-    <p class="muted">Publishing puts this document on the web as a static page, rendered with the project's layout. Images in the project are published with it.</p>
+    <h2 id="publish-title">{{ _("Publish {path}", path=doc.path) }}</h2>
+    <p class="muted">{{ _("Publishing puts this document on the web as a static page, rendered with the project's layout. Images in the project are published with it.") }}</p>
     <p id="publish-current" role="status"></p>
     <fieldset class="plain">
-      <legend>Who can find it</legend>
-      <label class="choice"><input type="radio" name="visibility" value="public" checked> Public, at an address you choose</label>
-      <label class="choice"><input type="radio" name="visibility" value="unlisted"> Unlisted, at a random address only people with the link know</label>
+      <legend>{{ _("Who can find it") }}</legend>
+      <label class="choice"><input type="radio" name="visibility" value="public" checked> {{ _("Public, at an address you choose") }}</label>
+      <label class="choice"><input type="radio" name="visibility" value="unlisted"> {{ _("Unlisted, at a random address only people with the link know") }}</label>
     </fieldset>
-    <label id="publish-slug-label">Address
+    <label id="publish-slug-label">{{ _("Address") }}
       <span class="row"><span class="muted" id="publish-base"></span><input name="slug" pattern="[a-z0-9][a-z0-9\-]{2,63}" maxlength="64" autocomplete="off" spellcheck="false" placeholder="my-thesis"></span>
     </label>
-    <label class="choice"><input type="checkbox" name="autoUpdate"> Update the page automatically when the document changes</label>
-    <label class="choice"><input type="checkbox" name="withPdf"> Offer a PDF download</label>
+    <label class="choice"><input type="checkbox" name="autoUpdate"> {{ _("Update the page automatically when the document changes") }}</label>
+    <label class="choice"><input type="checkbox" name="withPdf"> {{ _("Offer a PDF download") }}</label>
     <div class="buttons">
-      <button type="button" data-close-dialog>Close</button>
-      <button type="button" id="publish-remove" class="danger" hidden>Unpublish</button>
-      <button type="button" id="publish-again" hidden>Publish changes</button>
-      <button type="submit" class="primary" id="publish-submit">Publish</button>
+      <button type="button" data-close-dialog>{{ _("Close") }}</button>
+      <button type="button" id="publish-remove" class="danger" hidden>{{ _("Unpublish") }}</button>
+      <button type="button" id="publish-again" hidden>{{ _("Publish changes") }}</button>
+      <button type="submit" class="primary" id="publish-submit">{{ _("Publish") }}</button>
     </div>
   </form>
 </dialog>
@@ -98,23 +98,23 @@
 {% if can(role, "share", project) and not guest %}
 <dialog id="share-dialog" aria-labelledby="share-title">
   <div class="form">
-    <h2 id="share-title">Share {{ project.name }}</h2>
-    <p class="muted">Anyone with a link can open this project with the link's role. People with an account join as members; everyone else enters a name and joins as a guest.</p>
-    <p class="muted" id="share-guest-note" hidden>Guest access is turned off on this server, so people need an account.</p>
+    <h2 id="share-title">{{ _("Share {project}", project=project.name) }}</h2>
+    <p class="muted">{{ _("Anyone with a link can open this project with the link's role. People with an account join as members; everyone else enters a name and joins as a guest.") }}</p>
+    <p class="muted" id="share-guest-note" hidden>{{ _("Guest access is turned off on this server, so people need an account.") }}</p>
     <ul class="plain" id="share-links"></ul>
     <form class="form" id="share-form">
       <div class="row">
-        <label>Role <select name="role"></select></label>
-        <label>Expires
-          <select name="expires_days"><option value="">Never</option><option value="1">In 1 day</option><option value="7">In 7 days</option><option value="30">In 30 days</option></select>
+        <label>{{ _("Role") }} <select name="role"></select></label>
+        <label>{{ _("Expires") }}
+          <select name="expires_days"><option value="">{{ _("Never") }}</option><option value="1">{{ _("In 1 day") }}</option><option value="7">{{ _("In 7 days") }}</option><option value="30">{{ _("In 30 days") }}</option></select>
         </label>
       </div>
-      <label>Password (optional) <input name="password" type="password" autocomplete="new-password" minlength="6"></label>
-      <label>Name (optional) <input name="label" maxlength="80" placeholder="Seminar group"></label>
+      <label>{{ _("Password (optional)") }} <input name="password" type="password" autocomplete="new-password" minlength="6"></label>
+      <label>{{ _("Name (optional)") }} <input name="label" maxlength="80" placeholder="{{ _('Seminar group') }}"></label>
       <div class="row" id="share-result"></div>
       <div class="buttons">
-        <button type="button" data-close-dialog>Close</button>
-        <button type="submit" class="primary">Create share link</button>
+        <button type="button" data-close-dialog>{{ _("Close") }}</button>
+        <button type="submit" class="primary">{{ _("Create share link") }}</button>
       </div>
     </form>
   </div>
@@ -122,23 +122,23 @@
 {% endif %}
 <dialog id="options-dialog" aria-labelledby="options-title">
   <form method="dialog" class="form" id="options-form">
-    <h2 id="options-title">Layout options · <span data-layout-name>{{ layout.name }}</span></h2>
+    <h2 id="options-title">{{ _("Layout options") }} · <span data-layout-name>{{ layout.name }}</span></h2>
     <div id="options-fields"></div>
     <div class="buttons">
-      <button type="button" data-close-dialog>Cancel</button>
-      <button type="submit" class="primary" value="save">Save</button>
+      <button type="button" data-close-dialog>{{ _("Cancel") }}</button>
+      <button type="submit" class="primary" value="save">{{ _("Save") }}</button>
     </div>
   </form>
 </dialog>
 <dialog id="versions-dialog" aria-labelledby="versions-title">
   <div class="form">
-    <h2 id="versions-title">Versions</h2>
+    <h2 id="versions-title">{{ _("Versions") }}</h2>
     <form class="row" id="version-form">
-      <input name="label" placeholder="Name this version" required aria-label="Version name">
-      <button type="submit">Save version</button>
+      <input name="label" placeholder="{{ _('Name this version') }}" required aria-label="{{ _('Version name') }}">
+      <button type="submit">{{ _("Save version") }}</button>
     </form>
     <ul class="plain" id="versions-list"></ul>
-    <div class="buttons"><button type="button" data-close-dialog>Close</button></div>
+    <div class="buttons"><button type="button" data-close-dialog>{{ _("Close") }}</button></div>
   </div>
 </dialog>
 {% endblock %}
@@ -150,7 +150,7 @@
   <span id="conflict-count"></span>
   <span id="diagnostic"></span>
   <span class="spacer"></span>
-  <a href="/source">Source code</a>
+  <a href="/source">{{ _("Source code") }}</a>
 </footer>
 {% endblock %}
 {% block scripts %}<script type="module" src="{{ static }}/app/editor/main.js"></script>{% endblock %}

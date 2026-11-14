@@ -6,7 +6,7 @@ import { Socket } from "../collab/socket.js";
 import { HtmlPreview, headingId } from "../preview/html.js";
 import { PdfPreview } from "../preview/pdf.js";
 import { getCitations, getDoc, getDocByUrl, prune, putCitations, putLayout } from "../store/idb.js";
-import { $, api, confirmDialog, el, toast, wireCommon } from "../ui/dom.js";
+import { $, api, confirmDialog, el, t, toast, wireCommon } from "../ui/dom.js";
 import { AnchorLoader, anchorsField, conflictGutter } from "./anchors.js";
 import { setLibrary } from "./citations.js";
 import { CommentsPanel } from "./comments.js";
@@ -21,9 +21,9 @@ const offlineRecord = snap ? null : await getDocByUrl(location.pathname);
 if (!snap) {
   if (!offlineRecord?.meta) {
     $("#split").replaceChildren(el("section", { class: "pad" },
-      el("h2", {}, "Not available offline"),
-      el("p", {}, "This document hasn't been opened in this browser recently. Open it again when you're online."),
-      el("p", {}, el("a", { href: "/" }, "Documents available offline"))));
+      el("h2", {}, t("Not available offline")),
+      el("p", {}, t("This document hasn't been opened in this browser recently. Open it again when you're online.")),
+      el("p", {}, el("a", { href: "/" }, t("Documents available offline")))));
     await new Promise(() => {}); // nothing else on this page can work
   }
   snap = { ...offlineRecord.meta, text: offlineRecord.baseText, version: offlineRecord.syncedVersion,
@@ -117,10 +117,10 @@ function showStatus({ state, waiting }) {
     return;
   }
   const label = {
-    saved: "Saved",
-    saving: "Saving…",
-    reconnecting: "Reconnecting…",
-    offline: waiting ? `Offline · ${waiting} ${waiting === 1 ? "change" : "changes"} waiting` : "Offline",
+    saved: t("Saved"),
+    saving: t("Saving…"),
+    reconnecting: t("Reconnecting…"),
+    offline: waiting ? (waiting === 1 ? t("Offline · 1 change waiting") : t("Offline · {n} changes waiting", { n: waiting })) : t("Offline"),
   }[state];
   $("#save-state").textContent = label;
 }
@@ -130,10 +130,10 @@ function showPeers(peers) {
   slot.replaceChildren(...peers.map((p, i) => el("span", { class: "peer" },
     el("span", { class: "dot", style: `--peer: var(--peer-${p.color})`, "aria-hidden": "true" }),
     el("span", { class: "name" }, `${p.name}${i < peers.length - 1 ? "," : ""}`))));
-  slot.title = peers.length ? `Also here: ${peers.map((p) => p.name).join(", ")}` : "";
+  slot.title = peers.length ? t("Also here: {names}", { names: peers.map((p) => p.name).join(", ") }) : "";
 }
 
-socket.onError((msg) => toast(msg.message ?? "The connection reported an error.", { error: true }));
+socket.onError((msg) => toast(msg.message ?? t("The connection reported an error."), { error: true }));
 
 function handleEvent(msg) {
   switch (msg.t) {
@@ -155,7 +155,7 @@ function handleEvent(msg) {
       break;
     case "merged":
       if (msg.conflicts) {
-        toast(`Offline edits were merged. ${msg.conflicts} ${msg.conflicts === 1 ? "passage needs" : "passages need"} a look.`);
+        toast(msg.conflicts === 1 ? t("Offline edits were merged. 1 passage needs a look.") : t("Offline edits were merged. {n} passages need a look.", { n: msg.conflicts }));
       }
       loadConflicts();
       break;
@@ -172,7 +172,7 @@ function handleEvent(msg) {
       presence.receive(msg.version, msg.peer);
       break;
     case "error":
-      toast(msg.message ?? "Something went wrong.", { error: true });
+      toast(msg.message ?? t("Something went wrong."), { error: true });
       break;
     default:
   }
@@ -186,9 +186,10 @@ const stats = new Worker(new URL("../workers/stats.js", import.meta.url), { type
 stats.onmessage = (event) => {
   if (event.data.id !== statsId) return;
   outline = event.data.outline;
-  const n = event.data.words.toLocaleString();
-  const notes = event.data.notes ? ` · ${event.data.notes.toLocaleString()} in notes` : "";
-  $("#word-count").textContent = isMarkdown ? `${n} words${notes}` : `${n} words`;
+  const locale = document.documentElement.lang || undefined;
+  const n = event.data.words.toLocaleString(locale);
+  const notes = event.data.notes && isMarkdown ? t(" · {n} in notes", { n: event.data.notes.toLocaleString(locale) }) : "";
+  $("#word-count").textContent = t("{n} words", { n }) + notes;
 };
 function countWords() {
   statsId += 1;
@@ -264,12 +265,12 @@ function applyPreviewLayout() {
   const button = $("#toggle-preview");
   if (narrow.matches) {
     split.classList.remove("no-preview");
-    button.textContent = split.classList.contains("show-preview") ? "Edit" : "Preview";
+    button.textContent = split.classList.contains("show-preview") ? t("Edit") : t("Preview");
     button.setAttribute("aria-pressed", String(split.classList.contains("show-preview")));
   } else {
     split.classList.remove("show-preview");
     split.classList.toggle("no-preview", !previewOn);
-    button.textContent = "Preview";
+    button.textContent = t("Preview");
     button.setAttribute("aria-pressed", String(previewOn));
   }
   frame.hidden = target !== "html";
@@ -310,7 +311,7 @@ function requestPreview(delay = target === "html" ? 300 : 1000) {
   previewTimer = setTimeout(() => {
     const sent = socket.send({ t: "render", doc: docId, version: session.version(), target,
                                layout: snap.layout.id, options: layoutOptions });
-    if (sent) $("#preview-state").textContent = "Rendering…";
+    if (sent) $("#preview-state").textContent = t("Rendering…");
   }, delay);
 }
 
@@ -320,7 +321,7 @@ function showRendered(msg) {
   if (errors.length) {
     const d = errors[0];
     const elsewhere = d.file && !snap.doc.path.endsWith(d.file);
-    diag.textContent = d.line ? `${elsewhere ? `${d.file}, line` : "Line"} ${d.line}: ${d.message}` : d.message;
+    diag.textContent = d.line ? (elsewhere ? t("{file}, line {line}: {message}", { file: d.file, line: d.line, message: d.message }) : t("Line {line}: {message}", { line: d.line, message: d.message })) : d.message;
     diag.className = "diagnostic-error";
     diag.title = errors.map((e) => e.message).join("\n");
   } else {
@@ -330,12 +331,12 @@ function showRendered(msg) {
   }
   if (msg.target !== target) return;
   if (!msg.url) {
-    $("#preview-state").textContent = "Preview failed";
+    $("#preview-state").textContent = t("Preview failed");
     return;
   }
   if ((msg.version ?? 0) < shown[msg.target]) return;
   shown[msg.target] = msg.version ?? 0;
-  $("#preview-state").textContent = "Preview";
+  $("#preview-state").textContent = t("Preview");
   if (msg.target === "html") html.show(msg.url);
   else pdf.show(msg.url);
 }
@@ -367,7 +368,7 @@ $("#export-form").addEventListener("submit", async (event) => {
   const status = $("#export-status");
   const button = event.submitter ?? $("#export-form button[type=submit]");
   const targetName = new FormData(event.target).get("target");
-  status.textContent = "Exporting…";
+  status.textContent = t("Exporting…");
   button.disabled = true;
   try {
     const { job } = await api("POST", `/api/projects/${projectId}/export`,
@@ -378,7 +379,7 @@ $("#export-form").addEventListener("submit", async (event) => {
       if (s.status === "queued" || s.status === "running") continue;
       status.replaceChildren();
       if (s.url) {
-        status.append(el("a", { href: s.url, download: "" }, "Download"), " ");
+        status.append(el("a", { href: s.url, download: "" }, t("Download")), " ");
       } else {
         status.append("The export failed. ");
       }
@@ -386,7 +387,7 @@ $("#export-form").addEventListener("submit", async (event) => {
       if (message) status.append(el("span", { class: "error" }, message));
       return;
     }
-    status.textContent = "The export is taking too long.";
+    status.textContent = t("The export is taking too long.");
   } catch (err) {
     status.textContent = err.message;
   } finally {
@@ -406,7 +407,7 @@ function optionField(name, spec, value) {
   if (spec.type === "enum") {
     return el("label", {}, label,
       el("select", { name }, spec.values.map((v) =>
-        el("option", { value: v, selected: v === current }, spec.labels?.[v] ?? (v === "" ? "None" : v)))));
+        el("option", { value: v, selected: v === current }, spec.labels?.[v] ?? (v === "" ? t("None") : v)))));
   }
   if (spec.type === "number") {
     return el("label", {}, label,
@@ -420,7 +421,7 @@ $("#open-options").addEventListener("click", () => {
   const fields = $("#options-fields");
   const vars = snap.layout.variables ?? {};
   fields.replaceChildren(...Object.entries(vars).map(([name, spec]) => optionField(name, spec, layoutOptions[name])));
-  if (!Object.keys(vars).length) fields.append(el("p", { class: "muted" }, "This layout has no options."));
+  if (!Object.keys(vars).length) fields.append(el("p", { class: "muted" }, t("This layout has no options.")));
   optionsDialog.showModal();
 });
 
@@ -448,26 +449,26 @@ $("#options-form").addEventListener("submit", async (event) => {
 
 // -- Versions -------------------------------------------------------------
 const versionsDialog = $("#versions-dialog");
-const fmt = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+const fmt = new Intl.DateTimeFormat(document.documentElement.lang || undefined, { dateStyle: "medium", timeStyle: "short" });
 async function loadVersions() {
   const list = $("#versions-list");
-  list.replaceChildren(el("li", { class: "muted" }, "Loading…"));
+  list.replaceChildren(el("li", { class: "muted" }, t("Loading…")));
   try {
     const { versions } = await api("GET", `/api/documents/${docId}/versions`);
     list.replaceChildren(...versions.map((v) => el("li", { class: "row" },
       el("span", { class: "spacer" }, el("strong", {}, v.label), " ",
         el("span", { class: "muted" }, `${fmt.format(new Date(v.created_at))}${v.author ? ` · ${v.author}` : ""}`)),
-      readOnly ? null : el("button", { type: "button", onclick: () => restoreVersion(v) }, "Restore"))));
-    if (!versions.length) list.append(el("li", { class: "muted" }, "No named versions yet."));
+      readOnly ? null : el("button", { type: "button", onclick: () => restoreVersion(v) }, t("Restore")))));
+    if (!versions.length) list.append(el("li", { class: "muted" }, t("No named versions yet.")));
   } catch (err) {
     list.replaceChildren(el("li", { class: "error" }, err.message));
   }
 }
 async function restoreVersion(v) {
-  if (!await confirmDialog(`Restore “${v.label}”? The current text is kept as a version first.`, "Restore")) return;
+  if (!await confirmDialog(t("Restore “{label}”? The current text is kept as a version first.", { label: v.label }), t("Restore"))) return;
   try {
     await api("POST", `/api/documents/${docId}/versions/${v.id}/restore`);
-    toast(`Restored “${v.label}”.`);
+    toast(t("Restored “{label}”.", { label: v.label }));
     loadVersions();
   } catch (err) {
     toast(err.message, { error: true });
@@ -495,7 +496,7 @@ $("#version-form").addEventListener("submit", async (event) => {
 const sidePanel = $("#side-panel");
 const comments = new CommentsPanel({
   session, docId, panel: sidePanel, list: $("#comments-list"),
-  onCount: (n) => { $("#open-comments").textContent = n ? `Comments (${n})` : "Comments"; },
+  onCount: (n) => { $("#open-comments").textContent = n ? t("Comments ({n})", { n }) : t("Comments"); },
 });
 sidePanel.addEventListener("toggle", () => {
   split.classList.toggle("with-panel", !sidePanel.hidden);
@@ -543,18 +544,18 @@ function openConflicts(focusId = null) {
       return el("li", { class: c.id === focusId ? "conflict active" : "conflict" },
         el("p", { class: "muted" }, c.version_label ?? c.source),
         el("div", { class: "compare" },
-          el("div", {}, el("p", { class: "muted" }, "Current text"), el("pre", { class: "alt" }, ours || "(empty)")),
-          el("div", {}, el("p", { class: "muted" }, "Their text"), el("pre", { class: "alt" }, c.theirs_text || "(deleted)"))),
+          el("div", {}, el("p", { class: "muted" }, t("Current text")), el("pre", { class: "alt" }, ours || t("(empty)"))),
+          el("div", {}, el("p", { class: "muted" }, t("Their text")), el("pre", { class: "alt" }, c.theirs_text || t("(deleted)")))),
         readOnly ? null : el("div", { class: "buttons" },
-          el("button", { type: "button", onclick: () => resolveConflict(c, "ours") }, "Keep current text"),
-          el("button", { type: "button", onclick: () => resolveConflict(c, "theirs") }, "Use their text"),
-          el("button", { type: "button", onclick: () => resolveConflict(c, "edit") }, "Edit by hand")));
+          el("button", { type: "button", onclick: () => resolveConflict(c, "ours") }, t("Keep current text")),
+          el("button", { type: "button", onclick: () => resolveConflict(c, "theirs") }, t("Use their text")),
+          el("button", { type: "button", onclick: () => resolveConflict(c, "edit") }, t("Edit by hand"))));
     });
     dialog.replaceChildren(el("div", { class: "form" },
-      el("h2", { id: "conflicts-title" }, "Conflicts"),
-      el("p", { class: "muted" }, "Both sides changed these passages. The document kept the current text; the whole other version is saved under Versions."),
+      el("h2", { id: "conflicts-title" }, t("Conflicts")),
+      el("p", { class: "muted" }, t("Both sides changed these passages. The document kept the current text; the whole other version is saved under Versions.")),
       el("ul", { class: "plain conflicts" }, items),
-      el("div", { class: "buttons" }, el("button", { type: "button", "data-close-dialog": true }, "Close"))));
+      el("div", { class: "buttons" }, el("button", { type: "button", "data-close-dialog": true }, t("Close")))));
   };
 
   async function resolveConflict(c, how) {
@@ -594,19 +595,19 @@ if (shareButton) {
   const list = $("#share-links");
   const roleSelect = $("#share-form").elements.role;
   async function loadLinks() {
-    list.replaceChildren(el("li", { class: "muted" }, "Loading…"));
+    list.replaceChildren(el("li", { class: "muted" }, t("Loading…")));
     try {
       const data = await api("GET", `/api/projects/${projectId}/shares`);
       roleSelect.replaceChildren(...data.roles.map((r) => el("option", { value: r }, r[0].toUpperCase() + r.slice(1))));
       list.replaceChildren(...data.links.map((l) => el("li", {},
-        el("span", { class: "spacer" }, l.label || "Link", " ",
+        el("span", { class: "spacer" }, l.label || t("Link"), " ",
           el("span", { class: "muted" }, `(${[l.role, l.has_password && "password", l.expired ? "expired" : l.expires_at && "expires",
                                                l.guests && `${l.guests} ${l.guests === 1 ? "guest" : "guests"}`].filter(Boolean).join(", ")})`)),
         el("button", { type: "button", class: "link", onclick: async () => {
           await api("DELETE", `/api/projects/${projectId}/shares/${l.id}`);
           loadLinks();
-        } }, "Revoke"))));
-      if (!data.links.length) list.append(el("li", { class: "muted" }, "No share links yet."));
+        } }, t("Revoke")))));
+      if (!data.links.length) list.append(el("li", { class: "muted" }, t("No share links yet.")));
       $("#share-guest-note").hidden = data.guests;
     } catch (err) {
       list.replaceChildren(el("li", { class: "error" }, err.message));
@@ -623,9 +624,9 @@ if (shareButton) {
     try {
       const { url } = await api("POST", `/api/projects/${projectId}/shares`, {
         role: f.role.value, expires_days: f.expires_days.value, password: f.password.value, label: f.label.value });
-      const input = el("input", { readonly: true, value: url, "aria-label": "Share link", "data-select-on-focus": true });
+      const input = el("input", { readonly: true, value: url, "aria-label": t("Share link"), "data-select-on-focus": true });
       $("#share-result").replaceChildren(input,
-        el("button", { type: "button", onclick: () => { navigator.clipboard?.writeText(url); toast("Link copied."); } }, "Copy link"));
+        el("button", { type: "button", onclick: () => { navigator.clipboard?.writeText(url); toast(t("Link copied.")); } }, t("Copy link")));
       input.focus();
       event.target.reset();
       loadLinks();
@@ -647,16 +648,16 @@ if (publishButton) {
   function show(pub) {
     $("#publish-remove").hidden = !pub;
     $("#publish-again").hidden = !pub;
-    $("#publish-submit").textContent = pub ? "Save" : "Publish";
+    $("#publish-submit").textContent = pub ? t("Save") : t("Publish");
     if (!pub) {
-      current.replaceChildren(el("span", { class: "muted" }, "This document isn't published."));
+      current.replaceChildren(el("span", { class: "muted" }, t("This document isn't published.")));
     } else if (pub.status === "error") {
-      current.replaceChildren(el("span", { class: "error" }, `Publishing failed: ${pub.lastError || "unknown error"}`));
+      current.replaceChildren(el("span", { class: "error" }, t("Publishing failed: {error}", { error: pub.lastError || t("unknown error") })));
     } else {
-      const state = pub.outdated ? (pub.autoUpdate ? "updating soon" : "has unpublished changes") : "up to date";
-      current.replaceChildren("Published at ", el("a", { href: pub.url, target: "_blank", rel: "noopener noreferrer" }, pub.url),
+      const state = pub.outdated ? (pub.autoUpdate ? t("updating soon") : t("has unpublished changes")) : t("up to date");
+      current.replaceChildren(t("Published at"), " ", el("a", { href: pub.url, target: "_blank", rel: "noopener noreferrer" }, pub.url),
         el("span", { class: "muted" }, ` (${state})`), " ",
-        el("button", { type: "button", class: "link", onclick: () => { navigator.clipboard?.writeText(pub.url); toast("Link copied."); } }, "Copy link"));
+        el("button", { type: "button", class: "link", onclick: () => { navigator.clipboard?.writeText(pub.url); toast(t("Link copied.")); } }, t("Copy link")));
     }
     if (pub) {
       f.visibility.value = pub.visibility;
@@ -674,7 +675,7 @@ if (publishButton) {
   async function call(method, url, body) {
     if (busy) return;
     busy = true;
-    current.replaceChildren(el("span", { class: "muted" }, method === "DELETE" ? "Unpublishing…" : "Publishing…"));
+    current.replaceChildren(el("span", { class: "muted" }, method === "DELETE" ? t("Unpublishing…") : t("Publishing…")));
     try {
       show((await api(method, url, body)).publication);
     } catch (err) {
@@ -692,13 +693,13 @@ if (publishButton) {
   });
   $("#publish-again").addEventListener("click", () => call("POST", `${base}/run`));
   $("#publish-remove").addEventListener("click", async () => {
-    if (await confirmDialog("Unpublish this document? Its page disappears from the web.", "Unpublish")) {
+    if (await confirmDialog(t("Unpublish this document? Its page disappears from the web."), t("Unpublish"))) {
       call("DELETE", base);
     }
   });
   publishButton.addEventListener("click", async () => {
     dialog.showModal();
-    current.replaceChildren(el("span", { class: "muted" }, "Loading…"));
+    current.replaceChildren(el("span", { class: "muted" }, t("Loading…")));
     try {
       const { publication, baseUrl } = await api("GET", base);
       $("#publish-base").textContent = baseUrl;
@@ -714,7 +715,7 @@ document.addEventListener("keydown", (event) => {
   const mod = event.metaKey || event.ctrlKey;
   if (mod && event.key === "s") {
     event.preventDefault();
-    toast(session.status().state === "saved" ? "Everything is saved." : "Saving automatically…");
+    toast(session.status().state === "saved" ? t("Everything is saved.") : t("Saving automatically…"));
   } else if (mod && event.key === "e" && !event.shiftKey) {
     event.preventDefault();
     $("#open-export").click();

@@ -1,13 +1,13 @@
 {% extends "base.html" %}
-{% block actions %}<form action="/search" method="get" role="search" class="inline"><input type="search" name="q" placeholder="Search…" aria-label="Search your documents" class="toolbar-search"></form>
-<button type="button" class="primary" data-open-dialog="new-project">New project</button>{% endblock %}
+{% block actions %}<form action="/search" method="get" role="search" class="inline"><input type="search" name="q" placeholder="{{ _('Search…') }}" aria-label="{{ _('Search your documents') }}" class="toolbar-search"></form>
+<button type="button" class="primary" data-open-dialog="new-project">{{ _("New project") }}</button>{% endblock %}
 {% block content %}
-{% if error %}<p class="error pad" role="alert">{{ error }}</p>{% endif %}
-<h2 class="pad">Recent</h2>
+{% if error %}<p class="error pad" role="alert">{{ _(error) }}</p>{% endif %}
+<h2 class="pad">{{ _("Recent") }}</h2>
 <script type="application/json" id="recent-data">{{ recent_json|safe }}</script>
 {% if recent %}
 <table>
-  <thead><tr><th>Name</th><th>Project</th><th>Opened</th><th class="num">Size</th><th><span class="visually-hidden">Pin</span></th></tr></thead>
+  <thead><tr><th>{{ _("Name") }}</th><th>{{ _("Project") }}</th><th>{{ _("Opened") }}</th><th class="num">{{ _("Size") }}</th><th><span class="visually-hidden">{{ _("Pin") }}</span></th></tr></thead>
   <tbody>
   {% for d in recent %}
   <tr data-href="{{ doc_url(d.project_id, d.path) }}">
@@ -19,7 +19,7 @@
       <form method="post" action="/d/{{ d.id }}/pin" class="inline">
         <input type="hidden" name="_csrf" value="{{ csrf }}">
         <input type="hidden" name="pinned" value="{{ "0" if d.pinned else "1" }}">
-        <button type="submit" class="link">{{ "Unpin" if d.pinned else "Pin" }}</button>
+        <button type="submit" class="link">{{ _("Unpin") if d.pinned else _("Pin") }}</button>
       </form>
     </td>
   </tr>
@@ -27,12 +27,12 @@
   </tbody>
 </table>
 {% else %}
-<p class="pad muted">Documents you open appear here.</p>
+<p class="pad muted">{{ _("Documents you open appear here.") }}</p>
 {% endif %}
-<h2 class="pad">Projects</h2>
+<h2 class="pad">{{ _("Projects") }}</h2>
 {% if projects %}
 <table>
-  <thead><tr><th>Name ▴</th><th>Layout</th><th>Modified</th><th class="num">Members</th></tr></thead>
+  <thead><tr><th>{{ _("Name") }} ▴</th><th>{{ _("Layout") }}</th><th>{{ _("Modified") }}</th><th class="num">{{ _("Members") }}</th></tr></thead>
   <tbody>
   {% for p in projects %}
   <tr data-href="/p/{{ p.id }}">
@@ -45,22 +45,22 @@
   </tbody>
 </table>
 {% else %}
-<p class="pad">No projects yet. <button type="button" class="link" data-open-dialog="new-project">New project</button></p>
+<p class="pad">{{ _("No projects yet.") }} <button type="button" class="link" data-open-dialog="new-project">{{ _("New project") }}</button></p>
 {% endif %}
 <dialog id="new-project" aria-labelledby="new-project-title">
   <form method="post" action="/projects" class="form">
-    <h2 id="new-project-title">New project</h2>
+    <h2 id="new-project-title">{{ _("New project") }}</h2>
     <input type="hidden" name="_csrf" value="{{ csrf }}">
-    <label>Name <input name="name" required maxlength="120" autofocus></label>
-    <label>Layout
+    <label>{{ _("Name") }} <input name="name" required maxlength="120" autofocus></label>
+    <label>{{ _("Layout") }}
       <select name="layout">
         {% for lay in layouts %}<option value="{{ lay.id }}" {% if lay.id == default_layout %}selected{% endif %}>{{ lay.name }}</option>{% endfor %}
       </select>
     </label>
-    <label class="choice"><input type="checkbox" name="starter" value="1" checked> Start with a paper and a references file</label>
+    <label class="choice"><input type="checkbox" name="starter" value="1" checked> {{ _("Start with a paper and a references file") }}</label>
     <div class="buttons">
-      <button type="button" data-close-dialog>Cancel</button>
-      <button type="submit" class="primary">Create</button>
+      <button type="button" data-close-dialog>{{ _("Cancel") }}</button>
+      <button type="submit" class="primary">{{ _("Create") }}</button>
     </div>
   </form>
 </dialog>

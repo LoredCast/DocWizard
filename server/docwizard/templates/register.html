@@ -1,13 +1,13 @@
 {% extends "base.html" %}
-{% block title %}Create account · DocWizard{% endblock %}
+{% block title %}{{ _("Create account") }} · DocWizard{% endblock %}
 {% block content %}
 <section class="narrow">
   <form method="post" action="/register" class="form">
-    <label>Username <input name="username" autocomplete="username" required autofocus value="{{ username }}"></label>
-    <label>Display name <input name="display_name" autocomplete="name" value="{{ display_name }}"></label>
-    <label>Password <input name="password" type="password" autocomplete="new-password" required minlength="{{ min_length }}"></label>
-    {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
-    <div class="buttons"><button type="submit" class="primary">Create account</button></div>
+    <label>{{ _("Username") }} <input name="username" autocomplete="username" required autofocus value="{{ username }}"></label>
+    <label>{{ _("Display name") }} <input name="display_name" autocomplete="name" value="{{ display_name }}"></label>
+    <label>{{ _("Password") }} <input name="password" type="password" autocomplete="new-password" required minlength="{{ min_length }}"></label>
+    {% if error %}<p class="error" role="alert">{{ _(error) }}</p>{% endif %}
+    <div class="buttons"><button type="submit" class="primary">{{ _("Create account") }}</button></div>
   </form>
 </section>
 {% endblock %}

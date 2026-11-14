@@ -1,19 +1,19 @@
 {% extends "base.html" %}
-{% block title %}Forgot password · DocWizard{% endblock %}
+{% block title %}{{ _("Forgot password") }} · DocWizard{% endblock %}
 {% block content %}
 <section class="narrow">
-  <h1>Forgot your password?</h1>
+  <h1>{{ _("Forgot your password?") }}</h1>
   {% if not mail %}
-  <p>This server doesn't send email. Ask an admin to reset your password; they can give you a link to choose a new one.</p>
-  <p><a href="/login">Back to login</a></p>
+  <p>{{ _("This server doesn't send email. Ask an admin to reset your password; they can give you a link to choose a new one.") }}</p>
+  <p><a href="/login">{{ _("Back to login") }}</a></p>
   {% elif sent %}
-  <p role="status">If an account with an email address matches, a link to choose a new password is on its way. It works for an hour.</p>
-  <p><a href="/login">Back to login</a></p>
+  <p role="status">{{ _("If an account with an email address matches, a link to choose a new password is on its way. It works for an hour.") }}</p>
+  <p><a href="/login">{{ _("Back to login") }}</a></p>
   {% else %}
   <form method="post" action="/forgot" class="form">
-    <label>Username or email address <input name="identifier" autocomplete="username" required autofocus></label>
-    {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
-    <div class="buttons"><a class="button" href="/login">Cancel</a><button type="submit" class="primary">Send link</button></div>
+    <label>{{ _("Username or email address") }} <input name="identifier" autocomplete="username" required autofocus></label>
+    {% if error %}<p class="error" role="alert">{{ _(error) }}</p>{% endif %}
+    <div class="buttons"><a class="button" href="/login">{{ _("Cancel") }}</a><button type="submit" class="primary">{{ _("Send link") }}</button></div>
   </form>
   {% endif %}
 </section>

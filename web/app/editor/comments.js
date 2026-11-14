@@ -2,18 +2,18 @@
 // never in the text; their anchors are kept current by the authority and, in this
 // editor, by the anchors field.
 import { EditorSelection } from "codemirror";
-import { api, el, toast } from "../ui/dom.js";
+import { api, el, t as tr, toast } from "../ui/dom.js";
 import { AnchorLoader, anchorsField, setActiveThread, setAnchors } from "./anchors.js";
 
-const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+const when = new Intl.DateTimeFormat(document.documentElement.lang || undefined, { dateStyle: "medium", timeStyle: "short" });
 
 function relative(iso) {
   const date = new Date(iso.endsWith("Z") ? iso : `${iso}Z`);
   const secs = (Date.now() - date.getTime()) / 1000;
-  if (secs < 60) return "just now";
-  if (secs < 3600) return `${Math.floor(secs / 60)} min ago`;
-  if (secs < 86400) return `${Math.floor(secs / 3600)} h ago`;
-  if (secs < 2 * 86400) return "yesterday";
+  if (secs < 60) return tr("just now");
+  if (secs < 3600) return tr("{n} min ago", { n: Math.floor(secs / 60) });
+  if (secs < 86400) return tr("{n} h ago", { n: Math.floor(secs / 3600) });
+  if (secs < 2 * 86400) return tr("yesterday");
   return when.format(date);
 }
 
@@ -78,7 +78,7 @@ export class CommentsPanel {
     const view = this.session.view;
     const range = view.state.selection.main;
     if (range.empty) {
-      toast("Select the text you want to comment on.");
+      toast(tr("Select the text you want to comment on."));
       return;
     }
     this.setDraft({ from: range.from, to: range.to, quote: view.state.sliceDoc(range.from, range.to).slice(0, 200) });
@@ -126,17 +126,17 @@ export class CommentsPanel {
     if (this.draft) {
       const form = el("form", { class: "thread draft" },
         el("blockquote", {}, this.draft.quote),
-        el("textarea", { name: "body", rows: 3, required: true, "aria-label": "Comment", maxlength: 10000 }),
+        el("textarea", { name: "body", rows: 3, required: true, "aria-label": tr("Comment"), maxlength: 10000 }),
         el("div", { class: "buttons" },
-          el("button", { type: "button", onclick: () => { this.setDraft(null); this.render(); } }, "Cancel"),
-          el("button", { type: "submit", class: "primary" }, "Comment")));
+          el("button", { type: "button", onclick: () => { this.setDraft(null); this.render(); } }, tr("Cancel")),
+          el("button", { type: "submit", class: "primary" }, tr("Comment"))));
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
         const body = form.elements.body.value.trim();
         if (!body) return;
         const anchor = await this.draftAnchor();
         if (!anchor) {
-          toast("The commented text is gone. Select it again.", { error: true });
+          toast(tr("The commented text is gone. Select it again."), { error: true });
           return;
         }
         this.setDraft(null);
@@ -148,20 +148,20 @@ export class CommentsPanel {
     for (const t of shown) items.push(this.renderThread(t));
     if (!shown.length && !this.draft) {
       items.push(el("p", { class: "muted" },
-        this.canComment ? "No comments yet. Select text and choose Comment." : "No comments yet."));
+        this.canComment ? tr("No comments yet. Select text and choose Comment.") : tr("No comments yet.")));
     }
     const resolvedCount = this.threads.length - open.length;
     const toggle = resolvedCount ? el("label", { class: "choice" },
       el("input", { type: "checkbox", checked: this.showResolved,
                     onchange: (e) => { this.showResolved = e.target.checked; this.render(); } }),
-      `Show resolved (${resolvedCount})`) : null;
+      tr("Show resolved ({n})", { n: resolvedCount })) : null;
     this.list.replaceChildren(...items, ...(toggle ? [toggle] : []));
   }
 
   renderThread(t) {
     const node = el("article", { class: t.resolved ? "thread resolved" : "thread", "data-thread": String(t.id) },
       el("blockquote", { onclick: () => this.select(t.id) },
-        t.orphaned ? el("span", { class: "muted" }, "The commented text was deleted.") : t.quote));
+        t.orphaned ? el("span", { class: "muted" }, tr("The commented text was deleted.")) : t.quote));
     for (const c of t.comments) {
       node.append(el("div", { class: "comment" },
         el("p", { class: "meta" }, el("strong", {}, c.author), " ",
@@ -169,23 +169,23 @@ export class CommentsPanel {
           c.updatedAt ? el("span", { class: "muted" }, " (edited)") : null),
         el("p", { class: "body" }, c.body),
         c.mine ? el("div", { class: "row" },
-          el("button", { type: "button", class: "link", onclick: () => this.edit(node, c) }, "Edit"),
+          el("button", { type: "button", class: "link", onclick: () => this.edit(node, c) }, tr("Edit")),
           el("button", { type: "button", class: "link",
                          onclick: () => this.send("DELETE", `/api/documents/${this.docId}/comments/${c.id}`) },
-            "Delete")) : null));
+            tr("Delete"))) : null));
     }
     const actions = el("div", { class: "buttons" });
     if (this.canResolve) {
       actions.append(el("button", { type: "button", onclick: () => this.send("PATCH",
         `/api/documents/${this.docId}/comments/${t.id}`, { resolved: !t.resolved }) },
-        t.resolved ? "Reopen" : "Resolve"));
+        t.resolved ? tr("Reopen") : tr("Resolve")));
     }
     if (t.resolved) {
-      node.append(el("p", { class: "muted" }, `Resolved${t.resolvedBy ? ` by ${t.resolvedBy}` : ""}`));
+      node.append(el("p", { class: "muted" }, t.resolvedBy ? tr("Resolved by {name}", { name: t.resolvedBy }) : tr("Resolved")));
     } else if (this.canComment) {
       const reply = el("form", { class: "reply" },
-        el("textarea", { name: "body", rows: 1, placeholder: "Reply", "aria-label": "Reply", maxlength: 10000 }),
-        el("button", { type: "submit" }, "Reply"));
+        el("textarea", { name: "body", rows: 1, placeholder: tr("Reply"), "aria-label": tr("Reply"), maxlength: 10000 }),
+        el("button", { type: "submit" }, tr("Reply")));
       reply.addEventListener("submit", async (event) => {
         event.preventDefault();
         const body = reply.elements.body.value.trim();
@@ -199,8 +199,8 @@ export class CommentsPanel {
 
   edit(node, comment) {
     const form = el("form", { class: "reply" },
-      el("textarea", { name: "body", rows: 3, "aria-label": "Edit comment", maxlength: 10000 }, comment.body),
-      el("button", { type: "submit" }, "Save"));
+      el("textarea", { name: "body", rows: 3, "aria-label": tr("Edit comment"), maxlength: 10000 }, comment.body),
+      el("button", { type: "submit" }, tr("Save")));
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       await this.send("PATCH", `/api/documents/${this.docId}/comments/${comment.id}`,

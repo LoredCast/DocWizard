@@ -1,18 +1,18 @@
 {% extends "admin_base.html" %}
-{% block admin_title %}Audit log{% endblock %}
+{% block admin_title %}{{ _("Audit log") }}{% endblock %}
 {% block admin %}
-<h1>Audit log</h1>
+<h1>{{ _("Audit log") }}</h1>
 <form method="get" class="row searchbar">
-  <input name="action" value="{{ action }}" placeholder="Action, such as login or user." aria-label="Action">
-  <input name="actor" value="{{ actor }}" placeholder="Username" aria-label="Who">
-  <button type="submit">Filter</button>
+  <input name="action" value="{{ action }}" placeholder="{{ _("Action, such as login or user.") }}" aria-label="{{ _("Action") }}">
+  <input name="actor" value="{{ actor }}" placeholder="{{ _("Username") }}" aria-label="{{ _("Who") }}">
+  <button type="submit">{{ _("Filter") }}</button>
 </form>
 <table class="grid">
-  <thead><tr><th>Time (UTC)</th><th>Who</th><th>Action</th><th>Target</th><th>Details</th></tr></thead>
+  <thead><tr><th>{{ _("Time (UTC)") }}</th><th>{{ _("Who") }}</th><th>{{ _("Action") }}</th><th>{{ _("Target") }}</th><th>{{ _("Details") }}</th></tr></thead>
   <tbody>
   {% for e in entries %}<tr><td>{{ e.at[:19]|replace("T", " ") }}</td><td>{{ e.actor }}</td><td><code>{{ e.action }}</code></td><td>{{ e.target }}</td><td class="muted">{{ e.meta }}</td></tr>
-  {% else %}<tr><td colspan="5" class="muted">Nothing logged{% if action or actor %} for this filter{% endif %}.</td></tr>{% endfor %}
+  {% else %}<tr><td colspan="5" class="muted">{{ _("Nothing logged for this filter.") if action or actor else _("Nothing logged.") }}</td></tr>{% endfor %}
   </tbody>
 </table>
-{% if next_before %}<p><a href="/admin/audit?action={{ action|urlencode }}&amp;actor={{ actor|urlencode }}&amp;before={{ next_before }}">Older entries</a></p>{% endif %}
+{% if next_before %}<p><a href="/admin/audit?action={{ action|urlencode }}&amp;actor={{ actor|urlencode }}&amp;before={{ next_before }}">{{ _("Older entries") }}</a></p>{% endif %}
 {% endblock %}

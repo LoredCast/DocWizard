@@ -1,6 +1,6 @@
 // The project page's Sync section (ARCHITECTURE.md §12): Nextcloud Login Flow v2,
 // other WebDAV servers, and sync now / pause / disconnect.
-import { $, api, confirmDialog, toast } from "./ui/dom.js";
+import { $, api, confirmDialog, t, toast } from "./ui/dom.js";
 
 export function wireSync(section) {
   const base = `/api/projects/${section.dataset.project}/sync`;
@@ -12,13 +12,13 @@ export function wireSync(section) {
     try {
       if (action === "run") {
         button.disabled = true;
-        $("#sync-state").textContent = "Syncing…";
+        $("#sync-state").textContent = t("Syncing…");
         const { report, target } = await api("POST", `${base}/run`);
         if (report.error) throw new Error(target.lastError ?? report.error);
       } else if (action === "pause" || action === "resume") {
         await api("PATCH", base, { paused: action === "pause" });
       } else if (action === "disconnect") {
-        if (!await confirmDialog("Stop syncing this project? Files stay where they are on both sides.", "Disconnect")) return;
+        if (!await confirmDialog(t("Stop syncing this project? Files stay where they are on both sides."), t("Disconnect"))) return;
         await api("DELETE", base);
       }
       location.reload();
@@ -40,14 +40,14 @@ export function wireSync(section) {
         { server: form.elements.server.value, remotePath: form.elements.remotePath.value });
       if (popup) popup.location = login;
       note.hidden = false;
-      note.replaceChildren("Log in to Nextcloud in the new tab and grant access. ",
-        Object.assign(document.createElement("a"), { href: login, target: "_blank", rel: "noopener", textContent: "Open the login page" }));
+      note.replaceChildren(t("Log in to Nextcloud in the new tab and grant access.") + " ",
+        Object.assign(document.createElement("a"), { href: login, target: "_blank", rel: "noopener", textContent: t("Open the login page") }));
       for (let i = 0; i < 600; i++) {
         await new Promise((r) => setTimeout(r, 2000));
         const res = await api("GET", `${base}/nextcloud/${flow}`);
         if (res.done) { location.reload(); return; }
       }
-      note.textContent = "The login expired. Try again.";
+      note.textContent = t("The login expired. Try again.");
     } catch (err) {
       popup?.close();
       toast(err.message, { error: true });

@@ -60,14 +60,15 @@ async def document_access(app, req: Request, doc_id: str, capability: str):
     return doc, project, role
 
 
-async def create_project_with_starter(app, user, name: str, layout: str, starter: bool = True) -> tuple[str, str | None]:
+async def create_project_with_starter(app, user, name: str, layout: str, starter: bool = True,
+                                     lang: str = "en") -> tuple[str, str | None]:
     today = dt.date.today().isoformat()
 
     def work(c):
         pid = svc.create_project(c, user.id, name, layout)
         main = None
         if starter:
-            main = svc.create_document(c, pid, "paper.md", svc.STARTER.format(author=user.display_name, date=today))
+            main = svc.create_document(c, pid, "paper.md", svc.starter(lang, user.display_name, today))
             svc.create_document(c, pid, "references.json", svc.STARTER_REFS)
         return pid, main
 
@@ -94,7 +95,7 @@ def register(app) -> None:
             raise bad_request("Unknown layout.")
         try:
             pid, main = await create_project_with_starter(app, req.user, str(body.get("name", "")), layout,
-                                                          bool(body.get("starter", True)))
+                                                          bool(body.get("starter", True)), app.lang_of(req))
         except ValueError as exc:
             raise bad_request(str(exc)) from None
         return json_response({"id": pid, "mainDocument": main}, 201)

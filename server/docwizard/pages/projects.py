@@ -77,7 +77,7 @@ def register(app) -> None:
             layout = app.policy("default_layout")
         try:
             pid, main = await create_project_with_starter(app, req.user, form.get("name", ""), layout,
-                                                          form.get("starter", "1") == "1")
+                                                          form.get("starter", "1") == "1", app.lang_of(req))
         except ValueError as exc:
             return redirect("/?error=" + quote(str(exc)))
         if main:

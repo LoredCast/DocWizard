@@ -72,5 +72,12 @@ def make_env() -> jinja2.Environment:
         lstrip_blocks=True,
     )
     env.filters["filesize"] = filesize
-    env.filters["reltime"] = reltime
+
+    @jinja2.pass_context
+    def localized_reltime(ctx, value):
+        from ..i18n import reltime as rt
+
+        return rt(ctx.get("lang", "en"), value)
+
+    env.filters["reltime"] = localized_reltime
     return env

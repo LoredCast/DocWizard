@@ -1,21 +1,21 @@
 {% extends "base.html" %}
-{% block title %}{{ "Welcome" if purpose == "invite" else "New password" }} · DocWizard{% endblock %}
+{% block title %}{{ _("Welcome") if purpose == "invite" else _("New password") }} · DocWizard{% endblock %}
 {% block content %}
 <section class="narrow">
   <form method="post" class="form">
     {% if purpose == "invite" %}
-    <h1>Welcome to DocWizard</h1>
-    <p>Your username is <strong>{{ username }}</strong>. Choose a password to start.</p>
-    <label>Your name <input name="display_name" value="{{ display_name }}" maxlength="80" required autocomplete="name"></label>
+    <h1>{{ _("Welcome to DocWizard") }}</h1>
+    <p>{{ _("Your username is {username}. Choose a password to start.", username=username) }}</p>
+    <label>{{ _("Your name") }} <input name="display_name" value="{{ display_name }}" maxlength="80" required autocomplete="name"></label>
     {% else %}
-    <h1>Choose a new password</h1>
-    <p class="muted">For the account {{ username }}. You'll be logged out everywhere else.</p>
+    <h1>{{ _("Choose a new password") }}</h1>
+    <p class="muted">{{ _("For the account {username}. You'll be logged out everywhere else.", username=username) }}</p>
     {% endif %}
     <input type="text" name="username" value="{{ username }}" autocomplete="username" hidden>
-    <label>New password <input name="password" type="password" autocomplete="new-password" required minlength="{{ min_length }}" autofocus></label>
-    <p class="muted">At least {{ min_length }} characters. A few unrelated words make a strong password.</p>
-    {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
-    <div class="buttons"><button type="submit" class="primary">{{ "Start" if purpose == "invite" else "Save password" }}</button></div>
+    <label>{{ _("New password") }} <input name="password" type="password" autocomplete="new-password" required minlength="{{ min_length }}" autofocus></label>
+    <p class="muted">{{ _("At least {n} characters. A few unrelated words make a strong password.", n=min_length) }}</p>
+    {% if error %}<p class="error" role="alert">{{ _(error) }}</p>{% endif %}
+    <div class="buttons"><button type="submit" class="primary">{{ _("Start") if purpose == "invite" else _("Save password") }}</button></div>
   </form>
 </section>
 {% endblock %}

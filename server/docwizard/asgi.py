@@ -18,7 +18,7 @@ from .http import csrf
 from .http.request import HTTPError, Request
 from .http.response import Response, apply_security_headers, error_json, guess_type, html
 from .http.router import Router
-from .http.templates import make_env
+from .http.templates import make_env, script_json
 from .logs import fields
 from .sharing import links
 
@@ -399,6 +399,8 @@ class App:
             for k, v in err.headers:
                 resp.set_header(k, v)
             return resp
+        if err.message:
+            err.message = self.t(req, err.message)
         if req.wants_json:
             return error_json(err)
         resp = html(self.render(req, "error.html", status=err.status, message=err.message), err.status)
@@ -407,9 +409,37 @@ class App:
         return resp
 
     # -- templates ------------------------------------------------------
+    def lang_of(self, req: Request) -> str:
+        """The interface language: the account's choice, else a cookie, else the browser's (§21)."""
+        from . import i18n
+
+        cached = getattr(req, "_lang", None)
+        if cached:
+            return cached
+        lang = None
+        if req.user is not None:
+            lang = req.user.preferences.get("language")
+        if lang not in i18n.LANGUAGES:
+            lang = req.cookies.get("lang")
+        if lang not in i18n.LANGUAGES:
+            lang = i18n.pick(req.headers.get("accept-language"))
+        req._lang = lang
+        return lang
+
+    def t(self, req: Request, message: str, **values) -> str:
+        from . import i18n
+
+        return i18n.gettext(self.lang_of(req), message, **values)
+
     def render(self, req: Request, name: str, **ctx) -> str:
+        from . import i18n
+
         theme = req.user.theme if req.user else (req.cookies.get("theme") or "dark")
+        lang = self.lang_of(req)
         base = {
+            "lang": lang,
+            "_": lambda message, **values: i18n.gettext(lang, message, **values),
+            "i18n_json": script_json(i18n.catalog(lang)) if lang != i18n.DEFAULT else "",
             "user": req.user,
             "guest": req.guest,
             "csrf": req.session.csrf_token if req.session else "",
