@@ -100,11 +100,14 @@ export function wireCommon(root = document) {
       form.requestSubmit();
       return;
     }
-    if (form.dataset.confirm && !form.dataset.confirmed) {
+    const ask = event.submitter?.dataset.confirm ?? form.dataset.confirm;
+    if (ask && !form.dataset.confirmed) {
       event.preventDefault();
-      if (await confirmDialog(form.dataset.confirm)) {
+      const submitter = event.submitter;
+      if (await confirmDialog(ask)) {
         form.dataset.confirmed = "1";
-        form.requestSubmit();
+        form.requestSubmit(submitter?.form === form ? submitter : undefined);
+        delete form.dataset.confirmed;
       }
     }
   });

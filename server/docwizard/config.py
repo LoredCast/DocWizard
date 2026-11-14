@@ -44,7 +44,7 @@ class SecurityConfig:
 
 @dataclass
 class AccountsConfig:
-    registration: str = "closed"  # open | invite | oidc-only | closed
+    registration: str = "closed"  # open | invite | oidc-only | closed (invite: admins invite people)
     guests: bool = True
     guest_max_role: str = "editor"
     scratch_projects: bool = False
@@ -68,6 +68,17 @@ class LimitsConfig:
     max_document_bytes: int = 5_000_000
     max_upload_bytes: int = 50_000_000
     default_quota_bytes: int = 2_000_000_000
+
+
+@dataclass
+class SMTPConfig:
+    host: str = ""  # empty: no mail; admins hand out reset and invitation links themselves
+    port: int = 587
+    starttls: bool = True
+    tls: bool = False  # implicit TLS, usually port 465
+    username: str = ""
+    password: str = ""
+    sender: str = ""  # "from" in the config file
 
 
 @dataclass
@@ -115,6 +126,7 @@ class Config:
     limits: LimitsConfig = field(default_factory=LimitsConfig)
     collab: CollabConfig = field(default_factory=CollabConfig)
     sync: SyncConfig = field(default_factory=SyncConfig)
+    smtp: SMTPConfig = field(default_factory=SMTPConfig)
     oidc: list[OIDCProvider] = field(default_factory=list)
 
     # -- derived values -------------------------------------------------
@@ -218,7 +230,10 @@ def load(path: str | os.PathLike | None = None, env: dict[str, str] | None = Non
                     cfg.oidc.append(provider)
                 continue
             if section not in _SECTIONS or not isinstance(values, dict):
-                continue  # [smtp] is read by a later milestone
+                continue
+            if section == "smtp" and "from" in values:
+                values = {**values, "sender": values["from"]}
+                del values["from"]
             _apply_section(getattr(cfg, section), values, section)
 
     for name, value in env.items():
@@ -228,6 +243,8 @@ def load(path: str | os.PathLike | None = None, env: dict[str, str] | None = Non
         section, _, key = rest.partition("_")
         if section not in _SECTIONS or not key or section == "oidc":
             continue
+        if section == "smtp" and key == "from":
+            key = "sender"
         obj = getattr(cfg, section)
         if key.endswith("_file") and hasattr(obj, key[:-5]) and not hasattr(obj, key):
             value = Path(value).read_text().strip()
@@ -235,6 +252,8 @@ def load(path: str | os.PathLike | None = None, env: dict[str, str] | None = Non
         if not hasattr(obj, key):
             continue
         setattr(obj, key, _coerce(value, getattr(obj, key)))
+    if cfg.accounts.registration not in ("open", "invite", "oidc-only", "closed"):
+        raise ValueError("accounts.registration must be open, invite, oidc-only or closed")
     if cfg.server.durability not in ("full", "normal"):
         raise ValueError("server.durability must be 'full' or 'normal'")
     return cfg

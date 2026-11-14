@@ -87,7 +87,7 @@ def register(app) -> None:
                 return fail("This account is disabled.")
         else:
             # Never matched by email: linking to an existing account needs that account's login.
-            if not provider.auto_create or app.policy("registration") == "closed":
+            if not provider.auto_create or app.policy("registration") in ("closed", "invite"):
                 return fail("There's no DocWizard account for this login. Ask an admin, or log in and link it in "
                             "your settings.")
             wanted = claims.get(provider.username_claim) or email or subject

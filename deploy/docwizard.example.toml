@@ -17,7 +17,7 @@ serve_static = false                              # the proxy serves /static/
 allow_private_outbound = []                       # e.g. ["nextcloud.lan", "10.0.0.0/8"] for servers on your LAN
 
 [accounts]
-registration = "closed"                           # open | oidc-only | closed
+registration = "closed"                           # open | invite | oidc-only | closed
 min_password_length = 12
 
 [sync]
@@ -49,3 +49,13 @@ default_layout = "default"
 [limits]
 max_document_bytes = 5000000
 max_upload_bytes = 50000000
+
+# Mail for password resets and invitations (§13.2). Without it, admins hand out
+# the links from the admin area.
+# [smtp]
+# host = "smtp.example.org"
+# port = 587
+# starttls = true
+# username = "docwizard@example.org"
+# password_file = "/run/secrets/smtp_password"
+# from = "DocWizard <docwizard@example.org>"

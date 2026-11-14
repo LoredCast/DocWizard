@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import collections
 import json
 import logging
 import secrets
@@ -26,6 +27,22 @@ log = logging.getLogger("docwizard")
 WEB_DIR = Path(__file__).resolve().parents[2] / "web"
 
 
+class _RecentErrors(logging.Handler):
+    """Keeps the last errors for the admin health page."""
+
+    def __init__(self, store):
+        super().__init__(logging.ERROR)
+        self.store = store
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            self.store.append({"at": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(record.created)),
+                               "logger": record.name, "message": record.getMessage()[:500],
+                               "error": record.exc_info[1].__class__.__name__ if record.exc_info else ""})
+        except Exception:  # noqa: BLE001
+            pass
+
+
 class App:
     def __init__(self, cfg: config_mod.Config | None = None):
         self.cfg = cfg or config_mod.load()
@@ -42,6 +59,8 @@ class App:
         self._startup_hooks: list = []
         self._shutdown_hooks: list = []
         self._ws_handler = None
+        self.recent_errors: collections.deque = collections.deque(maxlen=50)
+        self._error_handler = _RecentErrors(self.recent_errors)
         self._register()
 
     def _register(self) -> None:
@@ -65,6 +84,9 @@ class App:
         self.zotero = Sources(self)
         self.oidc = Providers(self)
         self.publisher = Publisher(self)
+        from .mail import Mailer
+
+        self.mail = Mailer(self)
         self._ws_handler = Hub(self)
         pages.register(self)
         api.register(self)
@@ -90,6 +112,15 @@ class App:
             except ValueError:
                 continue
         self.settings = {k: v for k, v in values.items() if k in self.POLICY_KEYS}
+        approved = values.get("approved_filters")
+        if isinstance(approved, list):
+            self.layouts.approved_filters = {h for h in approved if isinstance(h, str)}
+
+    async def save_filter_approvals(self) -> None:
+        """Lua filter approvals by hash (§9.3), kept apart from the policy settings."""
+        await self.db.execute("INSERT INTO settings(key, value_json) VALUES ('approved_filters', ?)"
+                              " ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json",
+                              (json.dumps(sorted(self.layouts.approved_filters)),))
 
     async def set_setting(self, key: str, value) -> None:
         if key not in self.POLICY_KEYS:
@@ -133,6 +164,7 @@ class App:
         self.cfg.data_dir.mkdir(parents=True, exist_ok=True)
         await asyncio.to_thread(self.db.open)
         await self.load_settings()
+        logging.getLogger("docwizard").addHandler(self._error_handler)
         for hook in self._startup_hooks:
             await hook()
         await self.scanner.startup()
@@ -147,6 +179,7 @@ class App:
         self.started = True
 
     async def shutdown(self) -> None:
+        logging.getLogger("docwizard").removeHandler(self._error_handler)
         try:
             await self.rooms.flush_all()
         except Exception:  # noqa: BLE001

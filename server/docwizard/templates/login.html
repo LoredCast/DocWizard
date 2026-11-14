@@ -14,6 +14,7 @@
     {% for p in providers %}<a class="button" href="/login/oidc/{{ p.id }}?next={{ next|urlencode }}">Log in with {{ p.label }}</a>{% endfor %}
   </div>
   {% endif %}
+  <p><a href="/forgot">Forgot your password?</a></p>
   {% if registration_open %}<p>No account yet? <a href="/register">Create an account</a></p>{% endif %}
 </section>
 {% endblock %}

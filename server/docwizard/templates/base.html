@@ -24,6 +24,7 @@
   <div class="actions">
     {% block actions %}{% endblock %}
     {% if user %}
+    {% if user.is_admin %}<a href="/admin">Admin</a>{% endif %}
     <a href="/settings">{{ user.display_name }}</a>
     <form method="post" action="/logout" class="inline">
       <input type="hidden" name="_csrf" value="{{ csrf }}">

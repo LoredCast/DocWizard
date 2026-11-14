@@ -4,9 +4,10 @@ from __future__ import annotations
 
 
 def register(app) -> None:
-    from . import account, integrations, misc, offline, oidc, projects, share, twostep
+    from . import account, admin, integrations, misc, offline, oidc, projects, share, tokens, twostep
 
     account.register(app)
+    admin.register(app)
     integrations.register(app)
     oidc.register(app)
     misc.register(app)
@@ -14,3 +15,4 @@ def register(app) -> None:
     projects.register(app)
     share.register(app)
     twostep.register(app)
+    tokens.register(app)

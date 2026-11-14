@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{% block admin_title %}{% endblock %} · Admin · DocWizard{% endblock %}
+{% block crumbs %}<a class="wordmark" href="/">DocWizard</a><span>/</span><a href="/admin">Admin</a>{% endblock %}
+{% block content %}
+<section class="admin">
+  <nav class="tabs" aria-label="Admin sections">
+    {% for key, href, label in [("health", "/admin", "Health"), ("users", "/admin/users", "Users"), ("settings", "/admin/settings", "Settings"), ("layouts", "/admin/layouts", "Layouts"), ("audit", "/admin/audit", "Audit log")] %}
+    <a href="{{ href }}" {% if tab == key %}aria-current="page"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </nav>
+  {% block admin %}{% endblock %}
+</section>
+{% endblock %}
