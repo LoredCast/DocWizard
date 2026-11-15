@@ -1,5 +1,13 @@
 # Two hosts: the app, and the publish host that also serves previews (ARCHITECTURE.md §18.1).
-# Set DOCWIZARD_APP_HOST and DOCWIZARD_PUBLISH_HOST in compose.yaml.
+# Default Compose runs behind an external TLS-terminating reverse proxy: use http:// hostnames
+# (e.g. DOCWIZARD_APP_HOST=http://write.example.org) and trust forwarded headers from the proxy.
+# With opt-in SSL (deploy/compose.ssl.yaml), pass bare hostnames so Caddy obtains certificates.
+{
+	servers {
+		trusted_proxies static {$DOCWIZARD_TRUSTED_PROXIES:private_ranges}
+	}
+}
+
 {$DOCWIZARD_APP_HOST} {
 	encode zstd gzip
 

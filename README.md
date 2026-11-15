@@ -73,13 +73,26 @@ Some features need configuration:
 
 ## Deploy
 
-[deploy/compose.yaml](deploy/compose.yaml) runs three containers: the app, the render worker (no network, read-only root, only the capabilities it needs to switch users) and Caddy, which terminates TLS for two hosts, the app and the publish/preview host.
+[deploy/compose.yaml](deploy/compose.yaml) runs three containers: the app, the render worker (no network, read-only root, only the capabilities it needs to switch users) and Caddy, which serves static assets and published sites and forwards app requests to the app's Unix socket.
+
+By default, Compose binds only to `127.0.0.1:80` over HTTP so an external reverse proxy (on the same host or another host over a tunnel/private network) can handle TLS and public domains:
 
 ```sh
-cp deploy/docwizard.example.toml deploy/docwizard.toml   # set your two URLs
-# set DOCWIZARD_APP_HOST and DOCWIZARD_PUBLISH_HOST in deploy/compose.yaml
+cp deploy/docwizard.example.toml deploy/docwizard.toml   # set your https:// URLs
+# Point your external reverse proxy (terminating TLS) at the local port and set:
+#   DOCWIZARD_APP_HOST=http://write.example.org
+#   DOCWIZARD_PUBLISH_HOST=http://pub.example.org
+# (Defaults are http://localhost and http://pub.localhost on 127.0.0.1:80;
+#  override DOCWIZARD_LISTEN or DOCWIZARD_TRUSTED_PROXIES if needed.)
 docker compose -f deploy/compose.yaml up -d --build
 docker compose -f deploy/compose.yaml exec app python -m docwizard create-admin you
+```
+
+To let the bundled Caddy terminate TLS directly on ports `80` and `443`, opt in with [deploy/compose.ssl.yaml](deploy/compose.ssl.yaml) and bare domain names (without `http://`):
+
+```sh
+DOCWIZARD_APP_HOST=write.example.org DOCWIZARD_PUBLISH_HOST=pub.example.org \
+  docker compose -f deploy/compose.yaml -f deploy/compose.ssl.yaml up -d --build
 ```
 
 The worker image includes TeX Live for LaTeX builds. Build it with `--build-arg WITH_LATEX=0` for a much smaller image without them.

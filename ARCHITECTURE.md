@@ -276,6 +276,7 @@ docwizard/
 │   ├── Dockerfile.worker            build arg TEX=none|full
 │   ├── Dockerfile.proxy
 │   ├── compose.yaml
+│   ├── compose.ssl.yaml
 │   ├── Caddyfile
 │   └── systemd/
 ├── scripts/
@@ -800,7 +801,7 @@ Manifest:
   - Templates, CSS, CSL styles and variables are safe for anyone to edit. Pandoc templates cannot run code, and Typst and LaTeX run in the sandbox.
   - Lua filters run arbitrary code inside the render worker. They only run once an admin has approved the layout's filter files by hash. The hash covers every `.lua` file in the layout's `filters/` folder, including modules the filters `require`, and changing any of them revokes the approval.
   - `defaults.json` is never passed to pandoc as is. Pandoc defaults can name filters, a data directory, resource paths, output and log files, and PDF engines with their options. DocWizard parses the file and passes on only an allowlist of formatting options (for example `variables`, `metadata`, `table-of-contents`, `number-sections`, `top-level-division`, `highlight-style`). Filters come only from the approved manifest list, and every path is set by the job.
-  - Pandoc runs in an empty working directory, with inputs and resources passed by path. `LUA_PATH` and `LUA_PATH_5_4` point only at the approved `filters/` folder, and `LUA_CPATH` and `LUA_CPATH_5_4` are empty. `require()` therefore can't load a `.lua` file from the project folder.
+  - Pandoc runs in an empty working directory, with inputs and resources passed by path. `LUA_PATH` and `LUA_PATH_5_4` point only at the approved `filters/` folder (plus `/usr/share/lua/5.4/?.lua` only when a distro pandoc binary excludes `lpeg` and loads system `lpeg.so`), and `LUA_CPATH` and `LUA_CPATH_5_4` are empty unless a distro build needs the system `lpeg.so` directory. `require()` therefore can't load a `.lua` or `.so` file from the project folder.
 
 ### 9.4 Document metadata
 
@@ -1296,7 +1297,7 @@ AGPL section 13 requires offering the source to network users. Every page footer
 |---|---|---|
 | `app` | Python slim, the 11 packages, `server/` | Unix socket in the shared `run` volume |
 | `worker` | Python slim (stdlib only), pandoc, Typst; TeX Live in the `-tex` variant | No network, read-only root, shared caches read-only. Starts as root with only the five capabilities needed to run each job as its own user |
-| `proxy` | Caddy with `web/` under `/srv/static/<release>/` | The only public ports |
+| `proxy` | Caddy with `web/` under `/srv/static/<release>/` | Bound to `127.0.0.1:80` (HTTP) by default for an external TLS proxy; opt-in `80`/`443` TLS via `deploy/compose.ssl.yaml` |
 
 ```yaml
 # deploy/compose.yaml (sketch)
@@ -1334,7 +1335,11 @@ services:
   proxy:
     build: { context: .., dockerfile: deploy/Dockerfile.proxy }
     restart: unless-stopped
-    ports: ["80:80", "443:443"]
+    ports: ["${DOCWIZARD_LISTEN:-127.0.0.1:80}:80"]
+    environment:
+      DOCWIZARD_APP_HOST: ${DOCWIZARD_APP_HOST:-http://localhost}
+      DOCWIZARD_PUBLISH_HOST: ${DOCWIZARD_PUBLISH_HOST:-http://pub.localhost}
+      DOCWIZARD_TRUSTED_PROXIES: ${DOCWIZARD_TRUSTED_PROXIES:-private_ranges}
     volumes:
       - run:/run/docwizard
       - publish:/srv/publish:ro
