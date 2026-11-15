@@ -42,6 +42,23 @@ ALLOWED_TOOLS = {"pandoc", "typst", "latexmk"}
 JOB_ID = re.compile(r"^j_[0-9a-f]{32}$")
 PR_SET_NO_NEW_PRIVS = 38
 MAX_DIAG = 50
+# Upstream pandoc embeds lpeg; distro packages that exclude it load lpeg.so and re.lua via LUA_*PATH.
+_SYS_LUA_RE = "/usr/share/lua/5.4/re.lua"
+_SYS_LUA_CPATHS = (
+    ("/usr/lib/lua/5.4/lpeg.so", "/usr/lib/lua/5.4/?.so"),
+    ("/usr/lib64/lua/5.4/lpeg.so", "/usr/lib64/lua/5.4/?.so"),
+    ("/usr/lib/x86_64-linux-gnu/lua/5.4/lpeg.so", "/usr/lib/x86_64-linux-gnu/lua/5.4/?.so"),
+    ("/usr/lib/aarch64-linux-gnu/lua/5.4/lpeg.so", "/usr/lib/aarch64-linux-gnu/lua/5.4/?.so"),
+)
+
+
+def _lua_env(job_lua_path: str) -> tuple[str, str]:
+    """Build LUA_PATH and LUA_CPATH without leaking './' or project directories."""
+    lua_paths = [p for p in job_lua_path.split(";") if p]
+    lua_cpath = next((pattern for probe, pattern in _SYS_LUA_CPATHS if os.path.exists(probe)), "")
+    if lua_cpath and os.path.exists(_SYS_LUA_RE):
+        lua_paths.append("/usr/share/lua/5.4/?.lua")
+    return ";".join(lua_paths), lua_cpath
 
 
 def log(**kw) -> None:
@@ -68,7 +85,12 @@ def _make_preexec(uid: int | None, gid: int | None, limits: dict, cwd: Path):
         os.setsid()
         _no_new_privs()
         resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu + 5))
-        resource.setrlimit(resource.RLIMIT_AS, (mem, mem))
+        # Memory is capped with RLIMIT_DATA, not RLIMIT_AS. Pandoc's runtime reserves as
+        # much address space as it can get at startup without using it; under an
+        # address-space limit nothing is left for thread stacks, and a threaded pandoc
+        # fails with "failed to create OS thread". Reserved but unused memory doesn't
+        # count against RLIMIT_DATA, while everything the job actually allocates does.
+        resource.setrlimit(resource.RLIMIT_DATA, (mem, mem))
         resource.setrlimit(resource.RLIMIT_FSIZE, (fsize, fsize))
         resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
         if uid is not None:
@@ -259,12 +281,13 @@ class Worker:
         deadline = time.monotonic() + wall
         home = job_dir / "home"
         tmp = job_dir / "tmp"
+        lua_path, lua_cpath = _lua_env(job.get("lua_path", ""))
         env = {
             "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
             "HOME": str(home), "TMPDIR": str(tmp), "TEXMFVAR": str(home / "texmf-var"),
             "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8",
-            "LUA_PATH": job.get("lua_path", ""), "LUA_PATH_5_4": job.get("lua_path", ""),
-            "LUA_CPATH": "", "LUA_CPATH_5_4": "",
+            "LUA_PATH": lua_path, "LUA_PATH_5_4": lua_path,
+            "LUA_CPATH": lua_cpath, "LUA_CPATH_5_4": lua_cpath,
             "openin_any": "p", "openout_any": "p",
             "TYPST_PACKAGE_CACHE_PATH": str(self.cache_dir / "typst-packages"),
             "TEXMFOUTPUT": str(job_dir),

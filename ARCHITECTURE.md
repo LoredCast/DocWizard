@@ -276,7 +276,9 @@ docwizard/
 │   ├── Dockerfile.worker            build arg TEX=none|full
 │   ├── Dockerfile.proxy
 │   ├── compose.yaml
+│   ├── compose.ssl.yaml
 │   ├── Caddyfile
+│   ├── Caddyfile.ssl
 │   └── systemd/
 ├── scripts/
 │   ├── vendor.sh                    dev-only: fetch and bundle frontend dependencies
@@ -800,7 +802,7 @@ Manifest:
   - Templates, CSS, CSL styles and variables are safe for anyone to edit. Pandoc templates cannot run code, and Typst and LaTeX run in the sandbox.
   - Lua filters run arbitrary code inside the render worker. They only run once an admin has approved the layout's filter files by hash. The hash covers every `.lua` file in the layout's `filters/` folder, including modules the filters `require`, and changing any of them revokes the approval.
   - `defaults.json` is never passed to pandoc as is. Pandoc defaults can name filters, a data directory, resource paths, output and log files, and PDF engines with their options. DocWizard parses the file and passes on only an allowlist of formatting options (for example `variables`, `metadata`, `table-of-contents`, `number-sections`, `top-level-division`, `highlight-style`). Filters come only from the approved manifest list, and every path is set by the job.
-  - Pandoc runs in an empty working directory, with inputs and resources passed by path. `LUA_PATH` and `LUA_PATH_5_4` point only at the approved `filters/` folder, and `LUA_CPATH` and `LUA_CPATH_5_4` are empty. `require()` therefore can't load a `.lua` file from the project folder.
+  - Pandoc runs in an empty working directory, with inputs and resources passed by path. `LUA_PATH` and `LUA_PATH_5_4` point only at the approved `filters/` folder (plus `/usr/share/lua/5.4/?.lua` only when a distro pandoc binary excludes `lpeg` and loads system `lpeg.so`), and `LUA_CPATH` and `LUA_CPATH_5_4` are empty unless a distro build needs the system `lpeg.so` directory. `require()` therefore can't load a `.lua` or `.so` file from the project folder.
 
 ### 9.4 Document metadata
 
@@ -1151,7 +1153,7 @@ The CLI (`python -m docwizard …`) provides `serve`, `migrate`, `create-admin`,
 
 | Threat | Mitigation |
 |---|---|
-| Code execution via documents and layouts (LaTeX, Lua filters, Typst, pandoc bugs) | Every render job is treated as untrusted code, and the job is the isolation boundary. Each job runs as its own Unix user in a `0700` directory, so concurrent jobs can't read, write, signal or trace each other ([§9.2](#92-render-jobs)). The worker runs in its own container: no network, read-only root, tmpfs, `no-new-privileges`, process and memory limits, and only the capabilities needed to switch users. Shared caches are mounted read-only. Each job gets its own `HOME`, `TMPDIR` and `TEXMFVAR`, `resource` limits (CPU, address space, file size, processes) and a wall-clock timeout. Where bubblewrap can run, each job also gets its own namespaces. LaTeX runs without shell escape and with `openin_any=p` / `openout_any=p`. Lua filters only run from admin-approved layouts (approval by hash), with `LUA_PATH` limited to them, and `defaults.json` is reduced to an allowlist ([§9.3](#93-layouts)). Typst is confined to `--root` |
+| Code execution via documents and layouts (LaTeX, Lua filters, Typst, pandoc bugs) | Every render job is treated as untrusted code, and the job is the isolation boundary. Each job runs as its own Unix user in a `0700` directory, so concurrent jobs can't read, write, signal or trace each other ([§9.2](#92-render-jobs)). The worker runs in its own container: no network, read-only root, tmpfs, `no-new-privileges`, process and memory limits, and only the capabilities needed to switch users. Shared caches are mounted read-only. Each job gets its own `HOME`, `TMPDIR` and `TEXMFVAR`, `resource` limits (CPU, data memory, file size, processes) and a wall-clock timeout. Where bubblewrap can run, each job also gets its own namespaces. LaTeX runs without shell escape and with `openin_any=p` / `openout_any=p`. Lua filters only run from admin-approved layouts (approval by hash), with `LUA_PATH` limited to them, and `defaults.json` is reduced to an allowlist ([§9.3](#93-layouts)). Typst is confined to `--root` |
 | XSS via raw HTML in documents | Previews are served from a separate preview origin through capability URLs, with a CSP that blocks scripts, inside a sandboxed iframe. Published sites live on a separate origin with `script-src 'none'` ([§6.4](#64-preview), [§14.4](#144-publishing)) |
 | Stored XSS via uploaded assets or exported files (HTML, SVG) opened on the app origin | Only PDFs and raster images are served inline. Everything else is sent as an attachment, and every response except PDFs carries `Content-Security-Policy: sandbox`, plus `nosniff` and `Cross-Origin-Resource-Policy: same-origin` ([§7.5](#75-http-api)) |
 | XSS in the app itself | Jinja2 templates with autoescaping always on; DOM built with `textContent` and `<template>`. CSP with a fresh nonce per response: `default-src 'self'; script-src 'self' 'nonce-…'; style-src 'self' 'nonce-…'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; frame-src 'self' <preview origin>; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`. The nonce goes on the inline import map ([§6.1](#61-constraints)), and CodeMirror's injected styles get it via `EditorView.cspNonce`. Style attributes are allowed because editor decorations and Temml's MathML may set them, and style attributes can't run script |
@@ -1296,7 +1298,7 @@ AGPL section 13 requires offering the source to network users. Every page footer
 |---|---|---|
 | `app` | Python slim, the 11 packages, `server/` | Unix socket in the shared `run` volume |
 | `worker` | Python slim (stdlib only), pandoc, Typst; TeX Live in the `-tex` variant | No network, read-only root, shared caches read-only. Starts as root with only the five capabilities needed to run each job as its own user |
-| `proxy` | Caddy with `web/` under `/srv/static/<release>/` | The only public ports |
+| `proxy` | Caddy with `web/` under `/srv/static/<release>/` | Bound to `127.0.0.1:8080` (app) and `127.0.0.1:8081` (publish/preview) over HTTP by default for an external TLS proxy; opt-in `80`/`443` TLS via `deploy/compose.ssl.yaml` |
 
 ```yaml
 # deploy/compose.yaml (sketch)
@@ -1334,7 +1336,11 @@ services:
   proxy:
     build: { context: .., dockerfile: deploy/Dockerfile.proxy }
     restart: unless-stopped
-    ports: ["80:80", "443:443"]
+    ports:
+      - "${DOCWIZARD_APP_LISTEN:-127.0.0.1:8080}:8080"
+      - "${DOCWIZARD_PUBLISH_LISTEN:-127.0.0.1:8081}:8081"
+    environment:
+      DOCWIZARD_TRUSTED_PROXIES: ${DOCWIZARD_TRUSTED_PROXIES:-private_ranges}
     volumes:
       - run:/run/docwizard
       - publish:/srv/publish:ro

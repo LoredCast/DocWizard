@@ -27,6 +27,28 @@ log = logging.getLogger("docwizard")
 WEB_DIR = Path(__file__).resolve().parents[2] / "web"
 
 
+def static_version(cfg) -> str:
+    """The path segment that versions static files, which are cached as immutable.
+
+    Behind the proxy, the files live under the release name (deploy/Dockerfile.proxy),
+    so a deploy must change the release. When the app serves them itself, the same
+    release often covers changed files (a development checkout, a pulled update), so
+    a digest of their contents is added: otherwise browsers and the service worker
+    keep stylesheets and scripts from before the change.
+    """
+    if not cfg.server.serve_static:
+        return cfg.release
+    import hashlib
+
+    digest = hashlib.blake2b(digest_size=6)
+    root = WEB_DIR.resolve()
+    for path in sorted(root.rglob("*")):
+        if path.is_file():
+            digest.update(path.relative_to(root).as_posix().encode() + b"\0")
+            digest.update(path.read_bytes())
+    return f"{cfg.release}-{digest.hexdigest()}"
+
+
 class _RecentErrors(logging.Handler):
     """Keeps the last errors for the admin health page."""
 
@@ -50,7 +72,7 @@ class App:
         self.router = Router()
         self.templates = make_env()
         self.throttle = LoginThrottle()
-        self.static_prefix = f"/static/{self.cfg.release}"
+        self.static_prefix = f"/static/{static_version(self.cfg)}"
         self.started = False
         self.settings: dict = {}
         self._secrets = None

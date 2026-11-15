@@ -38,7 +38,8 @@ def register(app) -> None:
 
     def build() -> bytes:
         source = (WEB_DIR / "sw.js").read_text(encoding="utf-8")
-        manifest = {"release": app.cfg.release, "static": app.static_prefix, "assets": static_assets(app),
+        manifest = {"release": app.cfg.release, "version": app.static_prefix.rsplit("/", 1)[-1],
+                    "static": app.static_prefix, "assets": static_assets(app),
                     "shells": list(SHELLS)}
         return source.replace("self.__MANIFEST__", json.dumps(manifest, separators=(",", ":"))).encode()
 

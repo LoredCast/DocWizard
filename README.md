@@ -73,13 +73,26 @@ Some features need configuration:
 
 ## Deploy
 
-[deploy/compose.yaml](deploy/compose.yaml) runs three containers: the app, the render worker (no network, read-only root, only the capabilities it needs to switch users) and Caddy, which terminates TLS for two hosts, the app and the publish/preview host.
+[deploy/compose.yaml](deploy/compose.yaml) runs three containers: the app, the render worker (no network, read-only root, only the capabilities it needs to switch users) and Caddy, which serves static assets and published sites and forwards app requests to the app's Unix socket.
+
+By default, Compose listens on two local HTTP ports (`127.0.0.1:8080` for the app and `127.0.0.1:8081` for the publish/preview origin) so an external reverse proxy on the same host or another host can handle TLS and public domains without needing domain config in Compose:
 
 ```sh
-cp deploy/docwizard.example.toml deploy/docwizard.toml   # set your two URLs
-# set DOCWIZARD_APP_HOST and DOCWIZARD_PUBLISH_HOST in deploy/compose.yaml
+cp deploy/docwizard.example.toml deploy/docwizard.toml   # set your https:// URLs
+# Point your external TLS reverse proxy (forwarding Host, X-Forwarded-Proto and WebSockets):
+#   write.example.org -> <host>:8080
+#   pub.example.org   -> <host>:8081
+# (Override DOCWIZARD_APP_LISTEN / DOCWIZARD_PUBLISH_LISTEN to bind a private/VPN IP,
+#  and DOCWIZARD_TRUSTED_PROXIES if the external proxy connects from outside private_ranges.)
 docker compose -f deploy/compose.yaml up -d --build
 docker compose -f deploy/compose.yaml exec app python -m docwizard create-admin you
+```
+
+To let the bundled Caddy terminate TLS directly on ports `80` and `443`, opt in with [deploy/compose.ssl.yaml](deploy/compose.ssl.yaml) and bare domain names:
+
+```sh
+DOCWIZARD_APP_HOST=write.example.org DOCWIZARD_PUBLISH_HOST=pub.example.org \
+  docker compose -f deploy/compose.yaml -f deploy/compose.ssl.yaml up -d --build
 ```
 
 The worker image includes TeX Live for LaTeX builds. Build it with `--build-arg WITH_LATEX=0` for a much smaller image without them.

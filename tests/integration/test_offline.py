@@ -14,6 +14,7 @@ async def test_service_worker_lists_this_release(client, app):
     assert r.header("content-type").startswith("text/javascript")
     manifest = json.loads(re.search(r"const MANIFEST = (\{.*?\});", r.text).group(1))
     assert manifest["release"] == app.cfg.release
+    assert app.static_prefix == f"/static/{manifest['version']}"
     assert manifest["shells"] == ["/_shell/home", "/_shell/editor"]
     assets = set(manifest["assets"])
     prefix = app.static_prefix
@@ -49,3 +50,20 @@ async def test_home_mirrors_recent_and_snapshot_has_pins(client, app):
     csrf = re.search(r'name="_csrf" value="([^"]+)"', page.text).group(1)
     await client.post(f"/d/{snap['doc']['id']}/pin", form={"_csrf": csrf, "pinned": "1"})
     assert (await open_editor(client, pid))["doc"]["pinned"] is True
+
+
+def test_static_urls_change_with_the_files(app, tmp_path, monkeypatch):
+    """Static files are cached as immutable, so changed files need new URLs (stale CSS otherwise)."""
+    from docwizard import asgi
+
+    (tmp_path / "css").mkdir()
+    (tmp_path / "css" / "app.css").write_text("body { color: red }")
+    monkeypatch.setattr(asgi, "WEB_DIR", tmp_path)
+    first = asgi.static_version(app.cfg)
+    assert first.startswith(app.cfg.release + "-")
+    assert asgi.static_version(app.cfg) == first
+    (tmp_path / "css" / "app.css").write_text("body { color: blue }")
+    assert asgi.static_version(app.cfg) != first
+    # Behind the proxy the files live under the release name.
+    monkeypatch.setattr(app.cfg.server, "serve_static", False)
+    assert asgi.static_version(app.cfg) == app.cfg.release

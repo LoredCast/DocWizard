@@ -1,6 +1,12 @@
-# Two hosts: the app, and the publish host that also serves previews (ARCHITECTURE.md §18.1).
-# Set DOCWIZARD_APP_HOST and DOCWIZARD_PUBLISH_HOST in compose.yaml.
-{$DOCWIZARD_APP_HOST} {
+# Two local HTTP listeners: :8080 for the app, :8081 for the publish/preview host (ARCHITECTURE.md §18.1).
+# Designed to sit behind an external reverse proxy that terminates TLS and forwards Host + X-Forwarded-Proto.
+{
+	servers {
+		trusted_proxies static {$DOCWIZARD_TRUSTED_PROXIES:private_ranges}
+	}
+}
+
+:8080 {
 	encode zstd gzip
 
 	handle_path /static/* {
@@ -9,12 +15,16 @@
 		file_server
 	}
 
+	handle /_preview/* {
+		respond 404
+	}
+
 	handle {
 		reverse_proxy unix//run/docwizard/app.sock
 	}
 }
 
-{$DOCWIZARD_PUBLISH_HOST} {
+:8081 {
 	encode zstd gzip
 
 	# Previews: served by the app through capability URLs; the app sets their headers.

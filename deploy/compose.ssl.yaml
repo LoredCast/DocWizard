@@ -1,0 +1,12 @@
+# Opt-in TLS termination in Caddy (ARCHITECTURE.md §18.1).
+# Set DOCWIZARD_APP_HOST and DOCWIZARD_PUBLISH_HOST to bare domain names (without http://), e.g.:
+#   DOCWIZARD_APP_HOST=write.example.org DOCWIZARD_PUBLISH_HOST=pub.example.org \
+#     docker compose -f deploy/compose.yaml -f deploy/compose.ssl.yaml up -d --build
+services:
+  proxy:
+    ports: !override ["80:80", "443:443"]
+    environment:
+      DOCWIZARD_APP_HOST: ${DOCWIZARD_APP_HOST:?Set DOCWIZARD_APP_HOST for opt-in SSL}
+      DOCWIZARD_PUBLISH_HOST: ${DOCWIZARD_PUBLISH_HOST:?Set DOCWIZARD_PUBLISH_HOST for opt-in SSL}
+    volumes:
+      - ./Caddyfile.ssl:/etc/caddy/Caddyfile:ro
