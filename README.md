@@ -1,5 +1,9 @@
 # DocWizard
 
+[![CI & Container Releases](https://github.com/LoredCast/DocWizard/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/LoredCast/DocWizard/actions/workflows/ci-cd.yml)
+[![Version](https://img.shields.io/github/v/tag/LoredCast/DocWizard?label=version&sort=semver)](https://github.com/LoredCast/DocWizard/tags)
+[![ghcr.io Pulls](https://img.shields.io/badge/dynamic/json?logo=github&url=https%3A%2F%2Fipitio.github.io%2Fbackage%2FLoredCast%2FDocWizard%2Fdocwizard-app.json&query=%24.downloads&label=ghcr.io%20pulls&cacheSeconds=14400)](https://github.com/LoredCast/DocWizard/pkgs/container/docwizard-app)
+
 A self-hostable editor for structured writing: term papers, theses, articles and reports. You write pandoc Markdown in the browser; **layouts** decide how the output looks. Exports go through pandoc, with Typst for PDF and citeproc for citations.
 
 [ARCHITECTURE.md](ARCHITECTURE.md) is the design reference. This version covers the roadmap milestones M0 to M6 (§21): reliable editing, submission-ready output, collaboration, sharing and comments, offline work, the integrations, and LaTeX with the rest of the polish.
