@@ -1,0 +1,39 @@
+# Opt-in TLS Caddyfile for deploy/compose.ssl.yaml (ARCHITECTURE.md §18.1).
+# Set DOCWIZARD_APP_HOST and DOCWIZARD_PUBLISH_HOST to bare domain names (without http://).
+{
+	servers {
+		trusted_proxies static {$DOCWIZARD_TRUSTED_PROXIES:private_ranges}
+	}
+}
+
+{$DOCWIZARD_APP_HOST} {
+	encode zstd gzip
+
+	handle_path /static/* {
+		root * /srv/static
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	handle {
+		reverse_proxy unix//run/docwizard/app.sock
+	}
+}
+
+{$DOCWIZARD_PUBLISH_HOST} {
+	encode zstd gzip
+
+	# Previews: served by the app through capability URLs; the app sets their headers.
+	handle /_preview/* {
+		reverse_proxy unix//run/docwizard/app.sock
+	}
+
+	handle {
+		root * /srv/publish
+		header {
+			Content-Security-Policy "default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+			X-Content-Type-Options "nosniff"
+		}
+		file_server
+	}
+}

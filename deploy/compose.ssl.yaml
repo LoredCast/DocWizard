@@ -5,3 +5,8 @@
 services:
   proxy:
     ports: !override ["80:80", "443:443"]
+    environment:
+      DOCWIZARD_APP_HOST: ${DOCWIZARD_APP_HOST:?Set DOCWIZARD_APP_HOST for opt-in SSL}
+      DOCWIZARD_PUBLISH_HOST: ${DOCWIZARD_PUBLISH_HOST:?Set DOCWIZARD_PUBLISH_HOST for opt-in SSL}
+    volumes:
+      - ./Caddyfile.ssl:/etc/caddy/Caddyfile:ro

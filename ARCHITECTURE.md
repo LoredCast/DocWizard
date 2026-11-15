@@ -278,6 +278,7 @@ docwizard/
 │   ├── compose.yaml
 │   ├── compose.ssl.yaml
 │   ├── Caddyfile
+│   ├── Caddyfile.ssl
 │   └── systemd/
 ├── scripts/
 │   ├── vendor.sh                    dev-only: fetch and bundle frontend dependencies
@@ -1297,7 +1298,7 @@ AGPL section 13 requires offering the source to network users. Every page footer
 |---|---|---|
 | `app` | Python slim, the 11 packages, `server/` | Unix socket in the shared `run` volume |
 | `worker` | Python slim (stdlib only), pandoc, Typst; TeX Live in the `-tex` variant | No network, read-only root, shared caches read-only. Starts as root with only the five capabilities needed to run each job as its own user |
-| `proxy` | Caddy with `web/` under `/srv/static/<release>/` | Bound to `127.0.0.1:80` (HTTP) by default for an external TLS proxy; opt-in `80`/`443` TLS via `deploy/compose.ssl.yaml` |
+| `proxy` | Caddy with `web/` under `/srv/static/<release>/` | Bound to `127.0.0.1:8080` (app) and `127.0.0.1:8081` (publish/preview) over HTTP by default for an external TLS proxy; opt-in `80`/`443` TLS via `deploy/compose.ssl.yaml` |
 
 ```yaml
 # deploy/compose.yaml (sketch)
@@ -1335,10 +1336,10 @@ services:
   proxy:
     build: { context: .., dockerfile: deploy/Dockerfile.proxy }
     restart: unless-stopped
-    ports: ["${DOCWIZARD_LISTEN:-127.0.0.1:80}:80"]
+    ports:
+      - "${DOCWIZARD_APP_LISTEN:-127.0.0.1:8080}:8080"
+      - "${DOCWIZARD_PUBLISH_LISTEN:-127.0.0.1:8081}:8081"
     environment:
-      DOCWIZARD_APP_HOST: ${DOCWIZARD_APP_HOST:-http://localhost}
-      DOCWIZARD_PUBLISH_HOST: ${DOCWIZARD_PUBLISH_HOST:-http://pub.localhost}
       DOCWIZARD_TRUSTED_PROXIES: ${DOCWIZARD_TRUSTED_PROXIES:-private_ranges}
     volumes:
       - run:/run/docwizard
