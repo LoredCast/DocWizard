@@ -75,24 +75,31 @@ Some features need configuration:
 
 [deploy/compose.yaml](deploy/compose.yaml) runs three containers: the app, the render worker (no network, read-only root, only the capabilities it needs to switch users) and Caddy, which serves static assets and published sites and forwards app requests to the app's Unix socket.
 
-By default, Compose listens on two local HTTP ports (`127.0.0.1:8080` for the app and `127.0.0.1:8081` for the publish/preview origin) so an external reverse proxy on the same host or another host can handle TLS and public domains without needing domain config in Compose:
+Prebuilt multi-arch images (`linux/amd64`, `linux/arm64`) are published to GitHub Container Registry (`ghcr.io/loredcast/docwizard-*`):
+- `main` commits publish rolling tags (`:main` and `:sha-<commit>`).
+- `v*` git tags publish release tags (`:<version>`, `:latest`).
+
+By default, Compose pulls `:main` and listens on two local HTTP ports (`127.0.0.1:8080` for the app and `127.0.0.1:8081` for the publish/preview origin) so an external reverse proxy on the same host or another host can handle TLS and public domains without needing a repo clone:
 
 ```sh
-cp deploy/docwizard.example.toml deploy/docwizard.toml   # set your https:// URLs
-# Point your external TLS reverse proxy (forwarding Host, X-Forwarded-Proto and WebSockets):
+curl -fsSLO https://raw.githubusercontent.com/LoredCast/DocWizard/main/deploy/compose.yaml
+curl -fsSL https://raw.githubusercontent.com/LoredCast/DocWizard/main/deploy/docwizard.example.toml -o docwizard.toml
+# Edit docwizard.toml with your https:// URLs, then point your external TLS proxy
+# (forwarding Host, X-Forwarded-Proto and WebSockets):
 #   write.example.org -> <host>:8080
 #   pub.example.org   -> <host>:8081
-# (Override DOCWIZARD_APP_LISTEN / DOCWIZARD_PUBLISH_LISTEN to bind a private/VPN IP,
-#  and DOCWIZARD_TRUSTED_PROXIES if the external proxy connects from outside private_ranges.)
-docker compose -f deploy/compose.yaml up -d --build
-docker compose -f deploy/compose.yaml exec app python -m docwizard create-admin you
+# Set DOCWIZARD_TAG=latest (or a specific version like 0.1.0) to pin a release instead of :main.
+docker compose up -d
+docker compose exec app python -m docwizard create-admin you
 ```
 
-To let the bundled Caddy terminate TLS directly on ports `80` and `443`, opt in with [deploy/compose.ssl.yaml](deploy/compose.ssl.yaml) and bare domain names:
+From a local checkout, run `docker compose -f deploy/compose.yaml up -d` (add `--build` to build locally, and override `DOCWIZARD_APP_LISTEN` / `DOCWIZARD_PUBLISH_LISTEN` / `DOCWIZARD_TRUSTED_PROXIES` if needed).
+
+To let the bundled Caddy terminate TLS directly on ports `80` and `443`, opt in with [deploy/compose.ssl.yaml](deploy/compose.ssl.yaml), [deploy/Caddyfile.ssl](deploy/Caddyfile.ssl), and bare domain names:
 
 ```sh
 DOCWIZARD_APP_HOST=write.example.org DOCWIZARD_PUBLISH_HOST=pub.example.org \
-  docker compose -f deploy/compose.yaml -f deploy/compose.ssl.yaml up -d --build
+  docker compose -f deploy/compose.yaml -f deploy/compose.ssl.yaml up -d
 ```
 
 The worker image includes TeX Live for LaTeX builds. Build it with `--build-arg WITH_LATEX=0` for a much smaller image without them.
