@@ -1334,6 +1334,7 @@ services:
       - render-cache:/var/lib/docwizard-cache:ro
 
   proxy:
+    image: ${DOCWIZARD_REGISTRY:-ghcr.io/loredcast}/docwizard-proxy:${DOCWIZARD_TAG:-main}
     build: { context: .., dockerfile: deploy/Dockerfile.proxy }
     restart: unless-stopped
     ports:
