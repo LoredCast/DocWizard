@@ -14,7 +14,9 @@ from tests.asgi_client import Client
 from tests.integration.test_collab import new_project, open_editor
 from tests.integration.test_render import HAS_TYPST, _pandoc_ok, _path, rapp, rclient, wait_job  # noqa: F401
 
-NEW_LAYOUTS = ("oxford", "uni-wien-philosophie", "aps", "turabian")
+NEW_LAYOUTS = ("oxford", "uni-wien-philosophie", "aps", "turabian", "mla", "apa-student", "mhra", "ieee", "screenplay",
+               "drehbuch", "av-script", "manuscript-story", "manuscript-novel", "normseite", "book-manuscript",
+               "goettingen-vcm", "wuerzburg-germanistik")
 
 
 # -- designs -------------------------------------------------------------------

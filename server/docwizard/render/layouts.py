@@ -238,6 +238,9 @@ _STYLE_LABELS = {
     "din-1505-2": "DIN 1505-2 (German)",
     "uni-wien-philosophie": "Uni Wien Philosophie (footnotes)",
     "uni-wien-philosophie-kurzbelege": "Uni Wien Philosophie (short citations)",
+    "mhra-notes": "MHRA 4th edition (notes)",
+    "mhra-author-date": "MHRA 4th edition (author-date)",
+    "wuerzburg-germanistik": "Würzburg Germanistik (short citations)",
 }
 
 

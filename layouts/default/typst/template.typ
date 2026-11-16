@@ -37,7 +37,12 @@ $design()$
 // -- helpers ---------------------------------------------------------------
 #let dw-fonts(name, fallback) = if name == "" { (fallback,) } else { (name, fallback) }
 #let dw-weight(w) = ("bold": "bold", "semibold": "semibold", "regular": "regular").at(w, default: "regular")
-#let dw-case(case, body) = if case == "upper" { upper(body) } else if case == "smallcaps" { smallcaps(body) } else { body }
+// Small caps are drawn as smaller capitals: the bundled fonts have no small-caps glyphs.
+#let dw-smallcaps(body) = {
+  show regex("\p{Ll}+"): it => text(size: 0.8em, upper(it))
+  body
+}
+#let dw-case(case, body) = if case == "upper" { upper(body) } else if case == "smallcaps" { dw-smallcaps(body) } else { body }
 #let dw-align(a) = if a == "center" { center } else { left }
 #let dw-filled(x) = x != none and x != [] and x != "" and x != ()
 #let dw-leading(factor) = factor * 0.65em
@@ -85,6 +90,10 @@ $design()$
   else if style == "italic" { emph(body) }
   else if style == "small" { text(size: 0.85em, body) }
   else if style == "large" { text(size: 1.2em, body) }
+  else if style == "left" { block(width: 100%, align(left, body)) }
+  else if style == "right" { block(width: 100%, align(right, body)) }
+  else if style == "upper" { upper(body) }
+  else if style == "bold-left" { block(width: 100%, align(left, text(weight: "bold", body))) }
   else { body }
 }
 #let dw-level(level) = "heading-" + str(calc.min(level, 4)) + "-"
@@ -118,29 +127,39 @@ $design()$
 }
 
 // -- scripts: filters/screenplay.lua and filters/avscript.lua --------------------
+// A blank line in a script is the paragraph spacing; lines that follow on directly (cue,
+// parenthetical, speech) are the line spacing apart.
+#let dw-script-gap() = dw-leading(dw.at("text-leading"))
+#let dw-script-blank() = dw.at("text-paragraph-spacing")
 #let dw-scene(body, right: none, number: none) = {
   set par(first-line-indent: 0pt, justify: false)
-  let line = dw-leading(dw.at("text-leading")) + 0.65em
-  block(above: 2 * line, below: line, sticky: true, width: 100%,
+  let gap = dw-script-gap()
+  let blank = dw-script-blank()
+  // Two blank lines before a scene heading, one after.
+  block(above: 2 * blank - gap, below: blank, sticky: true, width: 100%,
     text(weight: dw-weight(dw.at("script-scene-weight")), {
-      if number != none { place(left, dx: -0.75in, number) }
+      if number != none { place(top + std.left, dx: -0.75in, number) }
       if right != none { grid(columns: (1fr, auto), column-gutter: 1em, body, right) } else { body }
-      if number != none { place(right, dx: 0.6in, dy: 0pt, number) }
+      if number != none { place(top + std.right, dx: 0.6in, number) }
     }))
 }
 #let dw-action(body) = block(width: 100%, par(first-line-indent: 0pt, justify: false, body))
-#let dw-character(body) = block(above: 1.3em, below: 0pt, sticky: true, width: 100%,
-  pad(left: dw.at("script-character-indent"), par(first-line-indent: 0pt, justify: false, upper(body))))
-#let dw-parenthetical(body) = block(above: 0pt, below: 0pt, sticky: true, width: 100%,
+#let dw-character(body) = block(above: dw-script-blank(), below: dw-script-gap(), sticky: true, width: 100%,
+  if dw.at("script-character-align") == "center" {
+    align(center, par(first-line-indent: 0pt, justify: false, upper(body)))
+  } else {
+    pad(left: dw.at("script-character-indent"), par(first-line-indent: 0pt, justify: false, upper(body)))
+  })
+#let dw-parenthetical(body) = block(above: dw-script-gap(), below: dw-script-gap(), sticky: true, width: 100%,
   pad(left: dw.at("script-parenthetical-indent"),
     block(width: dw.at("script-parenthetical-width"), par(first-line-indent: 0pt, justify: false, hanging-indent: 0.6em, body))))
-#let dw-dialogue(body) = block(above: 0pt, width: 100%, breakable: false,
+#let dw-dialogue(body) = block(above: dw-script-gap(), below: dw-script-blank(), width: 100%, breakable: false,
   pad(left: dw.at("script-dialogue-indent"),
     block(width: dw.at("script-dialogue-width"), par(first-line-indent: 0pt, justify: false, body))))
 #let dw-transition(body) = block(width: 100%, sticky: false,
   align(right, par(first-line-indent: 0pt, justify: false, upper(body))))
 #let dw-centered(body) = block(width: 100%, align(center, par(first-line-indent: 0pt, justify: false, body)))
-#let dw-av(rows) = {
+#let dw-av(start: 1, rows) = {
   let share = dw.at("script-video-width")
   let numbered = dw.at("script-row-numbers")
   let cols = if numbered { (2em, share * 1fr, (1 - share) * 1fr) } else { (share * 1fr, (1 - share) * 1fr) }
@@ -152,7 +171,7 @@ $design()$
     stroke: (x, y) => (top: 0.5pt, bottom: 0.5pt, left: if x > 0 { 0.5pt } else { 0pt }),
     inset: 6pt,
     table.header(..head),
-    ..rows.enumerate().map(((i, row)) => (if numbered { ([#(i + 1)],) } else { () }) + row).flatten(),
+    ..rows.enumerate(start: start).map(((i, row)) => (if numbered { ([#i],) } else { () }) + row).flatten(),
   )
 }
 
@@ -287,13 +306,27 @@ $design()$
   show raw: set text(font: dw-fonts(dw.at("text-code-font"), "DejaVu Sans Mono"))
   show link: set text(fill: rgb(dw.at("text-link-color"))) if dw.at("text-link-color") != ""
 
+  // Contents: page numbers as the pages show them (roman in the front and back matter).
+  show outline.entry: it => {
+    if front == "" { return it }
+    let loc = it.element.location()
+    let fmt = page-fmt(loc)
+    let num = if fmt == none { [] } else { numbering(fmt.split(" ").first(), counter(page).at(loc).first()) }
+    link(loc, it.indented(it.prefix(), [#it.body()#box(width: 1fr, inset: (x: 0.3em), if it.fill != none { it.fill })#num]))
+  }
+
   // Headings
   set heading(numbering: dw-numbering(dw.at("heading-numbering")))
   let by-chapter = dw.at("caption-by-chapter")
   show heading: it => {
     let p = dw-level(it.level)
-    if it.level == 1 and dw.at("heading-chapter-break") { pagebreak(weak: true) }
+    if it.level == 1 and dw.at("heading-chapter-break") {
+      pagebreak(weak: true)
+      if dw.at("heading-chapter-drop") != 0pt { v(dw.at("heading-chapter-drop")) }
+    }
     if it.level == 1 and by-chapter {
+      // Unnumbered headings leave Typst's heading counter alone, so chapters keep their own.
+      counter("dw-chapter").step()
       counter(figure.where(kind: image)).update(0)
       counter(figure.where(kind: table)).update(0)
     }
@@ -353,7 +386,14 @@ $design()$
   show <refs>: set block(spacing: bib-leading + dw.at("bib-spacing"))
   let back-mark = if back {
     [#metadata(none) <dw-back>]
-    context counter(page).update(counter(page).at(query(<dw-front-end>).first().location()).first() + 1)
+    // The back matter continues the front matter's numbers. The front-end mark lands on the
+    // first text page when the front matter ended with a page of its own (a contents page).
+    context {
+      let mark = query(<dw-front-end>).first().location()
+      let last = counter(page).at(mark).first()
+      if mark.page() == query(<dw-body>).first().location().page() { last -= 1 }
+      counter(page).update(last + 1)
+    }
   }
   show <bibliography>: it => {
     if dw.at("bib-page-break") { pagebreak(weak: true) }
@@ -378,7 +418,8 @@ $design()$
   show figure.where(kind: image): set figure(supplement: dw.at("caption-figure")) if dw.at("caption-figure") != ""
   show figure.where(kind: table): set figure(supplement: dw.at("caption-table")) if dw.at("caption-table") != ""
   let chapter-numbering(style) = (..n) => {
-    let chapter = counter(heading).get().first()
+    let chapter = if dw.at("heading-numbering") != "" { counter(heading).get().first() }
+      else { counter("dw-chapter").get().first() }
     numbering("1", chapter) + "." + numbering(style, ..n)
   }
   show figure.where(kind: table): set figure(numbering: if by-chapter { chapter-numbering(dw.at("caption-table-numbering")) } else { dw.at("caption-table-numbering") })
@@ -388,12 +429,15 @@ $design()$
   set figure.caption(separator: dw.at("caption-separator"))
   show figure.caption: set text(size: dw.at("caption-size") * 1em)
   show figure.caption: it => {
-    let body = dw-case(dw.at("caption-title-case"), dw-trim(it.body))
+    let case = dw.at("caption-title-case")
+    if case == "smallcaps-tables" { case = if it.kind == table { "smallcaps" } else { "normal" } }
+    let body = dw-case(case, dw-trim(it.body))
     if dw.at("caption-title-style") == "italic" { body = emph(body) }
     let caption = if it.numbering == none { body } else {
       let label = text(weight: dw-weight(dw.at("caption-label-weight")),
         [#it.supplement~#context it.counter.display(it.numbering)])
-      if dw.at("caption-break") [#label#linebreak()#body] else [#label#it.separator#body]
+      let brk = dw.at("caption-break")
+      if brk == "all" or (brk == "table" and it.kind == table) [#label#linebreak()#body] else [#label#it.separator#body]
     }
     if dw.at("caption-align") == "left" { block(width: 100%, align(left, caption)) } else { caption }
   }
@@ -432,14 +476,14 @@ $design()$
     let heading = if dw.at("cover-abstract-title") != "" { dw.at("cover-abstract-title") }
       else if abstract-title != none { abstract-title } else { none }
     let sep = dw.at("cover-abstract-separator")
-    block(above: 1.5em, inset: (x: if dw.at("cover-page") or sep != "space" { 0em } else { 2em }), width: 100%)[
-      #set align(left)
-      #set par(justify: dw.at("text-justify"), first-line-indent: 0pt)
-      #if heading == none { abstract }
+    block(above: 1.5em, inset: (x: if dw.at("cover-page") or sep != "space" { 0em } else { 2em }), width: 100%, {
+      set align(left)
+      set par(justify: dw.at("text-justify"), first-line-indent: 0pt)
+      if heading == none { abstract }
       else if sep == "em-dash" [#text(weight: "bold", style: "italic")[#heading]—#text(weight: "bold", abstract)]
       else if sep == "break" [#align(center, text(weight: "bold", heading))#abstract]
       else [#text(weight: "semibold")[#heading] #h(0.8em) #abstract]
-    ]
+    })
   }
   let render-fields(items, spacing: dw.at("cover-field-spacing")) = {
     for item in items {
@@ -502,17 +546,21 @@ $design()$
     if l.len() > 0 or r.len() > 0 {
       set par(first-line-indent: 0pt, justify: false, leading: 0.65em, spacing: 0.65em)
       grid(columns: (1fr, auto), align: (left, right),
-        render-fields(l, spacing: 0pt), render-fields(r, spacing: 0pt))
+        render-fields(l, spacing: 0.65em), render-fields(r, spacing: 0.65em))
     }
   }
 
   if cover-page {
     let pos = dw.at("cover-position")
-    page(header: none, footer: none, columns: 1, {
+    let bare = if dw.at("cover-page-number") { (:) } else { (header: none, footer: none) }
+    page(..bare, columns: 1, {
       corners
-      if pos == "third" { v(1fr) } else if pos == "center" { v(1fr) }
+      if dw.at("cover-offset") != 0pt { v(dw.at("cover-offset")) }
+      // A "fill" gap among the fields already pushes what follows it to the foot of the page.
+      let has-fill = dw.at("cover-fields").any(f => "space" in f and type(f.space) == fraction)
+      if pos == "third" { v(if has-fill { 0.5fr } else { 1fr }) } else if pos == "center" { v(1fr) }
       title-block
-      if pos == "third" { v(2fr) } else { v(1fr) }
+      if not has-fill { if pos == "third" { v(2fr) } else { v(1fr) } }
     })
     if not dw.at("cover-counted") { counter(page).update(1) }
   } else {
@@ -522,7 +570,7 @@ $design()$
       if cols > 1 {
         place(top + center, scope: "parent", float: true, block(width: 100%, below: 1.5em, title-block))
       } else {
-        block(width: 100%, below: 2em, title-block)
+        block(width: 100%, below: dw.at("cover-space-after"), title-block)
       }
     }
   }
@@ -541,7 +589,7 @@ $design()$
     })
   }
 
-  if dw.at("declaration-enabled") {
+  let declaration-page = if dw.at("declaration-enabled") {
     page(columns: 1, {
       set par(first-line-indent: 0pt)
       block(below: 1.5em, text(weight: "bold", size: 1.2em, dw.at("declaration-title")))
@@ -553,11 +601,12 @@ $design()$
       text(size: 0.9em, dw.at("declaration-signature"))
     })
   }
+  if dw.at("declaration-position") == "front" { declaration-page }
 
   if toc or dw.at("toc-figures") or dw.at("toc-tables") {
     let title = if dw.at("toc-title") != "" { dw.at("toc-title") } else if toc-title != none { toc-title } else { auto }
     let depth = if toc-depth != none { toc-depth } else { dw.at("toc-depth") }
-    let lists = {
+    let lists = context {
       if toc { outline(title: title, depth: depth) }
       if dw.at("toc-figures") and query(figure.where(kind: image)).len() > 0 {
         outline(title: if lof-title != none { lof-title } else { auto }, target: figure.where(kind: image))
@@ -567,9 +616,9 @@ $design()$
       }
     }
     if dw.at("toc-page") {
-      page(columns: 1, context lists)
+      page(columns: 1, lists)
     } else {
-      block(below: 2em, context lists)
+      block(below: 2em, lists)
     }
   }
 
@@ -591,6 +640,8 @@ $design()$
   if dw.at("script-end-mark") != "" {
     block(above: 2em, width: 100%, align(center, dw.at("script-end-mark")))
   }
+  if dw.at("declaration-position") == "end" { declaration-page }
+
 }
 
 $if(smart)$

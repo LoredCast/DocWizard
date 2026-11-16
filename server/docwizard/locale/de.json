@@ -865,5 +865,6 @@
  "As the layout says": "Wie im Layout",
  "Change language": "Sprache ändern",
  "Dates, quotation marks, hyphenation, the bibliography and generated headings follow this language. A document can set its own with lang: in its front matter, and mark passages in other languages with [text]{lang=fr}.": "Datumsangaben, Anführungszeichen, Silbentrennung, das Literaturverzeichnis und erzeugte Überschriften folgen dieser Sprache. Ein Dokument kann mit lang: im Vorspann eine eigene festlegen und Passagen in anderen Sprachen mit [Text]{lang=fr} auszeichnen.",
- "Choose a language from the list.": "Wähl eine Sprache aus der Liste."
+ "Choose a language from the list.": "Wähl eine Sprache aus der Liste.",
+ "quotation marks only": "nur Anführungszeichen"
 }

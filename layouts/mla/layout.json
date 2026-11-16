@@ -1,0 +1,105 @@
+{
+  "id": "mla",
+  "name": "MLA paper",
+  "version": "1.0.0",
+  "extends": "default",
+  "description": "After the MLA Handbook (9th ed.) and the MLA Style Center: US Letter, one-inch margins, 12 pt Tinos (Times New Roman metrics), double-spaced throughout, half-inch indents, ragged right; the heading block top left, the title centred, “Surname 4” top right, Works Cited on a new page.",
+  "design": {
+    "page.paper": "us-letter",
+    "page.margin-top": "1in",
+    "page.margin-bottom": "1in",
+    "page.margin-left": "1in",
+    "page.margin-right": "1in",
+    "page.number-position": "top-right",
+    "page.number-distance": "0.5in",
+    "page.number-label": "surname",
+    "text.font": "Tinos",
+    "text.size": 12,
+    "text.leading": 2,
+    "text.paragraph-spacing": "0",
+    "text.indent": "0.5in",
+    "text.indent-first": true,
+    "text.justify": false,
+    "text.hyphenate": false,
+    "text.lang": "en-US",
+    "text.date-format": "day-month-year",
+    "heading.numbering": "",
+    "heading.1.size": 1,
+    "heading.1.weight": "bold",
+    "heading.1.above": "1.3em",
+    "heading.1.below": "1.3em",
+    "heading.2.size": 1,
+    "heading.2.weight": "regular",
+    "heading.2.style": "italic",
+    "heading.2.above": "1.3em",
+    "heading.2.below": "1.3em",
+    "heading.3.size": 1,
+    "heading.3.weight": "regular",
+    "heading.3.above": "1.3em",
+    "heading.3.below": "1.3em",
+    "heading.4.size": 1,
+    "heading.4.weight": "regular",
+    "heading.4.above": "1.3em",
+    "heading.4.below": "1.3em",
+    "cover.page": false,
+    "cover.align": "left",
+    "cover.fields-first": true,
+    "cover.title-align": "center",
+    "cover.title-size": 1,
+    "cover.title-weight": "regular",
+    "cover.subtitle-size": 1,
+    "cover.subtitle-weight": "regular",
+    "cover.title-colon": true,
+    "cover.field-spacing": "1.3em",
+    "cover.space-after": "1.3em",
+    "cover.abstract": false,
+    "cover.fields": [
+      {
+        "key": "author"
+      },
+      {
+        "key": "instructor"
+      },
+      {
+        "key": "course"
+      },
+      {
+        "key": "date"
+      }
+    ],
+    "quote.size": 1,
+    "quote.leading": 0,
+    "quote.indent-left": "0.5in",
+    "quote.indent-right": "0",
+    "quote.spacing": "1.3em",
+    "footnote.size": 1,
+    "footnote.leading": 0,
+    "footnote.indent": "0.5in",
+    "footnote.rule": true,
+    "cite.style": "modern-language-association",
+    "bib.heading": "works-cited",
+    "bib.heading-style": "center-plain",
+    "bib.page-break": true,
+    "bib.size": 1,
+    "bib.leading": 0,
+    "bib.hanging": "0.5in",
+    "bib.spacing": "0",
+    "caption.figure": "Fig.",
+    "caption.separator": ". ",
+    "caption.align": "left",
+    "caption.size": 1,
+    "caption.break": "table"
+  },
+  "variables": {
+    "citation-style": {
+      "type": "enum",
+      "values": [
+        "modern-language-association"
+      ],
+      "labels": {
+        "modern-language-association": "MLA 9th edition"
+      },
+      "label": "Citation style"
+    }
+  }
+}

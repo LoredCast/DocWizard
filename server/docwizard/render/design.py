@@ -121,7 +121,9 @@ COVER_KEYS = {
     "submission": "Submitted for (submission)",
     "birthplace": "Place of birth (birthplace)",
 }
-COVER_STYLES = {"normal": "Regular", "bold": "Bold", "italic": "Italic", "small": "Small", "large": "Large"}
+COVER_STYLES = {"normal": "Regular", "bold": "Bold", "italic": "Italic", "small": "Small", "large": "Large",
+                "left": "Flush left", "right": "Flush right", "upper": "Capitals",
+                "bold-left": "Bold, flush left"}
 
 
 def _field(key, ftype, default, label, group, **extra):
@@ -202,7 +204,7 @@ FIELDS: list[dict] = [
     # Body text
     _field("text.font", "font", "Libertinus Serif", "Font", "text", kind="serif"),
     _field("text.size", "number", 11, "Font size (pt)", "text", min=8, max=16, step=0.5),
-    _field("text.leading", "number", 1.25, "Line spacing", "text", min=0.8, max=3, step=0.05,
+    _field("text.leading", "number", 1.25, "Line spacing", "text", min=0.5, max=3, step=0.01,
            help="1 is single spacing, 1.5 one-and-a-half, 2 double, as in word processors."),
     _field("text.paragraph-spacing", "length", "0.6em", "Space between paragraphs", "text",
            help="0 for none; with an indent, most styles use none."),
@@ -230,6 +232,8 @@ FIELDS: list[dict] = [
     _field("heading.font", "font", "", "Heading font", "headings", kind="serif", help="Empty: the body font."),
     _field("heading.numbering", "enum", "", "Numbering", "headings", values=NUMBERING),
     _field("heading.chapter-break", "boolean", False, "Start level 1 headings on a new page", "headings"),
+    _field("heading.chapter-drop", "length", "0", "Space above a level 1 heading on a new page", "headings",
+           help="Book and novel manuscripts start chapters lower on the page, at the same height each time."),
     *_heading_fields(1, 1.4, "bold", "1.4em", "0.7em"),
     *_heading_fields(2, 1.2, "bold", "1.2em", "0.6em"),
     *_heading_fields(3, 1.05, "bold", "1em", "0.5em"),
@@ -246,6 +250,8 @@ FIELDS: list[dict] = [
            help="MLA puts the name, instructor, course and date above the title."),
     _field("cover.offset", "length", "0", "Space above the title block", "cover",
            help="Without a title page: how far down the first page the title starts (manuscripts: a third down)."),
+    _field("cover.space-after", "length", "2em", "Space after the title block", "cover",
+           help="Without a title page: the space between the title block and the text."),
     _field("cover.corner-left", "cover", [], "Top left of the first page", "cover",
            help="Manuscripts: the contact block. Single-spaced."),
     _field("cover.corner-right", "cover", [], "Top right of the first page", "cover",
@@ -271,8 +277,12 @@ FIELDS: list[dict] = [
                                                                                   "document's language."),
     _field("cover.counted", "boolean", True, "Count the title page", "cover",
            help="On: the first page after the title page is page 2. Off: it is page 1."),
+    _field("cover.page-number", "boolean", False, "Page number on the title page", "cover",
+           help="APA numbers the title page too; most other styles leave it bare."),
     # Declaration
     _field("declaration.enabled", "boolean", False, "Add a declaration page", "declaration"),
+    _field("declaration.position", "enum", "front", "Where it goes", "declaration",
+           values={"front": "Before the contents", "end": "At the end, after the bibliography"}),
     _field("declaration.title", "text", "Declaration", "Heading", "declaration"),
     _field("declaration.text", "longtext", "I declare that I wrote this paper myself and used only the sources and "
            "aids I have named.", "Text", "declaration",
@@ -341,15 +351,19 @@ FIELDS: list[dict] = [
     _field("caption.figure-position", "enum", "bottom", "Figure captions", "caption",
            values={"top": "Above", "bottom": "Below"}),
     _field("caption.label-weight", "enum", "regular", "Label weight", "caption", values=WEIGHTS),
-    _field("caption.break", "boolean", False, "Caption text on a line of its own", "caption",
-           help="APA: “Figure 1” in bold, the title in italics on the next line. IEEE tables: “TABLE I”, "
+    _field("caption.break", "enum", "none", "Caption text on a line of its own", "caption",
+           values={"none": "No", "table": "For tables", "all": "For figures and tables"},
+           help="APA: “Figure 1” in bold, the title in italics on the next line. MLA and IEEE tables: “Table 1”, "
                 "then the title."),
     _field("caption.title-style", "enum", "normal", "Caption text style", "caption", values=STYLES),
-    _field("caption.title-case", "enum", "normal", "Caption text letter case", "caption", values=CASES),
+    _field("caption.title-case", "enum", "normal", "Caption text letter case", "caption",
+           values={**CASES, "smallcaps-tables": "Small caps, table titles only (IEEE)"}),
     _field("caption.by-chapter", "boolean", False, "Number by chapter (1.1, 1.2, 2.1)", "caption"),
     # Scripts
     _field("script.character-indent", "length", "2.2in", "Character name: indent", "script",
            help="From the left margin."),
+    _field("script.character-align", "enum", "indent", "Character name: position", "script",
+           values={"indent": "At the indent above", "center": "Centred (German Drehbuch)"}),
     _field("script.dialogue-indent", "length", "1in", "Dialogue: indent", "script"),
     _field("script.dialogue-width", "length", "3.5in", "Dialogue: width", "script"),
     _field("script.parenthetical-indent", "length", "1.6in", "Parenthetical: indent", "script"),
@@ -663,7 +677,9 @@ def css_design(design: dict) -> str:
         f" font-weight: {_WEIGHT_CSS[d['cover.subtitle-weight']]}; margin: 0 0 1em; }}",
         ".title-block .cover-field { margin: 0.2em 0; }",
         ".cover-bold { font-weight: 700; } .cover-italic { font-style: italic; }"
-        " .cover-small { font-size: 0.85em; } .cover-large { font-size: 1.2em; }",
+        " .cover-small { font-size: 0.85em; } .cover-large { font-size: 1.2em; } .cover-left { text-align: left; }"
+        " .cover-right { text-align: right; } .cover-upper { text-transform: uppercase; }"
+        " .cover-bold-left { font-weight: 700; text-align: left; }",
     ]
     if d["cover.title-align"]:
         out.append(f".title-block .title, .title-block .subtitle {{ text-align: {d['cover.title-align']}; }}")
@@ -720,15 +736,17 @@ def css_design(design: dict) -> str:
         ".scene-heading p { margin: 2em 0 1em; display: flex; justify-content: space-between; gap: 1em; font-weight:"
         f" {_WEIGHT_CSS[d['script.scene-weight']]}; }}",
         ".action { margin: 0 0 1em; text-indent: 0; }",
-        f".character {{ margin: 1em 0 0 {_css_len(d['script.character-indent'])}; text-transform: uppercase;"
-        " text-indent: 0; }",
+        (".character { margin: 1em 0 0; text-align: center; text-transform: uppercase; text-indent: 0; }"
+         if d["script.character-align"] == "center" else
+         f".character {{ margin: 1em 0 0 {_css_len(d['script.character-indent'])}; text-transform: uppercase;"
+         " text-indent: 0; }"),
         f".parenthetical {{ margin: 0 0 0 {_css_len(d['script.parenthetical-indent'])};"
         f" max-width: {_css_len(d['script.parenthetical-width'])}; text-indent: 0; }}",
         f".dialogue {{ margin: 0 0 1em {_css_len(d['script.dialogue-indent'])};"
         f" max-width: {_css_len(d['script.dialogue-width'])}; text-indent: 0; }}",
         ".dialogue p, .action p, .parenthetical p, .character p { margin: 0; text-indent: 0; }",
         ".transition { text-align: right; text-transform: uppercase; margin: 1em 0; }",
-        ".centered { text-align: center; }",
+        ".centered { text-align: center; } .act { text-align: center; font-weight: 700; text-decoration: underline; }",
         "table.av { width: 100%; border-collapse: collapse; } table.av td, table.av th { border: 1px solid #999;"
         " vertical-align: top; text-align: left; padding: 0.4em 0.6em; } table.av td p { text-indent: 0; }",
         ".end-mark { text-align: center; margin-top: 2em; }",

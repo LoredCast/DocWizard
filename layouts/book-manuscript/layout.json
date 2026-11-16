@@ -1,0 +1,96 @@
+{
+  "id": "book-manuscript",
+  "name": "Book manuscript (Chicago)",
+  "version": "1.0.0",
+  "extends": "default",
+  "description": "A nonfiction book manuscript for the University of Chicago Press: US Letter, one-inch margins, 12 pt Tinos, double-spaced, ragged right; headings at 18, 16 and 14 pt bold as the Press suggests, left-indented extracts, chapters on new pages, figures and tables numbered by chapter, Chicago notes and bibliography.",
+  "design": {
+    "page.paper": "us-letter",
+    "page.margin-top": "1in",
+    "page.margin-bottom": "1in",
+    "page.margin-left": "1in",
+    "page.margin-right": "1in",
+    "page.number-position": "top-right",
+    "page.number-distance": "0.5in",
+    "text.font": "Tinos",
+    "text.size": 12,
+    "text.leading": 2,
+    "text.paragraph-spacing": "0",
+    "text.indent": "0.5in",
+    "text.justify": false,
+    "text.hyphenate": false,
+    "text.lang": "en-US",
+    "heading.numbering": "",
+    "heading.1.size": 1.5,
+    "heading.1.weight": "bold",
+    "heading.1.above": "0pt",
+    "heading.1.below": "1.3em",
+    "heading.2.size": 1.333,
+    "heading.2.weight": "bold",
+    "heading.2.above": "1.6em",
+    "heading.2.below": "1em",
+    "heading.3.size": 1.167,
+    "heading.3.weight": "bold",
+    "heading.3.above": "1.4em",
+    "heading.3.below": "0.8em",
+    "heading.4.size": 1,
+    "heading.4.weight": "bold",
+    "heading.chapter-break": true,
+    "cover.page": true,
+    "cover.position": "third",
+    "cover.title-size": 1.5,
+    "cover.fields": [
+      {
+        "key": "byline"
+      },
+      {
+        "space": "fill"
+      },
+      {
+        "key": "draft"
+      },
+      {
+        "key": "date"
+      }
+    ],
+    "cover.abstract": false,
+    "quote.size": 1,
+    "quote.leading": 0,
+    "quote.indent-left": "0.5in",
+    "quote.indent-right": "0",
+    "footnote.size": 1,
+    "footnote.leading": 0,
+    "cite.style": "chicago-notes-bibliography",
+    "bib.heading": "bibliography",
+    "bib.heading-author-date": "references",
+    "bib.page-break": true,
+    "bib.size": 1,
+    "bib.leading": 0,
+    "bib.hanging": "0.5in",
+    "bib.spacing": "0",
+    "caption.by-chapter": true,
+    "caption.separator": ". ",
+    "caption.align": "left",
+    "caption.size": 1
+  },
+  "variables": {
+    "toc": {
+      "type": "boolean",
+      "label": "Table of contents"
+    },
+    "citation-style": {
+      "type": "enum",
+      "values": [
+        "chicago-notes-bibliography",
+        "chicago-shortened-notes-bibliography",
+        "chicago-author-date"
+      ],
+      "labels": {
+        "chicago-notes-bibliography": "Chicago notes and bibliography (18th ed.)",
+        "chicago-shortened-notes-bibliography": "Chicago shortened notes (18th ed.)",
+        "chicago-author-date": "Chicago author-date (18th ed.)"
+      },
+      "label": "Citation style"
+    }
+  }
+}

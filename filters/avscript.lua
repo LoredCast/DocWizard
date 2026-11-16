@@ -37,17 +37,25 @@ local function prefix_of(block)
   return kind, content
 end
 
-local function typst_cell(blocks)
-  return "[" .. pandoc.write(pandoc.Pandoc(blocks), "typst"):gsub("%s+$", "") .. "]"
-end
+-- In Typst the cells keep their blocks, between raw pieces of the dw-av call, so citations,
+-- notes and quotes in a script are still processed by the filters and citeproc that run later.
+-- Rows are numbered through the whole script, across sequence headings.
+local done = 0
 
 local function table_of(rows)
+  local first = done + 1
+  done = done + #rows
   if TYPST then
-    local parts = {}
+    local out = { pandoc.RawBlock("typst", "#dw-av(start: " .. first .. ", (") }
     for _, row in ipairs(rows) do
-      parts[#parts + 1] = "(" .. typst_cell(row.video) .. ", " .. typst_cell(row.audio) .. ")"
+      out[#out + 1] = pandoc.RawBlock("typst", "([")
+      for _, b in ipairs(row.video) do out[#out + 1] = b end
+      out[#out + 1] = pandoc.RawBlock("typst", "], [")
+      for _, b in ipairs(row.audio) do out[#out + 1] = b end
+      out[#out + 1] = pandoc.RawBlock("typst", "]),")
     end
-    return pandoc.RawBlock("typst", "#dw-av((" .. table.concat(parts, ", ") .. ",))")
+    out[#out + 1] = pandoc.RawBlock("typst", "))")
+    return out
   end
   local headers = { { pandoc.Plain(labels.video) }, { pandoc.Plain(labels.audio) } }
   local aligns = { pandoc.AlignDefault, pandoc.AlignDefault }
@@ -55,7 +63,7 @@ local function table_of(rows)
   local body = {}
   for i, row in ipairs(rows) do
     body[#body + 1] = { row.video, row.audio }
-    if numbered then table.insert(body[#body], 1, { pandoc.Plain(tostring(i)) }) end
+    if numbered then table.insert(body[#body], 1, { pandoc.Plain(tostring(first + i - 1)) }) end
   end
   if numbered then
     table.insert(headers, 1, {})
@@ -65,7 +73,7 @@ local function table_of(rows)
   local simple = pandoc.SimpleTable({}, aligns, widths, headers, body)
   local tbl = pandoc.utils.from_simple_table(simple)
   tbl.attr = pandoc.Attr("", { "av" })
-  return tbl
+  return { tbl }
 end
 
 function Pandoc(doc)
@@ -78,7 +86,7 @@ function Pandoc(doc)
   local out = pandoc.Blocks({})
   local rows, row, cell = {}, nil, nil
   local function flush()
-    if #rows > 0 then out:insert(table_of(rows)) end
+    if #rows > 0 then out:extend(table_of(rows)) end
     rows, row, cell = {}, nil, nil
   end
   for _, b in ipairs(doc.blocks) do

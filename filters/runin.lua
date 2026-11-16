@@ -36,9 +36,10 @@ function Pandoc(doc)
     if mode then
       local lead
       if TYPST then
-        local body = pandoc.write(pandoc.Pandoc({ pandoc.Plain(b.content) }), "typst"):gsub("%s+$", "")
         local label = b.identifier ~= "" and (" <" .. b.identifier .. ">") or ""
-        lead = { pandoc.RawInline("typst", string.format("#dw-runin(%d)[%s]%s", b.level, body, label)) }
+        lead = pandoc.Inlines({ pandoc.RawInline("typst", string.format("#dw-runin(%d)[", b.level)) })
+        lead:extend(b.content)
+        lead:insert(pandoc.RawInline("typst", "]" .. label))
       else
         local content = pandoc.Inlines(b.content)
         if not ends_with_punct(content) then content:insert(pandoc.Str(mode == "colon" and ":" or ".")) end

@@ -38,9 +38,9 @@ local STYLES = {
 local split, numbered = false, false
 local scene_no = 0
 
-local function typst(inlines)
-  return pandoc.write(pandoc.Pandoc({ pandoc.Plain(inlines) }), "typst"):gsub("%s+$", "")
-end
+-- Typst calls wrap the inlines themselves, not their written text, so citations, notes and
+-- quotes inside a script are still processed by the filters and citeproc that run later.
+local function raw(text) return pandoc.RawInline("typst", text) end
 
 -- Lines of a paragraph, as lists of inlines.
 local function lines_of(inlines)
@@ -95,12 +95,17 @@ local function element(kind, inlines, extra)
     local fn = ({ ["scene-heading"] = "dw-scene", action = "dw-action", character = "dw-character",
                   parenthetical = "dw-parenthetical", dialogue = "dw-dialogue", transition = "dw-transition",
                   centered = "dw-centered", act = "dw-centered" })[kind]
-    local args = ""
-    if extra and extra.right then args = args .. ", right: [" .. typst(extra.right) .. "]" end
-    if extra and extra.number then args = args .. ', number: "' .. extra.number .. '"' end
-    local body = typst(inlines)
-    if kind == "act" then body = "#underline[#strong[" .. body .. "]]" end
-    return pandoc.RawBlock("typst", "#" .. fn .. "([" .. body .. "]" .. args .. ")")
+    local out = pandoc.Inlines({ raw("#" .. fn .. "([" .. (kind == "act" and "#underline[#strong[" or "")) })
+    out:extend(inlines)
+    out:insert(raw((kind == "act" and "]]" or "") .. "]"))
+    if extra and extra.right then
+      out:insert(raw(", right: ["))
+      out:extend(extra.right)
+      out:insert(raw("]"))
+    end
+    if extra and extra.number then out:insert(raw(', number: "' .. extra.number .. '"')) end
+    out:insert(raw(")"))
+    return pandoc.Plain(out)
   end
   local content = pandoc.Inlines(inlines)
   if extra and extra.number then
@@ -148,6 +153,12 @@ end
 
 local function para(p)
   local lines = lines_of(p.content)
+  -- Markdown reads "@McCLANE" as a citation; Fountain means a character cue.
+  local lead = lines[1][1]
+  if #lines > 1 and #lines[1] == 1 and lead.t == "Cite" and #lead.citations == 1
+      and lead.citations[1].mode == "AuthorInText" then
+    lines[1] = pandoc.Inlines({ pandoc.Str("@" .. lead.citations[1].id) })
+  end
   local first = stringify(lines[1])
   if #lines == 1 then
     if is_scene(first) then return { scene(lines[1]) } end

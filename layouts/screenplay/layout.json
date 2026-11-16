@@ -1,0 +1,87 @@
+{
+  "id": "screenplay",
+  "name": "Screenplay",
+  "version": "1.0.0",
+  "extends": "default",
+  "description": "The US feature screenplay format of The Hollywood Standard: US Letter, 12 pt Cousine (Courier New metrics), 1.5-inch left margin, dialogue, parentheticals and character names at their standard indents, transitions flush right, “2.” page numbers top right. Write it as Fountain-style plain text.",
+  "filters": [
+    "screenplay"
+  ],
+  "design": {
+    "page.margin-top": "1in",
+    "page.margin-bottom": "1in",
+    "page.margin-left": "1.5in",
+    "page.margin-right": "1in",
+    "text.font": "Cousine",
+    "text.size": 12,
+    "text.leading": 0.53,
+    "text.paragraph-spacing": "1.344em",
+    "text.indent": "0",
+    "text.justify": false,
+    "text.hyphenate": false,
+    "heading.numbering": "",
+    "cover.abstract": false,
+    "page.paper": "us-letter",
+    "page.number-position": "top-right",
+    "page.number-distance": "0.5in",
+    "page.number-format": "1.",
+    "page.number-first": false,
+    "text.lang": "en-US",
+    "cover.page": true,
+    "cover.position": "top",
+    "cover.offset": "3in",
+    "cover.counted": false,
+    "cover.title-size": 1,
+    "cover.title-weight": "regular",
+    "cover.title-case": "upper",
+    "cover.subtitle-size": 1,
+    "cover.field-spacing": "0.344em",
+    "cover.fields": [
+      {
+        "space": "2em"
+      },
+      {
+        "text": "Written by"
+      },
+      {
+        "space": "1em"
+      },
+      {
+        "key": "author"
+      },
+      {
+        "space": "fill"
+      },
+      {
+        "key": "draft",
+        "style": "left"
+      },
+      {
+        "key": "contact",
+        "style": "left"
+      },
+      {
+        "key": "address",
+        "style": "left"
+      },
+      {
+        "key": "phone",
+        "style": "left"
+      },
+      {
+        "key": "email",
+        "style": "left"
+      }
+    ]
+  },
+  "variables": {
+    "papersize": {
+      "type": "enum",
+      "values": [
+        "us-letter",
+        "a4"
+      ],
+      "label": "Paper size"
+    }
+  }
+}

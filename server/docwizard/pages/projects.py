@@ -109,6 +109,7 @@ def register(app) -> None:
                         shares=shares, may_share=may_share, link_roles=_link_roles(app, role),
                         new_link=req.query.get("link"), layouts=_layout_choices(app, req, project), doc_url=doc_url,
                         languages=languages.choices(),
+                        full_languages={t for t, _ in languages.choices() if languages.full_support(t)},
                         can=lambda r, cap: permissions.can(r, cap, project) and not (guest and cap in GUEST_FORBIDDEN),
                         error=req.query.get("error"))
 
