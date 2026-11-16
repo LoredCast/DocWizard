@@ -187,7 +187,10 @@ class Renderer:
         if inputs and inputs[0].endswith(".tex") and target != "pdf-latex":
             raise HTTPError(400, "bad_target", "LaTeX documents build as PDF with LaTeX, or export as the "
                                                "project source.")
-        key = jobs.cache_key(project["id"], snap.digest(), layout, target, inputs, options, self.worker.versions)
+        lang = project.get("lang") or None
+        # The project's document language changes the output, so it is part of the key (§9.8).
+        key_options = {**options, "@lang": lang} if lang else options
+        key = jobs.cache_key(project["id"], snap.digest(), layout, target, inputs, key_options, self.worker.versions)
         version = max(versions.values(), default=0)
         cached = self._cached(key, target)
         if cached is not None:
@@ -207,7 +210,7 @@ class Renderer:
                 if slot is not None and self._latest.get(slot) != seq:
                     fut.set_result(None)
                     return None  # a newer request for the same build replaced this one
-                result = await self._run(key, project["id"], target, layout, inputs, options, snap)
+                result = await self._run(key, project["id"], target, layout, inputs, options, snap, lang=lang)
             result.version = version
             fut.set_result(result)
             return result
@@ -257,7 +260,8 @@ class Renderer:
                             project_id=meta["project_id"])
 
     async def _run(self, key: str, project_id: str, target: str, layout: Layout, inputs: list[str],
-                   options: dict, snap: jobs.ProjectSnapshot, layout_folder: str = "layouts") -> RenderResult:
+                   options: dict, snap: jobs.ProjectSnapshot, layout_folder: str = "layouts",
+                   lang: str | None = None) -> RenderResult:
         dest = self.renders_dir / key
         output = jobs.OUTPUTS[target]
         if target == "md-source":
@@ -268,7 +272,7 @@ class Renderer:
         layout_dir = await asyncio.to_thread(self.app.layouts.cached_dir, layout, layout_folder)
         approved = self.app.layouts.filters_approved(layout)
         steps, copies = jobs.pandoc_steps(layout, layout_dir, target, inputs, options, approved)
-        meta = jobs.metadata(layout, options, inputs, layout_dir)
+        meta = jobs.metadata(layout, options, inputs, layout_dir, lang=lang)
         limits = {"cpu_seconds": self.cfg.render.timeout_seconds, "memory_mb": self.cfg.render.memory_mb,
                   "wall_seconds": self.cfg.render.timeout_seconds}
         job = {"id": job_id, "kind": "render", "inputs": inputs, "target": target, "layout": layout.content_sha256,

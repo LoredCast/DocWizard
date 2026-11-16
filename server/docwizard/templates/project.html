@@ -48,6 +48,17 @@
     <button type="submit">{{ _("Change layout") }}</button>
     {% if not guest %}<a href="/layouts/{{ project.layout_id }}">{{ _("Edit layouts") }}</a>{% endif %}
   </form>
+  <h2 id="language">{{ _("Document language") }}</h2>
+  <form method="post" class="row">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="language">
+    <select name="lang" aria-label="{{ _('Document language') }}">
+      <option value="" {% if not project.lang %}selected{% endif %}>{{ _("As the layout says") }}</option>
+      {% for tag, label in languages %}<option value="{{ tag }}" {% if tag == project.lang %}selected{% endif %}>{{ label }} ({{ tag }})</option>{% endfor %}
+    </select>
+    <button type="submit">{{ _("Change language") }}</button>
+  </form>
+  <p class="muted">{{ _("Dates, quotation marks, hyphenation, the bibliography and generated headings follow this language. A document can set its own with lang: in its front matter, and mark passages in other languages with [text]{lang=fr}.") }}</p>
 </section>
 {% endif %}
 {% if not guest %}

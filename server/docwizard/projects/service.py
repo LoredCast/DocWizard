@@ -120,8 +120,11 @@ def create_project(conn: sqlite3.Connection, owner_id: int, name: str, layout_id
 
 def update_project(conn: sqlite3.Connection, project_id: str, *, name: str | None = None,
                    layout_id: str | None = None, layout_options: dict | None = None,
-                   build_inputs: list[str] | None | bool = False) -> None:
+                   build_inputs: list[str] | None | bool = False, lang: str | None | bool = False) -> None:
     sets, params = [], []
+    if lang is not False:
+        sets.append("lang = ?")
+        params.append(lang or None)
     if name is not None:
         name = name.strip()[:120]
         if not name:

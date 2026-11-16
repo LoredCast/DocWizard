@@ -41,7 +41,7 @@ PREVIEW_TARGETS = {"html", "pdf-typst", "pdf-latex"}
 LATEXMK = ["-interaction=nonstopmode", "-halt-on-error", "-file-line-error", "-no-shell-escape", "-synctex=1",
            "-jobname=document", "-outdir={job}/out", "-auxdir={job}/tmp/latex"]
 LATEX_ENGINES = {"lualatex", "xelatex", "pdflatex"}
-BUILTIN_FILTERS = {"crossref", "pagebreak", "wordcount"}
+BUILTIN_FILTERS = {"crossref", "pagebreak", "wordcount", "screenplay", "avscript"}
 
 
 @dataclass
@@ -119,10 +119,12 @@ def fonts_dir() -> str:
 CSL_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,80}$")
 
 
-def metadata(layout: Layout, project_options: dict, inputs: list[str], layout_dir: Path | None = None) -> dict:
+def metadata(layout: Layout, project_options: dict, inputs: list[str], layout_dir: Path | None = None,
+             lang: str | None = None) -> dict:
     """Option precedence: front matter, then project settings, then layout defaults (§9.3).
 
-    The values go in a --metadata-file, which pandoc lets the document override.
+    The values go in a --metadata-file, which pandoc lets the document override. *lang* is the
+    project's document language (§9.8); a document's own lang: still wins.
     """
     meta = {k: v for k, v in layout.option_defaults().items() if v is not None and v != ""}
     meta.update({k: v for k, v in project_options.items() if v is not None and v != ""})
@@ -136,8 +138,26 @@ def metadata(layout: Layout, project_options: dict, inputs: list[str], layout_di
     meta.setdefault("pagetitle", os.path.splitext(os.path.basename(inputs[0]))[0] if inputs else "Document")
     # Design settings that pandoc itself handles. The document's front matter still wins.
     design = layout.design
-    if design["text.lang"]:
-        meta.setdefault("lang", design["text.lang"])
+    if lang or design["text.lang"]:
+        meta.setdefault("lang", lang or design["text.lang"])
+    # Settings the built-in filters read (lang.lua, quotes.lua, runin.lua, crossref.lua, the script filters).
+    meta.setdefault("dw-date-format", design["text.date-format"])
+    if design["text.quotes"] != "language":
+        meta.setdefault("dw-quotes", design["text.quotes"])
+    for key, setting in (("dw-caption-figure", "caption.figure"), ("dw-caption-table", "caption.table")):
+        if design[setting]:
+            meta.setdefault(key, design[setting])
+    meta.setdefault("dw-caption-separator", design["caption.separator"])
+    if design["caption.by-chapter"]:
+        meta.setdefault("dw-caption-by-chapter", True)
+    for level in (3, 4):
+        if design[f"heading.{level}.run-in"]:
+            meta.setdefault(f"dw-run-in-{level}", design[f"heading.{level}.run-in"])
+    meta.setdefault("dw-scene-split", design["script.scene-split"])
+    meta.setdefault("dw-scene-numbers", design["script.scene-numbers"])
+    meta.setdefault("dw-av-video", design["script.video-label"])
+    meta.setdefault("dw-av-audio", design["script.audio-label"])
+    meta.setdefault("dw-av-numbers", design["script.row-numbers"])
     meta.setdefault("link-citations", design["cite.link"])
     # The citation style: a layout option naming a bundled style, else the layout's own CSL
     # file, else the design's style. Front matter `csl:` still wins, since the document
@@ -155,12 +175,19 @@ def metadata(layout: Layout, project_options: dict, inputs: list[str], layout_di
             if choice is own and choice is not None and ".." not in choice and (layout_dir / choice).is_file():
                 meta["csl"] = str(layout_dir / choice)
                 break
-    # The bibliography heading; author-date styles can have their own ("Reference List").
+    # The bibliography heading; author-date styles can have their own ("Reference List"). A fixed
+    # title is used as written; a term is written in the document's language by lang.lua.
+    author_date = _author_date(layout_dir, meta.get("csl"))
     title = design["bib.title"]
-    if design["bib.title-author-date"] and _author_date(layout_dir, meta.get("csl")):
+    if design["bib.title-author-date"] and author_date:
         title = design["bib.title-author-date"]
+    term = design["bib.heading"]
+    if design["bib.heading-author-date"] and author_date:
+        term = design["bib.heading-author-date"]
     if title:
         meta.setdefault("reference-section-title", title)
+    elif term != "none":
+        meta.setdefault("dw-bib-heading", term)
     return meta
 
 
@@ -197,7 +224,9 @@ def pandoc_steps(layout: Layout, layout_dir: Path, target: str, inputs: list[str
         return latex_steps(layout, target, inputs[0])
     spec = layout.targets.get(target if target != "typ-source" else "pdf-typst", {})
     common = [*inputs, "--from", "markdown", "--standalone", "--metadata-file", "../options.json",
-              "--resource-path", f".:{L}/_csl"]
+              "--resource-path", f".:{L}/_csl",
+              # The document's languages come first, so the layout's filters and citeproc see them (§9.8).
+              "--lua-filter", f"{L}/_builtin/lang.lua"]
     for name in layout.manifest.get("filters", []):
         if name in BUILTIN_FILTERS:
             common += ["--lua-filter", f"{L}/_builtin/{name}.lua"]
@@ -205,7 +234,8 @@ def pandoc_steps(layout: Layout, layout_dir: Path, target: str, inputs: list[str
                 and name.endswith(".lua") and ".." not in name:
             common += ["--lua-filter", f"{L}/{name}"]
     # zotero: bibliography entries point at the job's copy of the library (§9.4).
-    common += ["--lua-filter", f"{L}/_builtin/zotero.lua", "--citeproc"]
+    common += ["--lua-filter", f"{L}/_builtin/runin.lua", "--lua-filter", f"{L}/_builtin/zotero.lua", "--citeproc",
+               "--lua-filter", f"{L}/_builtin/quotes.lua"]
     if options.get("toc", layout.design["toc.enabled"]) is True:
         common.append("--toc")
     copies: list[tuple[Path, str]] = []

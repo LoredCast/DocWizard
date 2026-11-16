@@ -28,7 +28,7 @@ def builtin_filters_hash() -> str:
     """Changes when DocWizard's own filters, styles or design code change, so cached layout copies get them."""
     if not _BUILTIN_HASH:
         h = hashlib.sha256(designs.GENERATOR_HASH.encode())
-        for f in sorted(REPO_FILTERS.glob("*.lua")) if REPO_FILTERS.is_dir() else []:
+        for f in sorted([*REPO_FILTERS.glob("*.lua"), *REPO_FILTERS.glob("*.json")]) if REPO_FILTERS.is_dir() else []:
             h.update(f.name.encode() + b"\0" + f.read_bytes())
         for f in sorted(REPO_CSL.glob("*.csl")) if REPO_CSL.is_dir() else []:
             h.update(f.name.encode() + b"\0" + f.read_bytes())
@@ -410,7 +410,7 @@ class Layouts:
         # Built-in, pre-approved filters (§9.7).
         if REPO_FILTERS.is_dir():
             (tmp / "_builtin").mkdir(parents=True, exist_ok=True)
-            for f in REPO_FILTERS.glob("*.lua"):
+            for f in [*REPO_FILTERS.glob("*.lua"), *REPO_FILTERS.glob("*.json")]:
                 shutil.copyfile(f, tmp / "_builtin" / f.name)
         # Bundled citation styles (§10.1).
         if REPO_CSL.is_dir():

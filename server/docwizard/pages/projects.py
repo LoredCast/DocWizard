@@ -15,6 +15,7 @@ from ..http.response import Response, redirect
 from ..http.templates import script_json
 from ..projects import files
 from ..projects import service as svc
+from ..render import languages
 from ..sharing import links
 
 
@@ -107,6 +108,7 @@ def register(app) -> None:
                         may_sync=may_sync, sync=sync,
                         shares=shares, may_share=may_share, link_roles=_link_roles(app, role),
                         new_link=req.query.get("link"), layouts=_layout_choices(app, req, project), doc_url=doc_url,
+                        languages=languages.choices(),
                         can=lambda r, cap: permissions.can(r, cap, project) and not (guest and cap in GUEST_FORBIDDEN),
                         error=req.query.get("error"))
 
@@ -131,6 +133,13 @@ def register(app) -> None:
                 if not app.layouts.exists(layout):
                     raise ValueError("Unknown layout.")
                 await app.db.write(lambda c: svc.update_project(c, pid, layout_id=layout))
+            elif action == "language":
+                await project_access(app, req, pid, "change_layout")
+                value = form.get("lang", "")
+                tag = languages.normalize(value) if value else None
+                if value and tag is None:
+                    raise ValueError("Choose a language from the list.")
+                await app.db.write(lambda c: svc.update_project(c, pid, lang=tag))
             elif action == "rename":
                 await project_access(app, req, pid, "manage_members")
                 await app.db.write(lambda c: svc.update_project(c, pid, name=form.get("name", "")))

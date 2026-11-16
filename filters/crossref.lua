@@ -21,6 +21,28 @@ local names = {
   eq = { "Equation", "Equations" },
   sec = { "Section", "Sections" },
 }
+local conj = { word = "and", serial = true }
+local separator = ":"
+
+-- Words in the document's language, from lang.lua (which runs first).
+local function read_terms(meta)
+  local terms = meta["dw-terms"]
+  if not terms then return end
+  local function term(key, fallback)
+    return terms[key] and pandoc.utils.stringify(terms[key]) or fallback
+  end
+  for kind, keys in pairs({ fig = { "figure", "figures" }, tbl = { "table", "tables" },
+                            eq = { "equation", "equations" }, sec = { "section", "sections" } }) do
+    names[kind] = { term(keys[1], names[kind][1]), term(keys[2], names[kind][2]) }
+  end
+  conj.word = term("and", "and")
+  if meta["dw-caption-separator"] then
+    separator = pandoc.utils.stringify(meta["dw-caption-separator"]):gsub("%s+$", "")
+  end
+  local lang = meta["dw-lang"] and pandoc.utils.stringify(meta["dw-lang"]) or "en"
+  conj.serial = lang:match("^en") ~= nil
+end
+
 local numbers = {}
 local counters = { fig = 0, tbl = 0, eq = 0 }
 local section = {}
@@ -32,7 +54,7 @@ local function prefix_of(id)
 end
 
 local function caption_prefix(kind, n)
-  return { pandoc.Str(names[kind][1]), pandoc.Space(), pandoc.Str(tostring(n) .. ":"), pandoc.Space() }
+  return { pandoc.Str(names[kind][1]), pandoc.Space(), pandoc.Str(tostring(n) .. separator), pandoc.Space() }
 end
 
 local function prepend_caption(caption, kind, n)
@@ -133,7 +155,13 @@ local function reference(cite)
   for _, k in ipairs(kinds) do if k ~= kind then same = false end end
   for i, id in ipairs(refs) do
     if i > 1 then
-      out:insert(pandoc.Str(i == #refs and (#refs > 2 and ", and" or " and") or ","))
+      if i == #refs then
+        if #refs > 2 and conj.serial then out:insert(pandoc.Str(",")) end
+        out:insert(pandoc.Space())
+        out:insert(pandoc.Str(conj.word))
+      else
+        out:insert(pandoc.Str(","))
+      end
       out:insert(pandoc.Space())
     end
     local k = kinds[i]
@@ -149,6 +177,7 @@ local function reference(cite)
 end
 
 return {
+  { Meta = function(meta) read_terms(meta) end },
   number_pass,
   { Cite = reference },
 }

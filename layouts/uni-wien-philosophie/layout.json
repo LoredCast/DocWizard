@@ -85,7 +85,6 @@
     "declaration.text": "Hiermit erkläre ich, die vorgelegte Arbeit selbständig verfasst und ausschließlich die angegebenen Quellen und Hilfsmittel benutzt zu haben. Alle wörtlich oder dem Sinn nach aus anderen Werken entnommenen Textpassagen und Gedankengänge sind durch genaue Angabe der Quelle in Form von Anmerkungen bzw. In-Text-Zitationen ausgewiesen. Dies gilt auch für Quellen aus dem Internet, bei denen zusätzlich URL und Zugriffsdatum angeführt sind. Mir ist bekannt, dass jeder Fall von Plagiat zur Nicht-Bewertung der gesamten Lehrveranstaltung führt und der Studienprogrammleitung gemeldet werden muss. Ferner versichere ich, diese Arbeit nicht bereits andernorts zur Beurteilung vorgelegt zu haben.",
     "declaration.signature": "Ort, Datum, Unterschrift",
     "toc.enabled": true,
-    "toc.title": "Inhaltsverzeichnis",
     "toc.page": true,
     "quote.size": 0.85,
     "quote.leading": 1,
@@ -95,12 +94,10 @@
     "footnote.leading": 1,
     "footnote.indent": "0",
     "cite.style": "uni-wien-philosophie",
-    "bib.title": "Literaturverzeichnis",
     "bib.page-break": true,
     "bib.hanging": "1.25cm",
     "bib.spacing": "0.4em",
-    "caption.figure": "Abbildung",
-    "caption.table": "Tabelle"
+    "bib.heading": "bibliography"
   },
   "variables": {
     "section-numbering": {
