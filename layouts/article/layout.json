@@ -1,17 +1,98 @@
 {
   "id": "article",
   "name": "Article",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "extends": "default",
   "description": "Journal-style article: A4, 10 pt, two columns with the title and abstract across the page.",
-  "targets": {
-    "html": {"template": "html/template.html", "css": ["html/style.css", "html/article.css"]},
-    "pdf-typst": {"template": "typst/template.typ"}
+  "design": {
+    "text.size": 10,
+    "text.leading": 1,
+    "text.paragraph-spacing": "0",
+    "text.indent": "1em",
+    "page.margin-top": "2cm",
+    "page.margin-bottom": "2.2cm",
+    "page.margin-left": "1.8cm",
+    "page.margin-right": "1.8cm",
+    "page.columns": "2",
+    "heading.numbering": "1",
+    "heading.1.size": 1.1,
+    "heading.2.size": 1,
+    "heading.3.size": 1,
+    "heading.3.style": "italic",
+    "heading.3.weight": "regular",
+    "heading.1.above": "1.2em",
+    "heading.1.below": "0.6em",
+    "heading.2.above": "1em",
+    "heading.2.below": "0.5em",
+    "cover.title-size": 1.5,
+    "cover.subtitle-size": 1.15,
+    "cover.fields": [
+      {
+        "key": "author"
+      },
+      {
+        "key": "affiliation",
+        "style": "small"
+      },
+      {
+        "key": "email",
+        "style": "small"
+      },
+      {
+        "key": "institution",
+        "style": "small"
+      },
+      {
+        "key": "date"
+      },
+      {
+        "key": "keywords",
+        "label": "Keywords:",
+        "style": "small"
+      }
+    ],
+    "footnote.size": 0.85,
+    "caption.size": 0.9,
+    "bib.size": 0.9,
+    "bib.hanging": "1.5em"
   },
   "variables": {
-    "fontsize": {"type": "enum", "values": ["9pt", "10pt", "11pt"], "default": "10pt", "label": "Font size"},
-    "columns": {"type": "enum", "values": ["1", "2"], "labels": {"1": "One column", "2": "Two columns"}, "default": "2", "label": "Columns"},
-    "linestretch": {"type": "number", "min": 1, "max": 2, "step": 0.25, "default": 1, "label": "Line spacing"},
-    "section-numbering": {"type": "enum", "values": ["", "1.1", "I.1"], "default": "1.1", "label": "Section numbering"}
+    "fontsize": {
+      "type": "enum",
+      "values": [
+        "9pt",
+        "10pt",
+        "11pt"
+      ],
+      "label": "Font size"
+    },
+    "columns": {
+      "type": "enum",
+      "values": [
+        "1",
+        "2"
+      ],
+      "labels": {
+        "1": "One column",
+        "2": "Two columns"
+      },
+      "label": "Columns"
+    },
+    "linestretch": {
+      "type": "number",
+      "min": 1,
+      "max": 2,
+      "step": 0.25,
+      "label": "Line spacing"
+    },
+    "section-numbering": {
+      "type": "enum",
+      "values": [
+        "",
+        "1.1",
+        "I.1"
+      ],
+      "label": "Section numbering"
+    }
   }
 }

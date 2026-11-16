@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}{{ layout.name }} · {{ _("Layouts") }} · DocWizard{% endblock %}
+{% block body_class %}page layout-editor-page{% endblock %}
+{% block crumbs %}<a class="wordmark" href="/">DocWizard</a><span>/</span><a href="/layouts">{{ _("Layouts") }}</a><span>/</span><span data-layout-title>{{ layout.name }}</span>{% endblock %}
+{% block actions %}
+<span class="status" id="save-status" role="status"></span>
+{% if editable %}
+<button type="button" id="save-copy">{{ _("Make a copy") }}</button>
+<button type="button" class="primary" id="save" disabled>{{ _("Save") }}</button>
+{% else %}
+<button type="button" class="primary" id="save-copy">{{ _("Save as a copy") }}</button>
+{% endif %}
+{% endblock %}
+{% block main_class %}layout-workspace{% endblock %}
+{% block content %}
+<div class="mode-switch" role="tablist" aria-label="{{ _('View') }}">
+  <button type="button" role="tab" aria-selected="true" data-mode="settings">{{ _("Settings") }}</button>
+  <button type="button" role="tab" aria-selected="false" data-mode="preview">{{ _("Preview") }}</button>
+</div>
+<div class="layout-split" id="layout-split">
+  <section class="pane layout-settings" aria-label="{{ _('Settings') }}">
+    <div class="panel-body">
+      {% if not editable %}
+      <p class="callout">{% if layout.custom %}{{ _("This layout belongs to someone else.") }}{% else %}{{ _("This is a built-in layout.") }}{% endif %}
+        {{ _("You can try settings here and see them in the preview; to keep them, save a copy of your own.") }}</p>
+      {% endif %}
+      <form class="form layout-meta" id="layout-meta" autocomplete="off">
+        <label>{{ _("Name") }} <input name="name" maxlength="80" required value="{{ layout.name }}"></label>
+        <label>{{ _("Description") }} <textarea name="description" maxlength="500" rows="3">{{ layout.description }}</textarea></label>
+        <label>{{ _("Based on") }}
+          <select name="extends" {% if not editable %}disabled{% endif %}>
+            {% for lay in layouts %}{% if lay.id != layout.id %}<option value="{{ lay.id }}" {% if lay.id == (layout.parent or "default") %}selected{% endif %}>{{ lay.name }}</option>{% endif %}{% endfor %}
+          </select>
+          <span class="muted field-help">{{ _("Settings you don't change here come from this layout, and follow its updates.") }}</span>
+        </label>
+        {% if editable %}<label class="choice"><input type="checkbox" name="shared" {% if layout.shared %}checked{% endif %}> {{ _("Share with everyone on this server") }}</label>{% endif %}
+      </form>
+      <div id="design-form" class="design-form" data-layout="{{ layout.id }}" data-editable="{{ 'true' if editable else 'false' }}">
+        <p class="muted">{{ _("Loading…") }}</p>
+      </div>
+    </div>
+  </section>
+  <section class="pane layout-preview" aria-label="{{ _('Preview') }}">
+    <div class="pane-head">
+      <span>{{ _("Preview with a sample document") }}</span>
+      <span class="spacer"></span>
+      <span id="preview-status" role="status"></span>
+      <button type="button" id="refresh-preview">{{ _("Refresh") }}</button>
+    </div>
+    <div class="preview-empty" id="preview-empty">{{ _("The preview appears here.") }}</div>
+    <div id="preview-diagnostics" class="diagnostic-error pad" hidden></div>
+    <div id="pdf-container" class="pdf-container"></div>
+  </section>
+</div>
+{% endblock %}
+{% block footer %}{% endblock %}
+{% block scripts %}<script type="module" src="{{ static }}/app/layouts/editor.js"></script>{% endblock %}

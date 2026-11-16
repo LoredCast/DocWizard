@@ -66,7 +66,7 @@ def register(app) -> None:
         # Mirrored into IndexedDB so the offline home page can list them (§6.5).
         mirror = [{"docId": d["id"], "url": doc_url(d["project_id"], d["path"]), "path": d["path"],
                    "project": d["project"], "openedAt": d["opened_at"], "pinned": bool(d["pinned"])} for d in recent]
-        return app.page(req, "home.html", recent=recent, projects=projects, layouts=app.layouts.list(),
+        return app.page(req, "home.html", recent=recent, projects=projects, layouts=app.layouts.visible(uid),
                         recent_json=script_json(mirror),
                         default_layout=app.policy("default_layout"), doc_url=doc_url, error=req.query.get("error"))
 
@@ -106,7 +106,7 @@ def register(app) -> None:
         return app.page(req, "project.html", project=project, role=role, tree=tree, members=members,
                         may_sync=may_sync, sync=sync,
                         shares=shares, may_share=may_share, link_roles=_link_roles(app, role),
-                        new_link=req.query.get("link"), layouts=app.layouts.list(), doc_url=doc_url,
+                        new_link=req.query.get("link"), layouts=_layout_choices(app, req, project), doc_url=doc_url,
                         can=lambda r, cap: permissions.can(r, cap, project) and not (guest and cap in GUEST_FORBIDDEN),
                         error=req.query.get("error"))
 
@@ -238,3 +238,11 @@ def register(app) -> None:
 
 async def _text_version(room):
     return room.text(), room.version
+
+
+def _layout_choices(app, req, project) -> list:
+    """Layouts the project can switch to: the ones this person may use, plus the current one."""
+    layouts = app.layouts.visible(req.user.id if req.user else None)
+    if all(lay.id != project["layout_id"] for lay in layouts) and app.layouts.exists(project["layout_id"]):
+        layouts.append(app.layouts.get(project["layout_id"]))
+    return layouts

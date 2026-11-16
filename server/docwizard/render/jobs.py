@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..projects import files
+from . import design as designs
 from .layouts import Layout
 
 OUTPUTS = {
@@ -80,6 +81,11 @@ def new_job_id() -> str:
     return "j_" + secrets.token_hex(16)
 
 
+def fonts_dir() -> str:
+    """Fonts every layout can use, installed in the worker image by deploy/fetch_tools.py."""
+    return os.environ.get("DOCWIZARD_FONTS_DIR") or designs.SHARED_FONTS_DIR
+
+
 CSL_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,80}$")
 
 
@@ -98,19 +104,27 @@ def metadata(layout: Layout, project_options: dict, inputs: list[str], layout_di
     if "link-citations" in defaults:
         meta.setdefault("link-citations", defaults["link-citations"])
     meta.setdefault("pagetitle", os.path.splitext(os.path.basename(inputs[0]))[0] if inputs else "Document")
+    # Design settings that pandoc itself handles. The document's front matter still wins.
+    design = layout.design
+    if design["text.lang"]:
+        meta.setdefault("lang", design["text.lang"])
+    if design["bib.title"]:
+        meta.setdefault("reference-section-title", design["bib.title"])
+    meta.setdefault("link-citations", design["cite.link"])
     # The citation style: a layout option naming a bundled style, else the layout's own CSL
-    # file. Front matter `csl:` still wins, since the document overrides the metadata file.
+    # file, else the design's style. Front matter `csl:` still wins, since the document
+    # overrides the metadata file.
     style = meta.pop("citation-style", None)
     if layout_dir is not None:
         own = layout.manifest.get("csl")
-        for choice in (style, own):
+        for choice in (style, own, design["cite.style"]):
             if not isinstance(choice, str) or not choice:
                 continue
             bundled = layout_dir / "_csl" / f"{choice.removesuffix('.csl')}.csl"
             if CSL_ID.match(choice.removesuffix(".csl")) and bundled.is_file():
                 meta["csl"] = bundled.name  # found through --resource-path, so no server path shows in outputs
                 break
-            if choice is own and ".." not in choice and (layout_dir / choice).is_file():
+            if choice is own and choice is not None and ".." not in choice and (layout_dir / choice).is_file():
                 meta["csl"] = str(layout_dir / choice)
                 break
     return meta
@@ -142,7 +156,7 @@ def pandoc_steps(layout: Layout, layout_dir: Path, target: str, inputs: list[str
             common += ["--lua-filter", f"{L}/{name}"]
     # zotero: bibliography entries point at the job's copy of the library (§9.4).
     common += ["--lua-filter", f"{L}/_builtin/zotero.lua", "--citeproc"]
-    if options.get("toc") is True:
+    if options.get("toc", layout.design["toc.enabled"]) is True:
         common.append("--toc")
     copies: list[tuple[Path, str]] = []
     out = f"../out/{OUTPUTS[target]}"
@@ -162,7 +176,8 @@ def pandoc_steps(layout: Layout, layout_dir: Path, target: str, inputs: list[str
         if target == "typ-source":
             return [{"tool": "pandoc", "args": [*args, "-o", out]}], copies
         typ = ".docwizard.typ"
-        typst = ["compile", "--root", "..", "--ignore-system-fonts", "--font-path", f"{L}/fonts", typ, out]
+        typst = ["compile", "--root", "..", "--ignore-system-fonts", "--font-path", f"{L}/fonts",
+                 "--font-path", fonts_dir(), typ, out]
         return [{"tool": "pandoc", "args": [*args, "-o", typ]}, {"tool": "typst", "args": typst}], copies
     if target == "pdf-latex":
         args = [*common, "--to", "latex"]

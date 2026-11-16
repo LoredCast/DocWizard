@@ -1,0 +1,108 @@
+{
+  "id": "turabian",
+  "name": "Turabian student paper",
+  "version": "1.0.0",
+  "extends": "default",
+  "description": "After Turabian (9th edition) student tip sheets: 1-inch margins, 12 pt Tinos (Times New Roman metrics), double spacing, half-inch indents, a title page a third down, Chicago notes and bibliography.",
+  "design": {
+    "page.paper": "us-letter",
+    "page.margin-top": "1in",
+    "page.margin-bottom": "1in",
+    "page.margin-left": "1in",
+    "page.margin-right": "1in",
+    "page.number-position": "top-right",
+    "text.font": "Tinos",
+    "text.size": 12,
+    "text.leading": 2,
+    "text.paragraph-spacing": "0",
+    "text.indent": "0.5in",
+    "text.justify": false,
+    "text.lang": "en-US",
+    "heading.numbering": "",
+    "heading.1.size": 1,
+    "heading.1.weight": "bold",
+    "heading.1.align": "center",
+    "heading.1.above": "2.5em",
+    "heading.1.below": "1.3em",
+    "heading.2.size": 1,
+    "heading.2.weight": "regular",
+    "heading.2.align": "center",
+    "heading.2.above": "2.5em",
+    "heading.2.below": "1.3em",
+    "heading.3.size": 1,
+    "heading.3.weight": "bold",
+    "heading.3.align": "left",
+    "heading.3.above": "2.5em",
+    "heading.3.below": "1.3em",
+    "cover.page": true,
+    "cover.position": "third",
+    "cover.title-weight": "bold",
+    "cover.title-size": 1.2,
+    "cover.subtitle-size": 1.2,
+    "cover.counted": true,
+    "cover.abstract": false,
+    "cover.fields": [
+      {
+        "space": "fill"
+      },
+      {
+        "key": "author"
+      },
+      {
+        "key": "course"
+      },
+      {
+        "key": "instructor"
+      },
+      {
+        "key": "date"
+      },
+      {
+        "space": "fill"
+      }
+    ],
+    "quote.size": 1,
+    "quote.leading": 1,
+    "quote.indent-left": "0.5in",
+    "quote.indent-right": "0",
+    "footnote.size": 0.85,
+    "footnote.leading": 1,
+    "footnote.indent": "0.5in",
+    "footnote.rule": true,
+    "footnote.spacing": "1em",
+    "cite.style": "chicago-shortened-notes-bibliography",
+    "bib.title": "Bibliography",
+    "bib.page-break": true,
+    "bib.leading": 1,
+    "bib.hanging": "0.5in",
+    "bib.spacing": "1em",
+    "caption.separator": ". "
+  },
+  "variables": {
+    "linestretch": {
+      "type": "number",
+      "min": 1,
+      "max": 2,
+      "step": 0.5,
+      "label": "Line spacing"
+    },
+    "titlepage": {
+      "type": "boolean",
+      "label": "Title page"
+    },
+    "citation-style": {
+      "type": "enum",
+      "values": [
+        "chicago-shortened-notes-bibliography",
+        "chicago-notes-bibliography",
+        "chicago-author-date"
+      ],
+      "labels": {
+        "chicago-shortened-notes-bibliography": "Chicago shortened notes (Turabian)",
+        "chicago-notes-bibliography": "Chicago notes and bibliography",
+        "chicago-author-date": "Chicago author-date"
+      },
+      "label": "Citation style"
+    }
+  }
+}

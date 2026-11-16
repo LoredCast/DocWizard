@@ -27,8 +27,9 @@ A self-hostable editor for structured writing: term papers, theses, articles and
 ### Output
 
 - **Rendering**: a separate worker runs pandoc, Typst and latexmk, each job as its own Unix user with resource limits. HTML preview on a separate preview origin through capability URLs; PDF preview; exports to PDF (Typst or LaTeX), DOCX, ODT, HTML, Markdown, Typst and LaTeX source, and a zip of the project.
-- **Layouts**: `default`, `term-paper` (title page, numbered sections, 1.5 spacing) and `article` (two columns with an abstract), with options such as paper size, font size, spacing and citation style. Layouts can extend each other. Lua filters in installed layouts only run after an admin approves them, by hash.
-- **Citations**: from CSL-JSON, BibTeX or RIS files in the project, or from a Zotero library. Seven bundled styles: Chicago author-date and notes, APA, MLA, Harvard, IEEE and DIN 1505-2. Cross-references to figures, tables and equations.
+- **Layouts**: `default`, `term-paper` (title page, numbered sections, 1.5 spacing), `article` (two columns with an abstract), and layouts after real style guides: `oxford` (University of Oxford Style Guide), `uni-wien-philosophie` (the Vienna philosophy department's *Leitfaden*, with title page, plagiarism declaration and its own citation styles), `aps` (Physical Review) and `turabian` (Turabian student papers). Projects pick options such as paper size, font size, spacing and citation style. Layouts can extend each other. Lua filters in installed layouts only run after an admin approves them, by hash.
+- **Layout editor**: make a copy of any layout and change how everything renders, with a live PDF preview: paper and margins, columns, page numbers and running header, fonts and sizes, line and paragraph spacing, indents, three heading levels (size, weight, case, alignment, spacing, numbering schemes), the title block or title page and which front matter fields it shows, a declaration page, the table of contents, block quotations, footnotes, citation style and bibliography, captions, and which options authors get. Custom layouts store only what differs from the layout they are based on, so they follow its updates, and can be shared with everyone on the server. Fonts for the PDF: Libertinus Serif, New Computer Modern, Noto Serif and Noto Sans, Tinos (Times New Roman metrics), Carlito (Calibri metrics), Cousine and DejaVu Sans Mono.
+- **Citations**: from CSL-JSON, BibTeX or RIS files in the project, or from a Zotero library. Twelve bundled styles: Chicago author-date, notes and shortened notes, APA, MLA, Harvard, IEEE, American Physical Society, Oxford Guide to Style, DIN 1505-2, and the Universität Wien philosophy styles (footnotes and short citations). Cross-references to figures, tables and equations.
 - **LaTeX projects**: `.tex` documents and multi-file projects build with latexmk (LuaLaTeX by default, no shell escape), with errors and warnings shown at the right line. Markdown documents can also go to PDF through LaTeX.
 - **Publishing**: a document can be published as a static site on the publish origin, at a chosen or unlisted address, optionally with a PDF. It is updated a few seconds after edits and taken down when the document is deleted.
 
@@ -50,7 +51,7 @@ Not yet: PDF.js with SyncTeX (jumping between the PDF and the source), which the
 
 ## Run it for development
 
-You need Python 3.12 or newer, [pandoc](https://pandoc.org/installing.html) 3.9 and [Typst](https://github.com/typst/typst/releases) 0.14 on your `PATH`. LaTeX builds also need TeX Live with `latexmk` and LuaLaTeX; without them, everything else works.
+You need Python 3.12 or newer, [pandoc](https://pandoc.org/installing.html) 3.9 and [Typst](https://github.com/typst/typst/releases) 0.14 on your `PATH`. LaTeX builds also need TeX Live with `latexmk` and LuaLaTeX; without them, everything else works. The layouts' fonts go to `/usr/local/share/docwizard/fonts` with `sudo python3 -I deploy/fetch_tools.py --fonts-only` (or anywhere with `--fonts DIR` and `DOCWIZARD_FONTS_DIR=DIR`); without them, Typst falls back to its own fonts.
 
 ```sh
 python -m venv .venv

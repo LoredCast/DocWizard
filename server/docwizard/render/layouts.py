@@ -16,6 +16,8 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import design as designs
+
 REPO_LAYOUTS = Path(__file__).resolve().parents[3] / "layouts"
 REPO_FILTERS = Path(__file__).resolve().parents[3] / "filters"
 REPO_CSL = Path(__file__).resolve().parents[3] / "csl"
@@ -23,9 +25,9 @@ _BUILTIN_HASH: list[str] = []
 
 
 def builtin_filters_hash() -> str:
-    """Changes when DocWizard's own filters change, so cached layout copies get them."""
+    """Changes when DocWizard's own filters, styles or design code change, so cached layout copies get them."""
     if not _BUILTIN_HASH:
-        h = hashlib.sha256()
+        h = hashlib.sha256(designs.GENERATOR_HASH.encode())
         for f in sorted(REPO_FILTERS.glob("*.lua")) if REPO_FILTERS.is_dir() else []:
             h.update(f.name.encode() + b"\0" + f.read_bytes())
         for f in sorted(REPO_CSL.glob("*.csl")) if REPO_CSL.is_dir() else []:
@@ -64,6 +66,9 @@ class Layout:
     manifest: dict
     content_sha256: str = ""
     files: dict[str, Path] = field(default_factory=dict)  # relative path -> source file
+    owner: int | None = None  # custom layouts made in the layout editor
+    shared: bool = True
+    parent: str | None = None
 
     @property
     def name(self) -> str:
@@ -85,10 +90,29 @@ class Layout:
     def default_pdf(self) -> str:
         return self.manifest.get("defaultPdf", "pdf-typst")
 
+    @property
+    def design(self) -> dict:
+        """The complete design: defaults, then every ancestor's settings, then this layout's."""
+        return designs.complete(self.manifest.get("design"))
+
+    @property
+    def custom(self) -> bool:
+        return self.owner is not None
+
+    @property
+    def designable(self) -> bool:
+        """Whether the layout's Typst template reads the design settings."""
+        src = self.files.get(self.targets.get("pdf-typst", {}).get("template", ""))
+        try:
+            return src is not None and "$design()$" in src.read_text(errors="replace")
+        except OSError:
+            return False
+
     def public(self) -> dict:
         return {"id": self.id, "name": self.name, "version": self.manifest.get("version", ""),
                 "description": self.description, "targets": sorted(self.targets), "defaultPdf": self.default_pdf,
-                "variables": self.variables, "hash": self.content_sha256[:12]}
+                "variables": self.variables, "hash": self.content_sha256[:12], "custom": self.custom,
+                "parent": self.parent}
 
     def option_defaults(self) -> dict:
         return {k: v.get("default") for k, v in self.variables.items() if "default" in v}
@@ -164,7 +188,9 @@ def _collect(folder: Path) -> dict[str, Path]:
 def _merge(parent: dict, child: dict) -> dict:
     out = dict(parent)
     for key, value in child.items():
-        if key in ("targets", "variables") and isinstance(value, dict):
+        if key == "design" and isinstance(value, dict):
+            out[key] = {**parent.get(key, {}), **value}
+        elif key in ("targets", "variables") and isinstance(value, dict):
             merged = dict(parent.get(key, {}))
             for k, v in value.items():
                 merged[k] = {**merged.get(k, {}), **v} if isinstance(v, dict) else v
@@ -175,16 +201,97 @@ def _merge(parent: dict, child: dict) -> dict:
     return out
 
 
+def _design_options(manifest: dict) -> None:
+    """Classic options that override a design setting take their default from the design."""
+    variables = manifest.get("variables")
+    if not isinstance(variables, dict):
+        return
+    variables = manifest["variables"] = dict(variables)
+    full = designs.complete(manifest.get("design"))
+    for name, spec in variables.items():
+        if name not in designs.OPTION_KEYS or not isinstance(spec, dict):
+            continue
+        value = designs.option_value(name, full)
+        spec = dict(spec)
+        spec["default"] = value
+        if spec.get("type") == "enum" and value not in spec.get("values", []):
+            spec["values"] = [*spec.get("values", []), value]
+        variables[name] = spec
+
+
+# Keys a custom layout's manifest may have; files, templates and filters come from its parent.
+CUSTOM_KEYS = {"id", "name", "version", "extends", "description", "design", "options"}
+
+_STYLE_LABELS = {
+    "chicago-author-date": "Chicago author-date",
+    "chicago-notes-bibliography": "Chicago notes and bibliography",
+    "chicago-shortened-notes-bibliography": "Chicago shortened notes (Turabian)",
+    "apa": "APA 7th edition",
+    "modern-language-association": "MLA 9th edition",
+    "harvard-cite-them-right": "Harvard (Cite Them Right)",
+    "ieee": "IEEE",
+    "american-physics-society": "American Physical Society",
+    "oxford-guide-to-style-notes": "Oxford Guide to Style (notes)",
+    "din-1505-2": "DIN 1505-2 (German)",
+    "uni-wien-philosophie": "Uni Wien Philosophie (footnotes)",
+    "uni-wien-philosophie-kurzbelege": "Uni Wien Philosophie (short citations)",
+}
+
+
+def style_labels() -> dict[str, str]:
+    """Bundled citation styles with short labels, for option lists and the layout editor."""
+    return {k: _STYLE_LABELS.get(k, v) for k, v in bundled_styles().items()}
+
+
+def option_specs() -> dict[str, dict]:
+    """Variable specs for the options a custom layout can offer authors (§9.3)."""
+    styles = style_labels()
+    return {
+        "papersize": {"type": "enum", "values": list(designs.PAPERS), "labels": designs.PAPERS, "label": "Paper size"},
+        "fontsize": {"type": "enum", "values": ["10pt", "11pt", "12pt"], "label": "Font size"},
+        "linestretch": {"type": "number", "min": 1, "max": 2.5, "step": 0.25, "label": "Line spacing"},
+        "section-numbering": {"type": "enum", "values": ["", "1.1", "1.a", "I.1"], "label": "Section numbering"},
+        "toc": {"type": "boolean", "label": "Table of contents"},
+        "columns": {"type": "enum", "values": ["1", "2"], "labels": {"1": "One column", "2": "Two columns"},
+                    "label": "Columns"},
+        "titlepage": {"type": "boolean", "label": "Title page"},
+        "citation-style": {"type": "enum", "values": list(styles), "labels": styles, "label": "Citation style"},
+    }
+
+
+def _apply_options(merged: dict, options) -> None:
+    """A custom layout lists the options it offers; the rest of its parent's options go."""
+    if not isinstance(options, list):
+        return
+    current = merged.get("variables", {})
+    specs = option_specs()
+    out = {}
+    for name in options:
+        if not isinstance(name, str):
+            continue
+        if name in current:
+            out[name] = current[name]
+        elif name in specs:
+            out[name] = specs[name]
+    merged["variables"] = out
+
+
 class Layouts:
     def __init__(self, roots: list[Path], cache_dir: Path, approved_filters: set[str] | None = None):
         self.roots = roots
         self.cache_dir = cache_dir
         self.approved_filters = approved_filters or set()
         self.layouts: dict[str, Layout] = {}
+        # Layouts made in the layout editor: id -> (manifest, owner id, shared). Stored in the database.
+        self.custom: dict[str, tuple[dict, int, bool]] = {}
+        self.reload()
+
+    def set_custom(self, rows: dict[str, tuple[dict, int, bool]]) -> None:
+        self.custom = rows
         self.reload()
 
     def reload(self) -> None:
-        raw: dict[str, tuple[Path, dict]] = {}
+        raw: dict[str, tuple[Path | None, dict]] = {}
         for root in self.roots:
             if not root.is_dir():
                 continue
@@ -200,6 +307,10 @@ class Layouts:
                 if not _ID.match(lid):
                     raise LayoutError(f"{manifest_path}: invalid layout id")
                 raw[lid] = (folder, manifest)
+        builtin = set(raw)
+        for lid, (manifest, _owner, _shared) in self.custom.items():
+            if lid not in builtin and _ID.match(lid):
+                raw[lid] = (None, {k: v for k, v in manifest.items() if k in CUSTOM_KEYS})
         resolved: dict[str, Layout] = {}
 
         def resolve(lid: str, seen: tuple = ()) -> Layout:
@@ -213,13 +324,18 @@ class Layouts:
                 parent = resolve(parent_id, (*seen, lid))
                 merged = _merge(parent.manifest, manifest)
                 files = dict(parent.files)
-                dirs = [folder, *parent.dirs]
+                dirs = ([folder] if folder else []) + parent.dirs
             else:
                 merged = {k: v for k, v in manifest.items() if k != "extends"}
-                files, dirs = {}, [folder]
-            files.update(_collect(folder))
+                files, dirs = {}, [folder] if folder else []
+            if folder is not None:
+                files.update(_collect(folder))
             merged["id"] = lid
-            layout = Layout(lid, dirs, merged, files=files)
+            _apply_options(merged, merged.pop("options", None))
+            _design_options(merged)
+            layout = Layout(lid, dirs, merged, files=files, parent=parent_id or None)
+            if lid in self.custom and folder is None:
+                layout.owner, layout.shared = self.custom[lid][1], self.custom[lid][2]
             h = hashlib.sha256(json.dumps(merged, sort_keys=True).encode())
             for rel in sorted(files):
                 h.update(rel.encode() + b"\0" + files[rel].read_bytes() + b"\0")
@@ -228,8 +344,29 @@ class Layouts:
             return layout
 
         for lid in raw:
-            resolve(lid)
-        self.layouts = resolved
+            try:
+                resolve(lid)
+            except LayoutError:
+                if lid in builtin:
+                    raise
+                # A custom layout whose parent was removed: leave it out rather than fail.
+        self.layouts = {k: v for k, v in resolved.items() if k in raw}
+
+    def build(self, manifest: dict, owner: int | None = None) -> Layout:
+        """Resolve a draft custom layout without registering it (layout editor previews)."""
+        manifest = {k: v for k, v in manifest.items() if k in CUSTOM_KEYS}
+        parent = self.get(manifest.get("extends") or "default")
+        merged = _merge(parent.manifest, manifest)
+        merged["id"] = manifest.get("id") or "draft"
+        _apply_options(merged, merged.pop("options", None))
+        _design_options(merged)
+        layout = Layout(merged["id"], list(parent.dirs), merged, files=dict(parent.files), owner=owner,
+                        parent=parent.id)
+        h = hashlib.sha256(json.dumps(merged, sort_keys=True).encode())
+        for rel in sorted(layout.files):
+            h.update(rel.encode() + b"\0" + layout.files[rel].read_bytes() + b"\0")
+        layout.content_sha256 = h.hexdigest()
+        return layout
 
     def exists(self, lid: str) -> bool:
         return lid in self.layouts
@@ -243,21 +380,30 @@ class Layouts:
     def list(self) -> list[Layout]:
         return sorted(self.layouts.values(), key=lambda lay: lay.name.lower())
 
+    def visible(self, user_id: int | None) -> list[Layout]:
+        """Layouts someone can choose: built-in and shared ones, and their own."""
+        return [lay for lay in self.list() if lay.owner is None or lay.shared or lay.owner == user_id]
+
     def filters_approved(self, layout: Layout) -> bool:
         return not layout.filter_files() or layout.filters_hash() in self.approved_filters
 
-    def cached_dir(self, layout: Layout) -> Path:
+    def cached_dir(self, layout: Layout, folder: str = "layouts") -> Path:
         """Copy the resolved layout into the shared cache once per content hash."""
-        target = self.cache_dir / "layouts" / f"{layout.content_sha256[:48]}-{builtin_filters_hash()[:15]}"
+        target = self.cache_dir / folder / f"{layout.content_sha256[:48]}-{builtin_filters_hash()[:15]}"
         if target.is_dir():
             return target
-        tmp = target.with_name(target.name + ".tmp")
+        tmp = target.with_name(target.name + ".tmp-" + os.urandom(4).hex())
         shutil.rmtree(tmp, ignore_errors=True)
         for rel, src in layout.files.items():
             dest = tmp / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(src, dest)
         (tmp / "layout.json").write_text(json.dumps(layout.manifest, indent=2))
+        # Files generated from the design settings, next to the templates that read them.
+        for rel, text in designs.generated_files(layout.design, layout.variables).items():
+            dest = tmp / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(text, encoding="utf-8")
         # Built-in, pre-approved filters (§9.7).
         if REPO_FILTERS.is_dir():
             (tmp / "_builtin").mkdir(parents=True, exist_ok=True)

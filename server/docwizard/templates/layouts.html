@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Layouts") }} · DocWizard{% endblock %}
+{% block crumbs %}<a class="wordmark" href="/">DocWizard</a><span>/</span><span>{{ _("Layouts") }}</span>{% endblock %}
+{% block actions %}<button type="button" class="primary" data-new-layout="default">{{ _("New layout") }}</button>{% endblock %}
+{% macro layout_row(lay, owner=None) %}
+<li class="layout-card">
+  <div class="layout-card-main">
+    <a href="/layouts/{{ lay.id }}"><strong>{{ lay.name }}</strong></a>
+    {% if lay.id == default_layout %}<span class="badge">{{ _("default") }}</span>{% endif %}
+    {% if lay.custom and not lay.shared %}<span class="badge">{{ _("private") }}</span>{% endif %}
+    {% if owner %}<span class="muted">{{ _("by {name}", name=owner) }}</span>{% endif %}
+    {% if lay.description %}<p class="muted">{{ lay.description }}</p>{% endif %}
+    {% set d = lay.design %}
+    <p class="layout-facts muted">
+      <span>{{ d["text.font"] }} {{ "%g"|format(d["text.size"]) }} pt</span>
+      <span>{{ _("line spacing {n}", n="%g"|format(d["text.leading"])) }}</span>
+      <span>{{ d["page.paper"]|upper if d["page.paper"] in ("a4", "a5") else d["page.paper"] }}</span>
+      <span>{{ styles.get(d["cite.style"], d["cite.style"]) }}</span>
+      {% if d["cover.page"] %}<span>{{ _("title page") }}</span>{% endif %}
+      {% if lay.parent and lay.custom %}<span>{{ _("based on {name}", name=names.get(lay.parent, lay.parent)) }}</span>{% endif %}
+    </p>
+  </div>
+  <div class="row">
+    <a class="button" href="/layouts/{{ lay.id }}">{{ _("Edit") if can_edit(lay) else _("Open") }}</a>
+    <button type="button" data-new-layout="{{ lay.id }}" data-name="{{ lay.name }}">{{ _("Make a copy") }}</button>
+    {% if can_edit(lay) %}<button type="button" class="danger" data-delete-layout="{{ lay.id }}" data-name="{{ lay.name }}">{{ _("Delete") }}</button>{% endif %}
+  </div>
+</li>
+{% endmacro %}
+{% block content %}
+<section class="narrow wide">
+  <p class="muted">{{ _("A layout decides how documents look: fonts, margins, headings, citations, the title page and more. Make a copy of any layout to change it in the layout editor; your projects can then use it.") }}</p>
+  {% if mine %}
+  <h2>{{ _("Your layouts") }}</h2>
+  <ul class="plain layout-list">{% for lay in mine %}{{ layout_row(lay) }}{% endfor %}</ul>
+  {% endif %}
+  <h2>{{ _("Built-in layouts") }}</h2>
+  <ul class="plain layout-list">{% for lay in builtin %}{{ layout_row(lay) }}{% endfor %}</ul>
+  {% if shared %}
+  <h2>{{ _("Shared by others") }}</h2>
+  <ul class="plain layout-list">{% for lay in shared %}{{ layout_row(lay, owners.get(lay.owner, "")) }}{% endfor %}</ul>
+  {% endif %}
+</section>
+{% endblock %}
+{% block scripts %}<script type="module" src="{{ static }}/app/layouts/gallery.js"></script>{% endblock %}

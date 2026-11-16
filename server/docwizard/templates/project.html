@@ -46,6 +46,7 @@
       {% for lay in layouts %}<option value="{{ lay.id }}" {% if lay.id == project.layout_id %}selected{% endif %}>{{ lay.name }}</option>{% endfor %}
     </select>
     <button type="submit">{{ _("Change layout") }}</button>
+    {% if not guest %}<a href="/layouts/{{ project.layout_id }}">{{ _("Edit layouts") }}</a>{% endif %}
   </form>
 </section>
 {% endif %}

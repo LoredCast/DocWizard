@@ -29,6 +29,7 @@
       <summary>{{ user.display_name }}</summary>
       <div class="menu-body actions-list">
         {% if user.is_admin %}<a class="menu-item" href="/admin">{{ _("Admin") }}</a>{% endif %}
+        <a class="menu-item" href="/layouts">{{ _("Layouts") }}</a>
         <a class="menu-item" href="/settings">{{ _("Settings") }}</a>
         <form method="post" action="/logout" class="inline">
           <input type="hidden" name="_csrf" value="{{ csrf }}">

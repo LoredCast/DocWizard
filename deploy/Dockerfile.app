@@ -19,6 +19,7 @@ COPY server ./server
 COPY worker ./worker
 COPY layouts ./layouts
 COPY filters ./filters
+COPY csl ./csl
 COPY web ./web
 RUN install -d -o 10001 -g 10001 /var/lib/docwizard /var/lib/docwizard-publish /var/lib/docwizard-jobs \
       /var/lib/docwizard-jobs/run \

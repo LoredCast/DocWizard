@@ -142,6 +142,20 @@ class App:
         approved = values.get("approved_filters")
         if isinstance(approved, list):
             self.layouts.approved_filters = {h for h in approved if isinstance(h, str)}
+        await self.load_custom_layouts()
+
+    async def load_custom_layouts(self) -> None:
+        """Layouts made in the layout editor live in the database (§9.3)."""
+        rows = await self.db.fetchall("SELECT id, owner_id, manifest_json, shared FROM custom_layouts")
+        custom = {}
+        for r in rows:
+            try:
+                manifest = json.loads(r["manifest_json"])
+            except ValueError:
+                continue
+            if isinstance(manifest, dict):
+                custom[r["id"]] = (manifest, r["owner_id"], bool(r["shared"]))
+        await asyncio.to_thread(self.layouts.set_custom, custom)
 
     async def save_filter_approvals(self) -> None:
         """Lua filter approvals by hash (§9.3), kept apart from the policy settings."""

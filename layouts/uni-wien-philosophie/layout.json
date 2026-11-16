@@ -1,0 +1,141 @@
+{
+  "id": "uni-wien-philosophie",
+  "name": "Universität Wien · Philosophie",
+  "version": "1.0.0",
+  "extends": "default",
+  "description": "Nach dem Leitfaden für schriftliche Arbeiten im Bachelorstudium Philosophie (9/2021): Titelblatt, Plagiatserklärung, Inhaltsverzeichnis, 12 pt Tinos (wie Times New Roman), 1,5 Zeilen, Fußnoten 10 pt einzeilig, Literaturverzeichnis mit hängendem Einzug.",
+  "design": {
+    "text.font": "Tinos",
+    "text.size": 12,
+    "text.leading": 1.5,
+    "text.lang": "de-AT",
+    "text.paragraph-spacing": "0.4em",
+    "text.justify": true,
+    "page.margin-top": "2.5cm",
+    "page.margin-bottom": "2.5cm",
+    "page.margin-left": "2.5cm",
+    "page.margin-right": "2.5cm",
+    "heading.numbering": "1.",
+    "heading.1.size": 1.25,
+    "heading.2.size": 1.1,
+    "heading.3.size": 1,
+    "cover.page": true,
+    "cover.position": "top",
+    "cover.title-case": "upper",
+    "cover.title-size": 1.5,
+    "cover.subtitle-size": 1.15,
+    "cover.counted": true,
+    "cover.fields": [
+      {
+        "space": "1em"
+      },
+      {
+        "key": "paper-type"
+      },
+      {
+        "key": "course"
+      },
+      {
+        "key": "instructor"
+      },
+      {
+        "key": "semester"
+      },
+      {
+        "key": "department"
+      },
+      {
+        "key": "institution"
+      },
+      {
+        "space": "fill"
+      },
+      {
+        "text": "vorgelegt von",
+        "style": "italic"
+      },
+      {
+        "space": "0.5em"
+      },
+      {
+        "key": "author",
+        "style": "bold"
+      },
+      {
+        "key": "student-id",
+        "label": "Matrikelnummer:"
+      },
+      {
+        "key": "program",
+        "label": "Studienkennzahl:"
+      },
+      {
+        "key": "email"
+      },
+      {
+        "space": "fill"
+      },
+      {
+        "key": "place-date"
+      }
+    ],
+    "cover.abstract": false,
+    "declaration.enabled": true,
+    "declaration.title": "Plagiatserklärung",
+    "declaration.text": "Hiermit erkläre ich, die vorgelegte Arbeit selbständig verfasst und ausschließlich die angegebenen Quellen und Hilfsmittel benutzt zu haben. Alle wörtlich oder dem Sinn nach aus anderen Werken entnommenen Textpassagen und Gedankengänge sind durch genaue Angabe der Quelle in Form von Anmerkungen bzw. In-Text-Zitationen ausgewiesen. Dies gilt auch für Quellen aus dem Internet, bei denen zusätzlich URL und Zugriffsdatum angeführt sind. Mir ist bekannt, dass jeder Fall von Plagiat zur Nicht-Bewertung der gesamten Lehrveranstaltung führt und der Studienprogrammleitung gemeldet werden muss. Ferner versichere ich, diese Arbeit nicht bereits andernorts zur Beurteilung vorgelegt zu haben.",
+    "declaration.signature": "Ort, Datum, Unterschrift",
+    "toc.enabled": true,
+    "toc.title": "Inhaltsverzeichnis",
+    "toc.page": true,
+    "quote.size": 0.85,
+    "quote.leading": 1,
+    "quote.indent-left": "1.25cm",
+    "quote.indent-right": "0",
+    "footnote.size": 0.85,
+    "footnote.leading": 1,
+    "footnote.indent": "0",
+    "cite.style": "uni-wien-philosophie",
+    "bib.title": "Literaturverzeichnis",
+    "bib.page-break": true,
+    "bib.hanging": "1.25cm",
+    "bib.spacing": "0.4em",
+    "caption.figure": "Abbildung",
+    "caption.table": "Tabelle"
+  },
+  "variables": {
+    "section-numbering": {
+      "type": "enum",
+      "values": [
+        "",
+        "1.",
+        "trad"
+      ],
+      "labels": {
+        "": "Keine",
+        "1.": "Dezimal (1., 1.1.)",
+        "trad": "Traditionell (I., 1., a))"
+      },
+      "label": "Gliederung"
+    },
+    "toc": {
+      "type": "boolean",
+      "label": "Inhaltsverzeichnis"
+    },
+    "titlepage": {
+      "type": "boolean",
+      "label": "Titelblatt"
+    },
+    "citation-style": {
+      "type": "enum",
+      "values": [
+        "uni-wien-philosophie",
+        "uni-wien-philosophie-kurzbelege"
+      ],
+      "labels": {
+        "uni-wien-philosophie": "Uni Wien Philosophie (footnotes)",
+        "uni-wien-philosophie-kurzbelege": "Uni Wien Philosophie (short citations)"
+      },
+      "label": "Belegsystem"
+    }
+  }
+}

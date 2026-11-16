@@ -1,7 +1,0 @@
-/* Article layout: a narrower measure and an abstract block for the HTML preview and published pages. */
-body { max-width: 42em; font-size: 1rem; }
-.abstract { margin: 1.5em 3em; font-size: .95em; }
-.abstract-title { font-weight: 600; }
-h1, h2, h3 { line-height: 1.25; }
-h2 { font-size: 1.2em; }
-h3 { font-size: 1.05em; }

@@ -456,6 +456,7 @@ The main thread runs only the editor and the UI.
 | `share_links` | id, project_id, token_hash, role, expires_at?, password_hash?, created_by, revoked_at? | |
 | `publications` | id, project_id, doc_id, slug, layout_id, version, visibility, auto_update, updated_at | |
 | `layouts` | id, scope, owner_id?, name, version, path, content_sha256, filters_approved_sha256? | `scope` is `instance`, `user` or `project` |
+| `custom_layouts` | id, owner_id, manifest_json, shared, created_at, updated_at | layouts made in the layout editor ([§9.3](#93-layouts)) |
 | `citation_sources` | id, owner_id, kind, config_enc, library_version, last_sync_at, status | `kind` is `zotero_web` or `file` |
 | `citation_keys` | source_id, item_key, citation_key | keeps generated keys stable |
 | `sync_targets` | id, project_id, kind, base_url, remote_path, username, secret_enc, poll_seconds, status, last_error | |
@@ -490,7 +491,7 @@ The JSON API lives under `/api/`. It is same-origin only and requires the sessio
 | `GET`, `POST`, `PATCH /api/documents/{id}/comments` | Comment threads |
 | `GET`, `POST`, `PATCH`, `DELETE /api/citations/sources` | Citation sources |
 | `GET /api/citations/library?source=…` | CSL-JSON, with ETag |
-| `GET`, `POST`, `PATCH /api/layouts` | Layouts; upload as zip |
+| `GET`, `POST`, `PATCH`, `DELETE /api/layouts` | Layouts; custom layouts from the layout editor (`/api/layouts/schema`, `/api/layouts/preview`) |
 | `GET`, `POST`, `DELETE /api/sync/targets` | Sync targets |
 | `POST /api/sync/nextcloud/login`, `GET …/poll` | Nextcloud Login Flow v2 |
 | `/api/admin/…` | Users, settings, layout approval, audit log, health |
@@ -797,7 +798,10 @@ Manifest:
   - instance layouts, installed by admins;
   - user layouts;
   - project layouts in `_layouts/<name>/` inside the project folder, so they sync with the project.
-- **Editing**: users can duplicate any layout and edit its files in the editor, since templates and CSS are just text documents.
+- **Design settings**: how a layout renders is a flat object of typed settings in the manifest, `design` (for example `text.font`, `page.margin-left`, `heading.1.size`, `cover.fields`, `cite.style`). Children inherit their parent's settings key by key. The default layout's templates are static and read every setting: when a layout is cached, DocWizard generates `typst/design.typ` (a Typst dictionary, loaded as the pandoc partial `$design()$`), `html/design.css`, `html/cover.html` and `html/options.html` next to the templates. Every value is validated against the schema in `render/design.py` and written as a literal, so settings can't inject template or Typst code. The classic options (`fontsize`, `linestretch`, `papersize`, `section-numbering`, `toc`, `columns`, `titlepage`, `citation-style`) override the matching setting and take their default from it.
+- **Layout editor** (`/layouts`): anyone with an account can copy a layout and change its design settings in a form built from the same schema, with a live PDF preview of a sample document (rendered from a draft copy of the layout that is deleted afterwards). A custom layout is a manifest in the database (`custom_layouts`) with `extends`, `design` (only what differs from the parent), the options authors get, and whether it is shared with everyone on the instance. Templates, files and filters always come from the parent, so custom layouts can't add code. Owners and admins change or delete them; a layout others are based on can't be deleted.
+- **Fonts**: Typst sees its embedded fonts, the fonts in `/usr/local/share/docwizard/fonts` (installed in the worker image by `deploy/fetch_tools.py`: Noto Serif and Sans, Tinos, Carlito, Cousine) and the layout's `fonts/` folder, never system fonts.
+- **Editing files**: users can also duplicate a layout folder and edit its files, since templates and CSS are just text documents.
 - **Safety**:
   - Templates, CSS, CSL styles and variables are safe for anyone to edit. Pandoc templates cannot run code, and Typst and LaTeX run in the sandbox.
   - Lua filters run arbitrary code inside the render worker. They only run once an admin has approved the layout's filter files by hash. The hash covers every `.lua` file in the layout's `filters/` folder, including modules the filters `require`, and changing any of them revokes the approval.

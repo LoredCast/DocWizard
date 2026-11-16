@@ -23,7 +23,7 @@ from ..citations.zotero import referenced_sources
 from ..http.request import HTTPError
 from ..logs import fields
 from ..projects import service as svc
-from . import jobs
+from . import jobs, sample
 from .layouts import Layout, LayoutError
 from .worker_client import WorkerClient, WorkerUnavailable
 
@@ -63,6 +63,8 @@ class ExportJob:
 
 
 class Renderer:
+    SAMPLE_PROJECT = sample.SAMPLE_PROJECT
+
     def __init__(self, app):
         self.app = app
         self.cfg = app.cfg
@@ -217,6 +219,33 @@ class Renderer:
         finally:
             self._inflight.pop(key, None)
 
+    async def render_sample(self, layout: Layout, target: str = "pdf-typst") -> RenderResult:
+        """The layout editor's preview: the sample document with a draft layout (§9.3)."""
+        snap = sample.snapshot()
+        inputs = ["sample.md"]
+        key = jobs.cache_key(sample.SAMPLE_PROJECT, snap.digest(), layout, target, inputs, {}, self.worker.versions)
+        cached = self._cached(key, target)
+        if cached is not None:
+            return cached
+        if key in self._inflight:
+            return await asyncio.shield(self._inflight[key])
+        fut = asyncio.get_running_loop().create_future()
+        self._inflight[key] = fut
+        try:
+            async with self.sem:
+                # Drafts get a copy of their own, removed afterwards, so the cache doesn't fill up with them.
+                result = await self._run(key, sample.SAMPLE_PROJECT, target, layout, inputs, {}, snap,
+                                         layout_folder=f"layout-drafts/{secrets.token_hex(8)}")
+            fut.set_result(result)
+            return result
+        except BaseException as exc:
+            if not fut.done():
+                fut.set_exception(exc)
+                fut.exception()
+            raise
+        finally:
+            self._inflight.pop(key, None)
+
     def _cached(self, key: str, target: str) -> RenderResult | None:
         meta_path = self.renders_dir / key / "meta.json"
         try:
@@ -228,7 +257,7 @@ class Renderer:
                             project_id=meta["project_id"])
 
     async def _run(self, key: str, project_id: str, target: str, layout: Layout, inputs: list[str],
-                   options: dict, snap: jobs.ProjectSnapshot) -> RenderResult:
+                   options: dict, snap: jobs.ProjectSnapshot, layout_folder: str = "layouts") -> RenderResult:
         dest = self.renders_dir / key
         output = jobs.OUTPUTS[target]
         if target == "md-source":
@@ -236,7 +265,7 @@ class Renderer:
             return self._finish(key, project_id, target, "ok", [], dest)
         job_id = jobs.new_job_id()
         job_dir = self.cfg.jobs_dir / "run" / job_id
-        layout_dir = await asyncio.to_thread(self.app.layouts.cached_dir, layout)
+        layout_dir = await asyncio.to_thread(self.app.layouts.cached_dir, layout, layout_folder)
         approved = self.app.layouts.filters_approved(layout)
         steps, copies = jobs.pandoc_steps(layout, layout_dir, target, inputs, options, approved)
         meta = jobs.metadata(layout, options, inputs, layout_dir)
@@ -279,6 +308,8 @@ class Renderer:
             return self._finish(key, project_id, target, status, diagnostics, dest)
         finally:
             await asyncio.to_thread(shutil.rmtree, job_dir, True)
+            if layout_folder != "layouts":
+                await asyncio.to_thread(shutil.rmtree, layout_dir.parent, True)
 
     def _finish(self, key, project_id, target, status, diagnostics, dest: Path) -> RenderResult:
         output = jobs.OUTPUTS[target]
