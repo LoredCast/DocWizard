@@ -151,6 +151,8 @@ FIELDS: list[dict] = [
     _field("page.number-position", "enum", "bottom-center", "Page number position", "page",
            values={"bottom-center": "Bottom, centred", "bottom-right": "Bottom right", "bottom-left": "Bottom left",
                    "top-right": "Top right", "top-center": "Top, centred"}),
+    _field("page.number-distance", "length", "", "Page number distance from the page edge", "page", optional=True,
+           help="Empty: set by the margin."),
     _field("page.header", "enum", "none", "Running header", "page",
            values={"none": "None", "title": "Title", "author": "Authors", "author-title": "Authors and title"}),
     _field("page.header-rule", "boolean", False, "Line under the header", "page"),
@@ -186,8 +188,12 @@ FIELDS: list[dict] = [
     _field("cover.title-weight", "enum", "bold", "Title weight", "cover", values=WEIGHTS),
     _field("cover.title-case", "enum", "normal", "Title letter case", "cover", values=CASES),
     _field("cover.subtitle-size", "number", 1.2, "Subtitle size (× body text)", "cover", min=0.8, max=2.5, step=0.05),
+    _field("cover.subtitle-weight", "enum", "regular", "Subtitle weight", "cover", values=WEIGHTS),
+    _field("cover.title-colon", "boolean", False, "Colon after the main title", "cover",
+           help="Adds a colon after the title when the document has a subtitle, as Turabian asks."),
     _field("cover.fields", "cover", [{"key": "author"}, {"key": "date"}], "Fields under the title", "cover",
            help="Shown in this order when the document's front matter has them."),
+    _field("cover.field-spacing", "length", "0.4em", "Space between title fields", "cover"),
     _field("cover.abstract", "boolean", True, "Show the abstract", "cover"),
     _field("cover.abstract-title", "text", "", "Abstract heading", "cover", help="Empty: “Abstract” in the "
                                                                                   "document's language."),
@@ -212,11 +218,16 @@ FIELDS: list[dict] = [
     _field("quote.indent-left", "length", "2em", "Left indent", "quote"),
     _field("quote.indent-right", "length", "2em", "Right indent", "quote"),
     _field("quote.italic", "boolean", False, "Italic", "quote"),
+    _field("quote.spacing", "length", "", "Space before and after", "quote", optional=True,
+           help="Empty: the paragraph spacing."),
     # Footnotes
     _field("footnote.size", "number", 0.85, "Size (× body text)", "footnote", min=0.6, max=1.2, step=0.05),
     _field("footnote.leading", "number", 1, "Line spacing", "footnote", min=0, max=3, step=0.05,
            help="0: the same as the body text."),
     _field("footnote.indent", "length", "1em", "Indent", "footnote"),
+    _field("footnote.number", "enum", "super", "Number in the note", "footnote",
+           values={"super": "Superscript (¹Text)", "super-space": "Superscript and a space (¹ Text)",
+                   "period": "Number and full stop (1. Text)"}),
     _field("footnote.rule", "boolean", True, "Line above the footnotes", "footnote"),
     _field("footnote.spacing", "length", "0.5em", "Space between footnotes", "footnote"),
     # Citations and bibliography
@@ -225,6 +236,9 @@ FIELDS: list[dict] = [
     _field("bib.title", "text", "", "Bibliography heading", "cite",
            help="For example “Bibliography” or “Literaturverzeichnis”. Empty: no heading, unless the document "
                 "sets reference-section-title."),
+    _field("bib.title-author-date", "text", "", "Heading with an author-date style", "cite",
+           help="Used when the chosen citation style puts author and year in the text, for example “Reference "
+                "List”. Empty: the bibliography heading."),
     _field("bib.page-break", "boolean", False, "Bibliography on a new page", "cite"),
     _field("bib.size", "number", 1, "Size (× body text)", "cite", min=0.7, max=1.2, step=0.05),
     _field("bib.leading", "number", 0, "Line spacing", "cite", min=0, max=3, step=0.05,
@@ -238,6 +252,9 @@ FIELDS: list[dict] = [
     _field("caption.separator", "enum", ": ", "After the number", "caption",
            values={": ": "Colon (Figure 1: …)", ". ": "Full stop (Figure 1. …)", " – ": "Dash (Figure 1 – …)"}),
     _field("caption.size", "number", 0.9, "Size (× body text)", "caption", min=0.7, max=1.2, step=0.05),
+    _field("caption.align", "enum", "center", "Caption alignment", "caption", values={"center": "Centred", "left": "Left"}),
+    _field("caption.leading", "number", 0, "Caption line spacing", "caption", min=0, max=3, step=0.05,
+           help="0: the same as the body text."),
     _field("caption.table-position", "enum", "top", "Table captions", "caption", values={"top": "Above", "bottom": "Below"}),
 ]
 FIELD = {f["key"]: f for f in FIELDS}
@@ -302,6 +319,8 @@ def _check(key: str, value, styles: set[str] | None):
         if not isinstance(value, bool):
             raise DesignError(f"{label} must be on or off.")
     elif kind == "length":
+        if spec.get("optional") and value == "":
+            return value
         if not isinstance(value, str) or not _LENGTH.match(value.strip()):
             raise DesignError(f"{label} must be a length such as 2.5cm, 1in, 12pt or 1.5em.")
         value = value.strip()
@@ -418,7 +437,7 @@ def _typ(value, kind: str) -> str:
     if kind == "number":
         return repr(float(value)) if isinstance(value, float) else str(value)
     if kind == "length":
-        return "0pt" if value == "0" else value
+        return "none" if value == "" else "0pt" if value == "0" else value
     if kind == "cover":
         parts = []
         for item in value:
@@ -522,16 +541,21 @@ def css_design(design: dict) -> str:
         f".title-block {{ text-align: {align}; margin-bottom: 2.5em; }}",
         f".title-block .title {{ font-family: {head_font}; font-size: {d['cover.title-size']:g}em;"
         f" font-weight: {_WEIGHT_CSS[d['cover.title-weight']]}; margin: 0 0 0.3em; {_case_css(d['cover.title-case'])} }}",
-        f".title-block .subtitle {{ font-size: {d['cover.subtitle-size']:g}em; margin: 0 0 1em; }}",
+        f".title-block .subtitle {{ font-size: {d['cover.subtitle-size']:g}em;"
+        f" font-weight: {_WEIGHT_CSS[d['cover.subtitle-weight']]}; margin: 0 0 1em; }}",
         ".title-block .cover-field { margin: 0.2em 0; }",
         ".cover-bold { font-weight: 700; } .cover-italic { font-style: italic; }"
         " .cover-small { font-size: 0.85em; } .cover-large { font-size: 1.2em; }",
     ]
+    if d["cover.title-colon"]:
+        out.append('.title-block .title:has(+ .subtitle)::after { content: ":"; }')
     if d["cover.page"]:
         out.append(".title-block { padding: 3em 0 4em; border-bottom: 1px solid #ccc; margin-bottom: 3em; }")
     # Quotes, footnotes, bibliography, captions
     q_line = round(0.65 * d["quote.leading"] + 1.0, 3) if d["quote.leading"] else "inherit"
-    out.append(f"blockquote {{ margin: 1em {_css_len(d['quote.indent-right'])} 1em {_css_len(d['quote.indent-left'])};"
+    q_space = _css_len(d["quote.spacing"]) if d["quote.spacing"] else "1em"
+    out.append(f"blockquote {{ margin: {q_space} {_css_len(d['quote.indent-right'])} {q_space}"
+               f" {_css_len(d['quote.indent-left'])};"
                f" font-size: {d['quote.size']:g}em; line-height: {q_line};"
                f" font-style: {'italic' if d['quote.italic'] else 'normal'}; }}")
     f_line = round(0.65 * d["footnote.leading"] + 1.0, 3) if d["footnote.leading"] else "inherit"
@@ -543,7 +567,9 @@ def css_design(design: dict) -> str:
     out.append(f"#refs {{ font-size: {d['bib.size']:g}em; line-height: {b_line}; text-align: left; }}")
     out.append(f".csl-entry {{ padding-left: {hang}; text-indent: -{hang}; margin-bottom: {_css_len(d['bib.spacing'])}; }}"
                if hang != "0" else f".csl-entry {{ padding-left: 0; text-indent: 0; margin-bottom: {_css_len(d['bib.spacing'])}; }}")
-    out.append(f"figcaption, caption {{ font-size: {d['caption.size']:g}em; }}")
+    c_line = round(0.65 * d["caption.leading"] + 1.0, 3) if d["caption.leading"] else "inherit"
+    out.append(f"figcaption, caption {{ font-size: {d['caption.size']:g}em; text-align: {d['caption.align']};"
+               f" line-height: {c_line}; }}")
     out.append(f"caption {{ caption-side: {d['caption.table-position']}; }}")
     return "\n".join(out) + "\n"
 

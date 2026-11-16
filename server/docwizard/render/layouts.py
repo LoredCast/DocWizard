@@ -223,9 +223,12 @@ def _design_options(manifest: dict) -> None:
 CUSTOM_KEYS = {"id", "name", "version", "extends", "description", "design", "options"}
 
 _STYLE_LABELS = {
-    "chicago-author-date": "Chicago author-date",
-    "chicago-notes-bibliography": "Chicago notes and bibliography",
-    "chicago-shortened-notes-bibliography": "Chicago shortened notes (Turabian)",
+    "chicago-author-date": "Chicago author-date (18th ed.)",
+    "chicago-notes-bibliography": "Chicago notes and bibliography (18th ed.)",
+    "chicago-shortened-notes-bibliography": "Chicago shortened notes (18th ed.)",
+    "chicago-notes-bibliography-subsequent-author-title-17th-edition": "Chicago notes and bibliography (17th ed., Turabian 9th ed.)",
+    "chicago-shortened-notes-bibliography-17th-edition": "Chicago shortened notes (17th ed., Turabian 9th ed.)",
+    "chicago-author-date-17th-edition": "Chicago author-date (17th ed., Turabian 9th ed.)",
     "apa": "APA 7th edition",
     "modern-language-association": "MLA 9th edition",
     "harvard-cite-them-right": "Harvard (Cite Them Right)",

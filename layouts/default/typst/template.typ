@@ -42,6 +42,15 @@ $design()$
 #let dw-align(a) = if a == "center" { center } else { left }
 #let dw-filled(x) = x != none and x != [] and x != "" and x != ()
 #let dw-leading(factor) = factor * 0.65em
+// Drops the spaces pandoc leaves around a caption's text, so "Figure 1. Text" has one space.
+#let dw-trim(body) = {
+  if body.func() == [].func() {
+    let kids = body.children
+    while kids.len() > 0 and kids.first().func() == [ ].func() { kids = kids.slice(1) }
+    while kids.len() > 0 and kids.last().func() == [ ].func() { kids = kids.slice(0, -1) }
+    kids.join()
+  } else { body }
+}
 #let dw-numbering(style) = {
   if style == "" { none }
   else if style == "1" { "1.1" }
@@ -138,12 +147,19 @@ $design()$
      left: dw.at("page-margin-left"), right: dw.at("page-margin-right"))
   }
   let cols = int(dw.at("page-columns"))
+  // A fixed distance puts the top of a header number, or the baseline of a footer
+  // number, that far from the page edge (Turabian: half an inch).
+  let num-distance = dw.at("page-number-distance")
+  let cap = dw.at("text-size") * 0.7pt
+  let fixed = num-distance != none and margin == none
   set page(
     paper: dw.at("page-paper"),
     margin: page-margin,
     columns: cols,
     header: header,
     footer: footer,
+    header-ascent: if fixed and pos.starts-with("top") { dw.at("page-margin-top") - num-distance - cap } else { 30% },
+    footer-descent: if fixed and pos.starts-with("bottom") { dw.at("page-margin-bottom") - num-distance - cap } else { 30% },
   )
   set columns(gutter: dw.at("page-column-gap"))
 
@@ -173,7 +189,9 @@ $design()$
     let p = "heading-" + str(lvl) + "-"
     if it.level == 1 and dw.at("heading-chapter-break") { pagebreak(weak: true) }
     set text(
-      size: dw.at(p + "size") * 1em,
+      // Relative to the body text, not to Typst's own heading sizes (1.4em, 1.2em) that
+      // are already applied to the heading.
+      size: dw.at(p + "size") * dw.at("text-size") * 1pt,
       weight: dw-weight(dw.at(p + "weight")),
       style: if dw.at(p + "style") == "italic" { "italic" } else { "normal" },
       hyphenate: false,
@@ -190,7 +208,9 @@ $design()$
     set text(size: dw.at("quote-size") * 1em)
     set text(style: "italic") if dw.at("quote-italic")
     set par(leading: dw-leading(dw.at("quote-leading")), spacing: dw-leading(dw.at("quote-leading")) + 0.4em) if dw.at("quote-leading") > 0
-    block(inset: (left: dw.at("quote-indent-left"), right: dw.at("quote-indent-right")), width: 100%, it.body)
+    let space = if dw.at("quote-spacing") != none { dw.at("quote-spacing") } else { auto }
+    block(inset: (left: dw.at("quote-indent-left"), right: dw.at("quote-indent-right")), width: 100%,
+      above: space, below: space, it.body)
   }
 
   // Footnotes
@@ -201,6 +221,15 @@ $design()$
   )
   show footnote.entry: set text(size: dw.at("footnote-size") * 1em)
   show footnote.entry: set par(leading: dw-leading(dw.at("footnote-leading")), first-line-indent: 0pt) if dw.at("footnote-leading") > 0
+  // Turabian sets note numbers as "1. " in the notes; Typst's own entry has a bare superscript.
+  show footnote.entry: it => {
+    let style = dw.at("footnote-number")
+    if style == "super" { return it }
+    let note = it.note
+    let num = context numbering(note.numbering, ..counter(footnote).at(note.location()))
+    let mark = if style == "period" [#num.~] else [#super(num)~]
+    par(first-line-indent: 0pt)[#h(dw.at("footnote-indent"))#mark#note.body]
+  }
 
   // Bibliography (pandoc's citeproc output: a block labelled refs, entries labelled ref-…)
   show <refs>: set par(
@@ -231,6 +260,14 @@ $design()$
   show figure.where(kind: image): set figure.caption(position: bottom)
   set figure.caption(separator: dw.at("caption-separator"))
   show figure.caption: set text(size: dw.at("caption-size") * 1em)
+  show figure.caption: it => {
+    let body = dw-trim(it.body)
+    let caption = if it.numbering == none { body } else {
+      [#it.supplement~#context it.counter.display(it.numbering)#it.separator#body]
+    }
+    if dw.at("caption-align") == "left" { block(width: 100%, align(left, caption)) } else { caption }
+  }
+  show figure.caption: set par(leading: dw-leading(dw.at("caption-leading"))) if dw.at("caption-leading") > 0
 
   // Title block and title page
   let field(key) = {
@@ -260,18 +297,19 @@ $design()$
     set par(first-line-indent: 0pt, justify: false, spacing: leading + 0.3em)
     set align(dw-align(dw.at("cover-align")))
     if title != none {
-      block(below: 0.6em, text(
+      block(below: if subtitle != none { calc.max(0.6em, leading) } else { 0.6em }, text(
         weight: dw-weight(dw.at("cover-title-weight")),
         size: dw.at("cover-title-size") * 1em,
         hyphenate: false,
         font: if dw.at("heading-font") != "" { dw-fonts(dw.at("heading-font"), "Libertinus Serif") } else { dw-fonts(dw.at("text-font"), "Libertinus Serif") },
-      )[#dw-case(dw.at("cover-title-case"), title)#if thanks != none {
+      )[#dw-case(dw.at("cover-title-case"), title)#if subtitle != none and dw.at("cover-title-colon") [:]#if thanks != none {
           footnote(thanks, numbering: "*")
           counter(footnote).update(n => n - 1)
         }])
     }
     if subtitle != none {
-      block(below: 1.2em, text(size: dw.at("cover-subtitle-size") * 1em, hyphenate: false, subtitle))
+      block(below: 1.2em, text(size: dw.at("cover-subtitle-size") * 1em, weight: dw-weight(dw.at("cover-subtitle-weight")),
+        hyphenate: false, subtitle))
     } else {
       v(0.6em)
     }
@@ -279,13 +317,13 @@ $design()$
       if "space" in item {
         v(item.space)
       } else if "text" in item {
-        block(above: 0.4em, below: 0.4em, dw-styled(item.at("style", default: "normal"), item.text))
+        block(above: dw.at("cover-field-spacing"), below: dw.at("cover-field-spacing"), dw-styled(item.at("style", default: "normal"), item.text))
       } else {
         let values = field(item.key)
         if values.len() > 0 {
           let label = item.at("label", default: none)
           let body = values.join(linebreak())
-          block(above: 0.4em, below: 0.4em, dw-styled(item.at("style", default: "normal"),
+          block(above: dw.at("cover-field-spacing"), below: dw.at("cover-field-spacing"), dw-styled(item.at("style", default: "normal"),
             if label != none [#label #body] else { body }))
         }
       }

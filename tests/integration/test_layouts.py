@@ -2,6 +2,8 @@
 
 import json
 import re
+import shutil
+import subprocess
 
 import pytest
 
@@ -10,7 +12,7 @@ from docwizard.render import jobs
 from docwizard.render.layouts import REPO_LAYOUTS, Layouts
 from tests.asgi_client import Client
 from tests.integration.test_collab import new_project, open_editor
-from tests.integration.test_render import HAS_TYPST, _pandoc_ok, rapp, rclient, wait_job  # noqa: F401
+from tests.integration.test_render import HAS_TYPST, _pandoc_ok, _path, rapp, rclient, wait_job  # noqa: F401
 
 NEW_LAYOUTS = ("oxford", "uni-wien-philosophie", "aps", "turabian")
 
@@ -84,6 +86,65 @@ def test_custom_layouts_inherit_and_choose_options(tmp_path):
     assert not layouts.exists("orphan")  # a missing parent drops the layout instead of failing
     assert "mine-1" not in {lay.id for lay in layouts.visible(8)}
     assert "mine-1" in {lay.id for lay in layouts.visible(7)}
+
+
+def test_turabian_follows_its_manual(tmp_path):
+    layouts = Layouts([REPO_LAYOUTS], tmp_path)
+    tur = layouts.get("turabian")
+    d = tur.design
+    assert d["page.number-distance"] == "0.5in" and d["cover.title-colon"] and d["caption.align"] == "left"
+    assert d["footnote.number"] == "period" and d["toc.title"] == "Contents"
+    cached = layouts.cached_dir(tur)
+    meta = jobs.metadata(tur, {}, ["paper.md"], cached)
+    # Turabian's 9th edition follows Chicago's 17th: full first notes, then author-title short notes.
+    assert meta["csl"] == "chicago-notes-bibliography-subsequent-author-title-17th-edition.csl"
+    assert meta["reference-section-title"] == "Bibliography"
+    meta = jobs.metadata(tur, {"citation-style": "chicago-author-date-17th-edition"}, ["paper.md"], cached)
+    assert meta["reference-section-title"] == "Reference List"
+    assert '"page-number-distance": 0.5in' in (cached / "typst" / "design.typ").read_text()
+    assert designs.validate({"quote.spacing": ""}) == {"quote.spacing": ""}
+
+
+def test_csl_json_gets_short_titles():
+    refs = [{"id": "a", "type": "book", "title": "Driving While Brown: Sheriff Joe Arpaio Versus the Latino Resistance"},
+            {"id": "b", "type": "book", "title": "Main: Sub", "title-short": "Own"},
+            {"id": "c", "type": "book", "title": "No Subtitle"}]
+    out = json.loads(jobs.with_short_titles(json.dumps(refs)))
+    assert out[0]["title-short"] == "Driving While Brown" and out[1]["title-short"] == "Own" and "title-short" not in out[2]
+    for text in ('{"title": "A: B"}', "not json", '[{"title": "A: B"}]'):
+        assert jobs.with_short_titles(text) == text
+
+
+CHICAGO_REFS = [
+    {"id": "yu", "type": "book", "author": [{"family": "Yu", "given": "Charles"}], "title": "Interior Chinatown",
+     "publisher": "Pantheon Books", "publisher-place": "New York", "issued": {"date-parts": [[2020]]}},
+    {"id": "aubrecht", "type": "book", "editor": [{"family": "Aubrecht", "given": "Katie"},
+     {"family": "Kelly", "given": "Christine"}, {"family": "Rice", "given": "Carla"}],
+     "title": "The Aging-Disability Nexus", "publisher": "UBC Press", "publisher-place": "Vancouver",
+     "issued": {"date-parts": [[2020]]}},
+]
+
+
+@pytest.mark.skipif(not _pandoc_ok(), reason="needs pandoc")
+@pytest.mark.parametrize("style, expected", [
+    # Chicago 18th edition (13.22, 13.23): no place of publication, et al. for three or more in notes.
+    ("chicago-notes-bibliography", ["Charles Yu, Interior Chinatown (Pantheon Books, 2020), 95–96.",
+                                    "Yu, Interior Chinatown, 101.", "Katie Aubrecht et al., eds.",
+                                    "Yu, Charles. Interior Chinatown. Pantheon Books, 2020."]),
+    ("chicago-author-date", ["(Yu 2020, 95–96)", "Yu, Charles. 2020. Interior Chinatown. Pantheon Books."]),
+    # Turabian 9th edition (Chicago 17th): place of publication, no ibid.
+    ("chicago-notes-bibliography-subsequent-author-title-17th-edition",
+     ["Charles Yu, Interior Chinatown (New York: Pantheon Books, 2020), 95–96.", "Yu, Interior Chinatown, 101.",
+      "Yu, Charles. Interior Chinatown. New York: Pantheon Books, 2020."]),
+])
+def test_chicago_styles_match_the_manuals(tmp_path, style, expected):
+    (tmp_path / "refs.json").write_text(json.dumps(CHICAGO_REFS))
+    (tmp_path / "doc.md").write_text("---\nbibliography: refs.json\n---\nA.[@yu, 95-96] B.[@yu, 101] C.[@aubrecht, 44]\n")
+    out = subprocess.run([shutil.which("pandoc", path=_path()), "doc.md", "--citeproc", "--csl",
+                          str(REPO_LAYOUTS.parent / "csl" / f"{style}.csl"), "-t", "plain", "--wrap=none"],
+                         cwd=tmp_path, capture_output=True, text=True, check=True).stdout
+    for text in expected:
+        assert text in out, (text, out)
 
 
 # -- API -----------------------------------------------------------------------

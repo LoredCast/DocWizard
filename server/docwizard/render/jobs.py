@@ -51,7 +51,7 @@ class ProjectSnapshot:
     assets: dict[str, tuple[str, Path]] = field(default_factory=dict)  # path -> (sha256, blob path)
 
     def digest(self) -> str:
-        h = hashlib.sha256()
+        h = hashlib.sha256(b"short-titles-1\0")  # bump when write() changes what jobs see
         for path in sorted(self.texts):
             h.update(b"t\0" + path.encode() + b"\0" + hashlib.sha256(self.texts[path].encode()).digest())
         for path in sorted(self.assets):
@@ -60,12 +60,42 @@ class ProjectSnapshot:
 
     def write(self, dest: Path) -> None:
         for path, text in self.texts.items():
+            if path.endswith(".json"):
+                text = with_short_titles(text)
             files.atomic_write(dest, path, text.encode("utf-8"))
         for path, (_, blob) in self.assets.items():
             target = dest / path
             target.parent.mkdir(parents=True, exist_ok=True)
             # Always a copy: a hard link would hand the blob itself to the job's user.
             shutil.copyfile(blob, target)
+
+
+def with_short_titles(text: str) -> str:
+    """Give CSL-JSON entries without a short title the main title before the subtitle.
+
+    Chicago, Turabian and other note styles shorten later notes to the short title
+    ("Driving While Brown", not the full title with its subtitle). Pandoc derives it
+    from BibTeX itself but not from CSL-JSON, where Zotero only adds it when the
+    "Short Title" field is filled. Other JSON files pass through unchanged.
+    """
+    if '"title"' not in text:
+        return text
+    try:
+        items = json.loads(text)
+    except ValueError:
+        return text
+    if not isinstance(items, list) or not items or not all(isinstance(i, dict) and "id" in i for i in items):
+        return text
+    changed = False
+    for item in items:
+        title = item.get("title")
+        if not isinstance(title, str) or item.get("title-short"):
+            continue
+        main, sep, rest = title.partition(": ")
+        if sep and main.strip() and rest.strip():
+            item["title-short"] = main.strip()
+            changed = True
+    return json.dumps(items, ensure_ascii=False) if changed else text
 
 
 def cache_key(project_id: str, snapshot_digest: str, layout: Layout, target: str, inputs: list[str], options: dict,
@@ -108,8 +138,6 @@ def metadata(layout: Layout, project_options: dict, inputs: list[str], layout_di
     design = layout.design
     if design["text.lang"]:
         meta.setdefault("lang", design["text.lang"])
-    if design["bib.title"]:
-        meta.setdefault("reference-section-title", design["bib.title"])
     meta.setdefault("link-citations", design["cite.link"])
     # The citation style: a layout option naming a bundled style, else the layout's own CSL
     # file, else the design's style. Front matter `csl:` still wins, since the document
@@ -127,7 +155,29 @@ def metadata(layout: Layout, project_options: dict, inputs: list[str], layout_di
             if choice is own and choice is not None and ".." not in choice and (layout_dir / choice).is_file():
                 meta["csl"] = str(layout_dir / choice)
                 break
+    # The bibliography heading; author-date styles can have their own ("Reference List").
+    title = design["bib.title"]
+    if design["bib.title-author-date"] and _author_date(layout_dir, meta.get("csl")):
+        title = design["bib.title-author-date"]
+    if title:
+        meta.setdefault("reference-section-title", title)
     return meta
+
+
+_AUTHOR_DATE = re.compile(r'citation-format="author-date"')
+
+
+def _author_date(layout_dir: Path | None, csl: str | None) -> bool:
+    """Whether a chosen style cites by author and year in the text."""
+    if not csl or layout_dir is None:
+        return False
+    path = Path(csl) if os.path.isabs(csl) else layout_dir / "_csl" / csl
+    try:
+        with open(path, encoding="utf-8") as f:
+            head = f.read(8192)  # the <info> block comes first
+    except OSError:
+        return False
+    return bool(_AUTHOR_DATE.search(head))
 
 
 def latex_steps(layout: Layout, target: str, root: str) -> tuple[list[dict], list]:
