@@ -20,7 +20,10 @@ DARK_CSS = (b"html{filter:invert(1) hue-rotate(180deg);background:#fff}"
             b"img,video,svg image,picture{filter:invert(1) hue-rotate(180deg)}")
 
 
-def preview_csp(app_origin: str) -> str:
+def preview_csp(app_origin: str, *, same_origin: bool = False) -> str:
+    if same_origin:
+        return ("sandbox; default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+                "font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'")
     return ("default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; "
             f"base-uri 'none'; form-action 'none'; frame-ancestors {app_origin}")
 
@@ -110,7 +113,8 @@ def register(app) -> None:
         if ctype.startswith("text/") or ctype == "image/svg+xml":
             ctype += "; charset=utf-8"
         resp = Response(body, 200, ctype)
-        resp.set_header("content-security-policy", preview_csp(app.cfg.app_origin))
+        same_origin = app.cfg.preview_origin == app.cfg.app_origin
+        resp.set_header("content-security-policy", preview_csp(app.cfg.app_origin, same_origin=same_origin))
         resp.set_header("referrer-policy", "no-referrer")
         resp.set_header("x-content-type-options", "nosniff")
         resp.set_header("cross-origin-resource-policy", "cross-origin")
@@ -132,7 +136,8 @@ def register(app) -> None:
     r.add("GET", "/api/jobs/{id}", job_status, guest=True)
     r.add("GET", "/api/renders/{key}/{file}", rendered_file, guest=True)
     r.add("GET", "/api/projects/{id}/citations", citations, guest=True)
-    r.add("GET", "/_preview/{token}/{key}/{path:path}", preview, auth=False, no_session=True, preview_host=True)
+    r.add("GET", "/_preview/{token}/{key}/{path:path}", preview, auth=False, no_session=True,
+          preview_host=True, same_origin_preview=True)
 
 
 def _safe_child(base: Path, rel: str) -> Path | None:

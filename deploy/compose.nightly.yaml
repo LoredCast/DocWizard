@@ -1,0 +1,12 @@
+# Opt-in nightly channel override:
+#   docker compose -f deploy/compose.yaml -f deploy/compose.nightly.yaml up -d
+# Or set DOCWIZARD_TAG=nightly when running deploy/compose.yaml.
+services:
+  app:
+    image: ${DOCWIZARD_REGISTRY:-ghcr.io/loredcast}/docwizard-app:${DOCWIZARD_TAG:-nightly}
+
+  worker:
+    image: ${DOCWIZARD_REGISTRY:-ghcr.io/loredcast}/docwizard-worker:${DOCWIZARD_TAG:-nightly}
+
+  proxy:
+    image: ${DOCWIZARD_REGISTRY:-ghcr.io/loredcast}/docwizard-proxy:${DOCWIZARD_TAG:-nightly}

@@ -22,20 +22,24 @@ PACKAGES="
 @lezer/lr@1.4.12
 @lezer/markdown@1.8.1
 temml@0.14.0
+pdfjs-dist@4.10.38
 "
 ESBUILD=esbuild@0.28.2
 
 cd "$WORK"
 npm init -y >/dev/null
 # shellcheck disable=SC2086
-npm install --no-audit --no-fund --save-exact $PACKAGES $ESBUILD >/dev/null
+npm install --no-audit --no-fund --omit=optional --save-exact $PACKAGES $ESBUILD >/dev/null
 cp "$ROOT/scripts/vendor-entry.js" entry.js
 
-mkdir -p "$VENDOR/temml"
+mkdir -p "$VENDOR/temml" "$VENDOR/pdfjs"
 npx esbuild entry.js --bundle --minify --format=esm --target=es2022 \
   --legal-comments=none --outfile="$VENDOR/codemirror.js"
 cp node_modules/temml/dist/temml.mjs "$VENDOR/temml/temml.mjs"
 cp node_modules/temml/LICENSE "$VENDOR/temml/LICENSE"
+cp node_modules/pdfjs-dist/build/pdf.min.mjs "$VENDOR/pdfjs/pdf.min.mjs"
+cp node_modules/pdfjs-dist/build/pdf.worker.min.mjs "$VENDOR/pdfjs/pdf.worker.min.mjs"
+cp node_modules/pdfjs-dist/LICENSE "$VENDOR/pdfjs/LICENSE"
 
 {
   echo "# Vendored frontend code. Regenerate with scripts/vendor.sh."
@@ -45,9 +49,10 @@ cp node_modules/temml/LICENSE "$VENDOR/temml/LICENSE"
     const seen = new Map();
     (function walk(deps) {
       for (const [name, info] of Object.entries(deps || {})) {
-        if (name === "esbuild" || name.startsWith("@esbuild/")) continue;
-        if (!seen.has(name)) {
-          const pkg = require(require("path").join(process.cwd(), "node_modules", name, "package.json"));
+        if (name === "esbuild" || name.startsWith("@esbuild/") || name.startsWith("@napi-rs/")) continue;
+        const pkgPath = require("path").join(process.cwd(), "node_modules", name, "package.json");
+        if (!seen.has(name) && require("fs").existsSync(pkgPath)) {
+          const pkg = require(pkgPath);
           seen.set(name, `${name} ${info.version} ${pkg.license}`);
         }
         walk(info.dependencies);
@@ -56,6 +61,6 @@ cp node_modules/temml/LICENSE "$VENDOR/temml/LICENSE"
     console.log([...seen.values()].sort().join("\n"));'
   echo "# sha256 file"
   cd "$VENDOR"
-  sha256sum codemirror.js temml/temml.mjs
+  sha256sum codemirror.js temml/temml.mjs pdfjs/pdf.min.mjs pdfjs/pdf.worker.min.mjs
 } > "$VENDOR/MANIFEST"
 echo "Wrote $VENDOR/MANIFEST"

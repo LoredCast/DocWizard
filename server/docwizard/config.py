@@ -179,6 +179,11 @@ def origin_of(url: str) -> str:
     return f"{parts.scheme}://{parts.netloc}".lower()
 
 
+def _is_loopback_url(url: str) -> bool:
+    host = (urlsplit(url).hostname or "").lower()
+    return host in ("", "localhost", "127.0.0.1", "::1")
+
+
 _SECTIONS = {f.name: f.type for f in dataclasses.fields(Config)}
 
 
@@ -256,4 +261,6 @@ def load(path: str | os.PathLike | None = None, env: dict[str, str] | None = Non
         raise ValueError("accounts.registration must be open, invite, oidc-only or closed")
     if cfg.server.durability not in ("full", "normal"):
         raise ValueError("server.durability must be 'full' or 'normal'")
+    if not _is_loopback_url(cfg.server.public_url) and _is_loopback_url(cfg.server.preview_url):
+        cfg.server.preview_url = f"{cfg.app_origin}/_preview"
     return cfg

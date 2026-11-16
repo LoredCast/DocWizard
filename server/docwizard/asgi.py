@@ -331,7 +331,12 @@ class App:
         route, params = self.router.match(req)
         req.path_params = params
         opts = route.options
-        if bool(opts.get("preview_host")) != on_preview_host and not opts.get("host_any"):
+        same_origin_preview = (
+            bool(opts.get("same_origin_preview"))
+            and self.cfg.preview_origin == self.cfg.app_origin
+            and req.origin == self.cfg.app_origin
+        )
+        if bool(opts.get("preview_host")) != on_preview_host and not opts.get("host_any") and not same_origin_preview:
             raise HTTPError(404, "not_found")
         if not opts.get("no_session"):
             await self.load_session(req)

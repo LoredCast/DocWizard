@@ -104,6 +104,42 @@ async def test_html_preview_on_preview_origin(rapp, rclient):
     await ws.close()
 
 
+async def test_html_preview_on_same_origin_is_sandboxed(cfg):
+    from docwizard.asgi import create_app
+    from docwizard.auth import passwords, users
+
+    cfg.render.spawn_worker = True
+    cfg.server.public_url = "https://write.example.org"
+    cfg.server.preview_url = "https://write.example.org/_preview"
+    import tempfile
+    shared = tempfile.mkdtemp(prefix="dw-same-origin-")
+    os.chmod(shared, 0o755)
+    cfg.server.jobs_dir = os.path.join(shared, "jobs")
+    cfg.server.cache_dir = os.path.join(shared, "cache")
+    app = create_app(cfg)
+    await app.startup()
+    try:
+        pw = passwords.hash_password("correct horse battery")
+        await app.db.write(lambda c: users.create(c, "jane", pw, display_name="Jane Doe"))
+        cl = Client(app, origin="https://write.example.org")
+        await cl.login("jane", "correct horse battery")
+        pid = await new_project(cl)
+        snap = await open_editor(cl, pid)
+        ws = await connect(app, cl, snap)
+        await ws.send({"t": "render", "doc": snap["doc"]["id"], "version": snap["version"], "target": "html"})
+        msg = await ws.recv_until("rendered", timeout=60)
+        assert msg["status"] == "ok" and msg["url"].startswith("https://write.example.org/_preview/")
+        path = msg["url"][len("https://write.example.org"):]
+        r = await cl.get(path)
+        assert r.status == 200
+        csp = r.header("content-security-policy")
+        assert csp.startswith("sandbox;") and "frame-ancestors 'self'" in csp
+        await ws.close()
+    finally:
+        await app.shutdown()
+        shutil.rmtree(shared, ignore_errors=True)
+
+
 async def test_exports(rapp, rclient):
     pid = await new_project(rclient)
     snap = await open_editor(rclient, pid)

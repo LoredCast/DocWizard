@@ -2,10 +2,12 @@
 {% block content %}
 <p class="pad muted" role="status" id="offline-note">{{ _("You're offline. Documents opened recently in this browser can still be edited; your changes are sent when the connection is back.") }}</p>
 <h2 class="pad">{{ _("Recent") }}</h2>
+<div class="table-wrap">
 <table id="offline-recent" hidden>
   <thead><tr><th>{{ _("Name") }}</th><th>{{ _("Project") }}</th><th>{{ _("Opened") }}</th><th></th></tr></thead>
   <tbody></tbody>
 </table>
+</div>
 <p class="pad muted" id="offline-empty" hidden>{{ _("No documents are stored in this browser.") }}</p>
 {% endblock %}
 {% block scripts %}<script type="module" src="{{ static }}/app/offline.js"></script>{% endblock %}

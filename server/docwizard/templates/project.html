@@ -3,6 +3,7 @@
 {% block crumbs %}<a class="wordmark" href="/">DocWizard</a><span>/</span><span>{{ project.name }}</span>{% endblock %}
 {% block content %}
 {% if error %}<p class="error pad" role="alert">{{ _(error) }}</p>{% endif %}
+<div class="table-wrap">
 <table>
   <thead><tr><th>{{ _("Name") }} ▴</th><th>{{ _("Kind") }}</th><th>{{ _("Modified") }}</th><th class="num">{{ _("Size") }}</th></tr></thead>
   <tbody>
@@ -18,6 +19,7 @@
   {% endfor %}
   </tbody>
 </table>
+</div>
 <div class="panels">
 {% if can(role, "edit") %}
 <section>

@@ -82,6 +82,9 @@ export function confirmDialog(message, actionLabel = t("Delete")) {
 export function wireCommon(root = document) {
   registerServiceWorker();
   root.addEventListener("click", (event) => {
+    for (const d of root.querySelectorAll("details.menu[open]")) {
+      if (!d.contains(event.target)) d.open = false;
+    }
     const open = event.target.closest("[data-open-dialog]");
     if (open) {
       document.getElementById(open.dataset.openDialog)?.showModal();
@@ -95,6 +98,11 @@ export function wireCommon(root = document) {
     const row = event.target.closest("tr[data-href]");
     if (row && !event.target.closest("a, button, input")) {
       location.href = row.dataset.href;
+    }
+  });
+  root.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      for (const d of root.querySelectorAll("details.menu[open]")) d.open = false;
     }
   });
   root.addEventListener("focusin", (event) => {

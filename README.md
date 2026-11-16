@@ -81,6 +81,7 @@ Some features need configuration:
 
 Prebuilt multi-arch images (`linux/amd64`, `linux/arm64`) are published to GitHub Container Registry (`ghcr.io/loredcast/docwizard-*`):
 - `main` commits publish rolling tags (`:main` and `:sha-<commit>`).
+- `nightly` commits publish nightly channel tags (`:nightly`, `:nightly-YYYYMMDD`, and `:sha-<commit>`).
 - `v*` git tags publish release tags (`:<version>`, `:latest`).
 
 By default, Compose pulls `:main` and listens on two local HTTP ports (`127.0.0.1:8080` for the app and `127.0.0.1:8081` for the publish/preview origin) so an external reverse proxy on the same host or another host can handle TLS and public domains without needing a repo clone:
@@ -92,12 +93,12 @@ curl -fsSL https://raw.githubusercontent.com/LoredCast/DocWizard/main/deploy/doc
 # (forwarding Host, X-Forwarded-Proto and WebSockets):
 #   write.example.org -> <host>:8080
 #   pub.example.org   -> <host>:8081
-# Set DOCWIZARD_TAG=latest (or a specific version like 0.1.0) to pin a release instead of :main.
+# Set DOCWIZARD_TAG=nightly (or latest / 0.1.0) to switch channels instead of :main.
 docker compose up -d
 docker compose exec app python -m docwizard create-admin you
 ```
 
-From a local checkout, run `docker compose -f deploy/compose.yaml up -d` (add `--build` to build locally, and override `DOCWIZARD_APP_LISTEN` / `DOCWIZARD_PUBLISH_LISTEN` / `DOCWIZARD_TRUSTED_PROXIES` if needed).
+From a local checkout, run `docker compose -f deploy/compose.yaml up -d` (add `-f deploy/compose.nightly.yaml` or `DOCWIZARD_TAG=nightly` for the nightly channel, `--build` to build locally, and override `DOCWIZARD_APP_LISTEN` / `DOCWIZARD_PUBLISH_LISTEN` / `DOCWIZARD_TRUSTED_PROXIES` if needed).
 
 To let the bundled Caddy terminate TLS directly on ports `80` and `443`, opt in with [deploy/compose.ssl.yaml](deploy/compose.ssl.yaml), [deploy/Caddyfile.ssl](deploy/Caddyfile.ssl), and bare domain names:
 

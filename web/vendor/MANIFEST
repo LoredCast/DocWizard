@@ -14,9 +14,12 @@
 @lezer/markdown 1.8.1 MIT
 @marijn/find-cluster-break 1.0.4 MIT
 crelt 1.0.7 MIT
+pdfjs-dist 4.10.38 Apache-2.0
 style-mod 4.1.4 MIT
 temml 0.14.0 MIT
 w3c-keyname 2.2.8 MIT
 # sha256 file
 667f290d4fdb01fa02057d718f4a4d86926a30db5851a1fe391cd0619369eef9  codemirror.js
 09e55a0c364d35b8ef66be49486b90884240a7e66c463a825e096faf27b0d59d  temml/temml.mjs
+27fc2a057a00f92a4334ad06e17dbd7259912954e9fb7f76400bcca5fd190a9c  pdfjs/pdf.min.mjs
+1baa1844c89c80a5b2797c916e75ab29254be46d8e9cb53cb6364d7aad84be36  pdfjs/pdf.worker.min.mjs

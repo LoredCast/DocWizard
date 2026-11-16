@@ -88,3 +88,29 @@ async def test_register_open(app):
     r = await cl.post("/register", form={"username": "newbie", "display_name": "New", "password": "a decent passphrase"})
     assert r.status == 303
     assert (await cl.get("/api/me")).json()["user"]["username"] == "newbie"
+
+
+def test_config_derives_same_origin_preview_for_non_loopback_host():
+    from docwizard import config
+
+    cfg = config.load(None, env={"DOCWIZARD_SERVER_PUBLIC_URL": "https://write.example.org"})
+    assert cfg.app_origin == "https://write.example.org"
+    assert cfg.preview_origin == "https://write.example.org"
+    assert cfg.server.preview_url == "https://write.example.org/_preview"
+
+    explicit = config.load(None, env={
+        "DOCWIZARD_SERVER_PUBLIC_URL": "https://write.example.org",
+        "DOCWIZARD_SERVER_PREVIEW_URL": "https://pub.example.org/_preview",
+    })
+    assert explicit.preview_origin == "https://pub.example.org"
+
+
+def test_request_handles_comma_separated_forwarded_headers():
+    from docwizard.http.request import Request
+
+    req = Request({
+        "type": "http", "method": "GET", "path": "/", "scheme": "http",
+        "headers": [(b"host", b"write.example.org"), (b"x-forwarded-proto", b"https"), (b"x-forwarded-proto", b"http")],
+    }, None)
+    assert req.scheme == "https"
+    assert req.origin == "https://write.example.org"

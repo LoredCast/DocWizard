@@ -25,18 +25,27 @@
   <div class="actions">
     {% block actions %}{% endblock %}
     {% if user %}
-    {% if user.is_admin %}<a href="/admin">{{ _("Admin") }}</a>{% endif %}
-    <a href="/settings">{{ user.display_name }}</a>
-    <form method="post" action="/logout" class="inline">
-      <input type="hidden" name="_csrf" value="{{ csrf }}">
-      <button type="submit">{{ _("Log out") }}</button>
-    </form>
+    <details class="menu account-menu">
+      <summary>{{ user.display_name }}</summary>
+      <div class="menu-body actions-list">
+        {% if user.is_admin %}<a class="menu-item" href="/admin">{{ _("Admin") }}</a>{% endif %}
+        <a class="menu-item" href="/settings">{{ _("Settings") }}</a>
+        <form method="post" action="/logout" class="inline">
+          <input type="hidden" name="_csrf" value="{{ csrf }}">
+          <button type="submit">{{ _("Log out") }}</button>
+        </form>
+      </div>
+    </details>
     {% elif guest %}
-    <span>{{ guest.display_name }} <span class="muted">({{ _("guest") }})</span></span>
-    <form method="post" action="/logout" class="inline">
-      <input type="hidden" name="_csrf" value="{{ csrf }}">
-      <button type="submit">{{ _("Leave") }}</button>
-    </form>
+    <details class="menu account-menu">
+      <summary>{{ guest.display_name }} <span class="muted">({{ _("guest") }})</span></summary>
+      <div class="menu-body actions-list">
+        <form method="post" action="/logout" class="inline">
+          <input type="hidden" name="_csrf" value="{{ csrf }}">
+          <button type="submit">{{ _("Leave") }}</button>
+        </form>
+      </div>
+    </details>
     {% endif %}
   </div>
 </header>

@@ -1,5 +1,5 @@
 // The editor page: wires the editor, collaboration, preview, export, layout options and versions.
-import { EditorSelection, EditorState, EditorView } from "codemirror";
+import { EditorSelection, EditorState, EditorView, redo, undo } from "codemirror";
 import { DocSession } from "../collab/peer.js";
 import { PresenceSender, PresenceView, peersField } from "../collab/presence.js";
 import { Socket } from "../collab/socket.js";
@@ -9,6 +9,11 @@ import { getCitations, getDoc, getDocByUrl, prune, putCitations, putLayout } fro
 import { $, api, confirmDialog, el, t, toast, wireCommon } from "../ui/dom.js";
 import { AnchorLoader, anchorsField, conflictGutter } from "./anchors.js";
 import { setLibrary } from "./citations.js";
+import {
+  activeFormatting, cycleHeading, insertCitation, insertFootnote, insertLink,
+  toggleBold, toggleBulletList, toggleCode, toggleInlineMath, toggleItalic,
+  toggleOrderedList, toggleQuote, toggleStrike, toggleTaskList,
+} from "./commands.js";
 import { CommentsPanel } from "./comments.js";
 import { baseExtensions } from "./setup.js";
 
@@ -20,6 +25,7 @@ let snap = JSON.parse($("#snapshot").textContent);
 const offlineRecord = snap ? null : await getDocByUrl(location.pathname);
 if (!snap) {
   if (!offlineRecord?.meta) {
+    $(".mode-switch")?.setAttribute("hidden", "");
     $("#split").replaceChildren(el("section", { class: "pad" },
       el("h2", {}, t("Not available offline")),
       el("p", {}, t("This document hasn't been opened in this browser recently. Open it again when you're online.")),
@@ -88,7 +94,10 @@ const view = new EditorView({
   dispatchTransactions(trs, v) {
     v.update(trs);
     if (trs.some((tr) => tr.docChanged)) docChanged();
-    if (trs.some((tr) => tr.selection || tr.docChanged)) presenceSender.schedule();
+    if (trs.some((tr) => tr.selection || tr.docChanged)) {
+      presenceSender.schedule();
+      updateFormatBar();
+    }
     if (trs.some((tr) => tr.selection)) cursorMoved();
   },
 });
@@ -96,6 +105,69 @@ const { text: _text, version: _version, clientID: _clientID, ...meta } = snap;
 session.keep = { url: location.pathname, meta, pinned: Boolean(snap.doc.pinned) };
 session.start(view);
 view.focus();
+
+// -- Formatting bar and mobile actions menu -------------------------------
+const formatBar = $("#format-bar");
+const FORMAT_CMDS = {
+  undo, redo,
+  bold: toggleBold, italic: toggleItalic, strike: toggleStrike, code: toggleCode,
+  heading: cycleHeading, quote: toggleQuote, bullet: toggleBulletList,
+  ordered: toggleOrderedList, task: toggleTaskList,
+  link: insertLink, math: toggleInlineMath, cite: insertCitation, footnote: insertFootnote,
+};
+if (formatBar) {
+  formatBar.hidden = readOnly || !isMarkdown;
+  formatBar.addEventListener("mousedown", (event) => {
+    if (event.target.closest("[data-cmd]")) event.preventDefault();
+  });
+  formatBar.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-cmd]");
+    if (!btn || readOnly || !isMarkdown) return;
+    const cmd = FORMAT_CMDS[btn.dataset.cmd];
+    if (cmd) {
+      cmd(view);
+      view.focus();
+      updateFormatBar();
+    }
+  });
+}
+
+function updateFormatBar() {
+  if (!formatBar || formatBar.hidden) return;
+  const active = activeFormatting(view.state);
+  for (const btn of formatBar.querySelectorAll("[data-cmd]")) {
+    const cmd = btn.dataset.cmd;
+    if (cmd in active) {
+      const on = Boolean(active[cmd]);
+      if (btn.hasAttribute("aria-pressed")) btn.setAttribute("aria-pressed", String(on));
+      if (cmd === "heading") btn.textContent = active.heading ? `H${active.heading}` : "H";
+    }
+  }
+}
+updateFormatBar();
+
+const editorMore = $("#editor-more");
+const moreBtn = $("#more-actions");
+if (editorMore && moreBtn) {
+  const closeMore = () => {
+    editorMore.classList.remove("open");
+    moreBtn.setAttribute("aria-expanded", "false");
+  };
+  moreBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const open = editorMore.classList.toggle("open");
+    moreBtn.setAttribute("aria-expanded", String(open));
+  });
+  $("#toolbar-buttons")?.addEventListener("click", (event) => {
+    if (event.target.closest("button")) closeMore();
+  });
+  document.addEventListener("click", (event) => {
+    if (editorMore.classList.contains("open") && !editorMore.contains(event.target)) closeMore();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeMore();
+  });
+}
 
 if (!offlineRecord) {
   getDoc(docId).then((record) => {
@@ -123,6 +195,8 @@ function showStatus({ state, waiting }) {
     offline: waiting ? (waiting === 1 ? t("Offline · 1 change waiting") : t("Offline · {n} changes waiting", { n: waiting })) : t("Offline"),
   }[state];
   $("#save-state").textContent = label;
+  const menuStatus = $("#menu-save-state");
+  if (menuStatus) menuStatus.textContent = label;
 }
 
 function showPeers(peers) {
@@ -236,8 +310,7 @@ window.addEventListener("focus", loadCitations);
 // -- Preview -------------------------------------------------------------
 const pane = $("#preview-pane");
 const frame = $("#preview");
-const html = new HtmlPreview(frame);
-const pdf = new PdfPreview(pane);
+const previewError = $("#preview-error");
 const narrow = window.matchMedia("(max-width: 900px)");
 // LaTeX documents preview the project's root as a PDF built with LaTeX; Markdown uses the
 // layout's PDF engine (§9.5).
@@ -247,6 +320,44 @@ let target = isLatex || stored("dw.previewTarget", "html") === "pdf" ? pdfTarget
 let previewOn = stored("dw.preview", "on") === "on";
 let previewTimer = null;
 let shown = { html: -1, "pdf-typst": -1, "pdf-latex": -1 };
+const previewFailed = { html: false, pdf: false };
+
+function showPreviewError(which, url) {
+  previewFailed[which] = true;
+  if ((which === "html") !== (target === "html")) return;
+  const isHtml = which === "html";
+  previewError.replaceChildren(
+    el("p", { class: "error" }, isHtml ? t("HTML preview could not be loaded.") : t("PDF preview could not be loaded.")),
+    el("div", { class: "row" },
+      el("button", { type: "button", onclick: () => {
+        clearPreviewError(which);
+        if (isHtml) html.reload();
+        else pdf.reload();
+      } }, t("Retry")),
+      url ? el("a", { class: "button", href: url, target: "_blank", rel: "noopener noreferrer" },
+        isHtml ? t("Open preview") : t("Open PDF")) : null));
+  previewError.hidden = false;
+  frame.hidden = true;
+  pdf.setVisible(false);
+}
+
+function clearPreviewError(which) {
+  previewFailed[which] = false;
+  if ((which === "html") !== (target === "html")) return;
+  previewError.hidden = true;
+  previewError.replaceChildren();
+  frame.hidden = target !== "html";
+  pdf.setVisible(target !== "html");
+}
+
+const html = new HtmlPreview(frame, {
+  onLoad: () => clearPreviewError("html"),
+  onError: (url) => showPreviewError("html", url),
+});
+const pdf = new PdfPreview(pane, {
+  onLoad: () => clearPreviewError("pdf"),
+  onError: (url) => showPreviewError("pdf", url),
+});
 if (isLatex) {
   for (const radio of document.querySelectorAll('input[name="preview-target"]')) radio.closest("label").hidden = true;
 }
@@ -263,31 +374,60 @@ function previewVisible() {
 
 function applyPreviewLayout() {
   const button = $("#toggle-preview");
+  const modeEdit = $("#mode-edit");
+  const modePreview = $("#mode-preview");
+  const showingMobile = split.classList.contains("show-preview");
   if (narrow.matches) {
     split.classList.remove("no-preview");
-    button.textContent = split.classList.contains("show-preview") ? t("Edit") : t("Preview");
-    button.setAttribute("aria-pressed", String(split.classList.contains("show-preview")));
+    button.textContent = showingMobile ? t("Edit") : t("Preview");
+    button.setAttribute("aria-pressed", String(showingMobile));
   } else {
     split.classList.remove("show-preview");
     split.classList.toggle("no-preview", !previewOn);
     button.textContent = t("Preview");
     button.setAttribute("aria-pressed", String(previewOn));
   }
-  frame.hidden = target !== "html";
-  pdf.setVisible(target !== "html");
+  if (modeEdit && modePreview) {
+    modeEdit.setAttribute("aria-selected", String(!showingMobile));
+    modePreview.setAttribute("aria-selected", String(showingMobile));
+  }
+  const activeKey = target === "html" ? "html" : "pdf";
+  const failed = previewFailed[activeKey];
+  previewError.hidden = !failed;
+  frame.hidden = target !== "html" || failed;
+  pdf.setVisible(target !== "html" && !failed);
 }
 applyPreviewLayout();
-narrow.addEventListener("change", () => { applyPreviewLayout(); requestPreview(0); });
+narrow.addEventListener("change", () => {
+  applyPreviewLayout();
+  requestPreview(0);
+  if (previewVisible()) cursorMoved();
+});
+
+function setMobilePreview(show) {
+  split.classList.toggle("show-preview", show);
+  applyPreviewLayout();
+  if (show) {
+    requestPreview(0);
+    cursorMoved();
+  } else {
+    view.focus();
+  }
+}
+
+$("#mode-edit")?.addEventListener("click", () => setMobilePreview(false));
+$("#mode-preview")?.addEventListener("click", () => setMobilePreview(true));
 
 $("#toggle-preview").addEventListener("click", () => {
   if (narrow.matches) {
-    split.classList.toggle("show-preview");
-  } else {
-    previewOn = !previewOn;
-    store("dw.preview", previewOn ? "on" : "off");
+    setMobilePreview(!split.classList.contains("show-preview"));
+    return;
   }
+  previewOn = !previewOn;
+  store("dw.preview", previewOn ? "on" : "off");
   applyPreviewLayout();
   requestPreview(0);
+  if (previewVisible()) cursorMoved();
 });
 
 for (const radio of document.querySelectorAll('input[name="preview-target"]')) {
@@ -337,14 +477,19 @@ function showRendered(msg) {
   if ((msg.version ?? 0) < shown[msg.target]) return;
   shown[msg.target] = msg.version ?? 0;
   $("#preview-state").textContent = t("Preview");
-  if (msg.target === "html") html.show(msg.url);
-  else pdf.show(msg.url);
+  if (msg.target === "html") {
+    clearPreviewError("html");
+    html.show(msg.url);
+  } else {
+    clearPreviewError("pdf");
+    pdf.show(msg.url);
+  }
 }
 
 // One-way scroll sync: the heading above the cursor (§6.4).
 let lastHeading = null;
 function cursorMoved() {
-  if (!isMarkdown || target !== "html" || !outline.length) return;
+  if (!isMarkdown || target !== "html" || !outline.length || !previewVisible()) return;
   const line = view.state.doc.lineAt(view.state.selection.main.head).number;
   let current = null;
   for (const h of outline) {
