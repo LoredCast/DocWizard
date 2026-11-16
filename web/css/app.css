@@ -343,6 +343,88 @@
   @media (max-width: 480px) {
     .design-fields, .option-list { grid-template-columns: 1fr; }
   }
+
+  /* Zotero settings: the add form shows the fields of the chosen connection. */
+  .zotero-add:has(input[value="local"]:checked) .zotero-web,
+  .zotero-add:not(:has(input[value="local"]:checked)) .zotero-local { display: none; }
+  .zotero-storage { margin: 4px 0 8px; }
+  .zotero-storage summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+
+  /* References panel (§10.4) */
+  @media (min-width: 901px) {
+    .split.with-panel.refs-open { grid-template-columns: 1fr 1fr 24rem; }
+    .split.no-preview.with-panel.refs-open { grid-template-columns: 1fr 24rem; }
+  }
+  .refs-controls { display: grid; gap: 6px; padding: 8px 16px; border-bottom: 1px solid var(--line); }
+  .refs-controls select, .refs-controls input { width: 100%; }
+  .refs-controls select[hidden] { display: none; }
+  .refs-note { font-size: 12px; overflow-wrap: anywhere; }
+  .refs-cursor h3, .refs-heading { font-size: 12px; font-weight: 600; color: var(--muted); margin: 8px 0 4px; text-transform: uppercase; letter-spacing: .04em; }
+  .refs-cursor { border-bottom: 1px solid var(--line); }
+  .refs-cursor:empty { display: none; }
+  .refs-cite { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; }
+  .refs-cite .grow { flex: 1; min-width: 0; }
+  .refs-panel { min-width: 0; overflow: hidden; }
+  .refs-panel .panel-body { overflow-x: hidden; }
+  .refs-list { margin: 0; }
+  .refs-list li.ref-item, .refs-list li.refs-heading { display: block; padding: 0; }
+  .refs-list li.refs-heading { border-bottom: 0; padding-top: 8px; }
+  .ref-item { border-bottom: 1px solid var(--line); }
+  .ref-head {
+    display: flex; flex-direction: column; align-items: stretch; gap: 2px; width: 100%; text-align: left;
+    border: 0; border-radius: 0; padding: 6px 0; min-height: 0; background: none; height: auto; white-space: normal;
+  }
+  .ref-head:hover { background: var(--hover); }
+  .ref-line { display: flex; gap: 6px; align-items: baseline; }
+  .ref-line strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ref-title { color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 13px; }
+  .ref-item.missing strong { color: var(--danger); }
+  .ref-badges { display: flex; gap: 4px; flex: none; }
+  .badge { font-size: 11px; line-height: 16px; padding: 0 5px; border: 1px solid var(--line); border-radius: 8px; color: var(--fg); }
+  .badge.muted { color: var(--muted); }
+  .ref-details { padding: 0 0 10px; display: grid; gap: 6px; min-width: 0; }
+  .ref-details p { margin: 0; overflow-wrap: anywhere; }
+  .ref-details .row, .ref-atts li { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .ref-locator { flex: 1; min-width: 6rem; }
+  .ref-atts { margin: 0; display: grid; gap: 4px; }
+  .ref-atts li { border-bottom: 0; padding: 0; }
+  .ref-atts .grow, .pdf-finder .grow { flex: 1; min-width: 0; }
+  .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .refs-more { padding: 8px 0; }
+  .cite-info { display: grid; gap: 2px; max-width: 22rem; white-space: normal; }
+
+  /* Finding a citation's page in its PDF */
+  dialog.pdf-finder {
+    width: min(72rem, calc(100vw - 16px)); height: min(52rem, calc(100dvh - 16px)); max-width: none; max-height: none;
+    padding: 0; display: flex; flex-direction: column;
+  }
+  dialog.pdf-finder:not([open]) { display: none; }
+  .pdf-finder-head, .pdf-finder-foot, .pdf-search { display: flex; gap: 8px; align-items: center; padding: 8px 12px; flex-wrap: wrap; }
+  .pdf-finder-head { border-bottom: 1px solid var(--line); }
+  .pdf-finder-foot { border-top: 1px solid var(--line); }
+  .pdf-finder .row { display: flex; gap: 6px; align-items: center; }
+  .pdf-search input { flex: 1; min-width: 12rem; }
+  .pdf-finder-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 18rem 1fr; border-top: 1px solid var(--line); }
+  .pdf-hits-wrap { overflow: auto; border-right: 1px solid var(--line); }
+  .pdf-hits { margin: 0; padding: 0; list-style: none; }
+  .pdf-hit {
+    white-space: normal; display: grid; gap: 2px; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line);
+    border-radius: 0; padding: 6px 10px; height: auto; font-size: 12px; background: none;
+  }
+  .pdf-hit.active { background: var(--sel); }
+  .pdf-hit-page { font-weight: 600; font-size: 13px; }
+  .pdf-stage { overflow: auto; background: light-dark(#e9e9e9, #111); padding: 12px; display: flex; justify-content: center; align-items: flex-start; }
+  .pdf-page { position: relative; flex: none; box-shadow: 0 1px 4px rgb(0 0 0 / .25); background: #fff; }
+  .pdf-page canvas { display: block; }
+  .pdf-marks { position: absolute; inset: 0; pointer-events: none; }
+  .pdf-mark { position: absolute; background: rgb(255 214 0 / .45); mix-blend-mode: multiply; border-radius: 2px; }
+  .pdf-page-input { width: 5rem; }
+  .pdf-printed { width: 5rem; }
+  .pdf-locator { padding: 2px 6px; border: 1px solid var(--line); border-radius: var(--radius); }
+  @media (max-width: 700px) {
+    .pdf-finder-body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 8rem) 1fr; }
+    .pdf-hits-wrap { border-right: 0; border-bottom: 1px solid var(--line); }
+  }
 }
 
 /* Unlayered and scoped to #editor so they win over CodeMirror's injected base theme. */

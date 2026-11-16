@@ -9,7 +9,7 @@ function usePdfJs() {
   return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 }
 
-async function loadPdfJs() {
+export async function loadPdfJs() {
   if (!pdfjsPromise) {
     const modUrl = new URL("../../vendor/pdfjs/pdf.min.mjs", import.meta.url).href;
     const workerUrl = new URL("../../vendor/pdfjs/pdf.worker.min.mjs", import.meta.url).href;

@@ -878,10 +878,13 @@ These ship with DocWizard and are pre-approved:
 | Source | How | Refresh |
 |---|---|---|
 | Zotero Web API | Per-user, read-only API key for a user or group library, optionally one collection. Fetched server-side as CSL-JSON (`format=csljson`), incrementally with `since=<version>` and the `Last-Modified-Version` header | Every 15 min and on demand |
+| Zotero desktop (local API) | Zotero 7's local API (`http://localhost:23119/api`, user `0`), which answers like the Web API. The server connects to it, so it works when DocWizard runs on the same computer or network and an admin allows the host. Zotero rejects requests from web pages, so the browser can't use it directly. Its versions are local to one installation, named by `Zotero-Server-ID`; a different ID starts a full refresh | Every 15 min and on demand |
 | Project files | `.json` (CSL-JSON) used directly; `.bib` and `.ris` converted with `bib2csl` | When the file changes |
 | Better BibTeX auto-export | Better BibTeX keeps a `.bib` or CSL-JSON export current on the user's machine. Placed in a synced folder or the project, it is picked up like any project file and carries citation keys chosen in Zotero | On sync |
 
-Not supported: Zotero's local API on `localhost:23119`, because web pages can't reach it. A small desktop helper could add this later ([§23](#23-open-questions)).
+Refreshes ask for `format=json&include=data,csljson`, so each item brings its collections and date added, and attachments come along as child items. Collections are fetched with the same `since`. A full refresh (version 0) also removes whatever the listing didn't name.
+
+Attachment files (§10.4) come from Zotero's file storage (`/items/<key>/file`, whose redirect to a signed URL is followed without the API key), or from the WebDAV folder Zotero syncs files to: `<url>/zotero/<attachment key>.zip`, one zip per attachment. The local API only hands out `file://` links, so a local library needs the WebDAV folder for PDFs, and otherwise links to `zotero://open-pdf`. Downloads are cached by attachment and MD5, up to 1 GB.
 
 ### 10.3 Citation keys
 
@@ -897,7 +900,9 @@ Generated keys are stored in `citation_keys`, so a key never changes once it has
 
 - `[@` or `@` opens autocomplete, with fuzzy search over author, title, year and key, run in a worker.
 - Hovering or long-pressing a citation shows author, year, title and container, plus a link to the item in the Zotero web library when there is one.
-- An insert-citation dialog lets you pick items, add a locator (`p. 23`), a prefix or suffix, or suppress the author (`[-@key]`).
+- `@` autocomplete lists the document's bibliography first, then the project's other bibliography files, then a search of your own Zotero libraries. Picking an item from elsewhere adds its file or `zotero:<name>` to the front matter's `bibliography`.
+- The References panel shows the citation at the cursor, what the document cites (unknown keys flagged), the project's references, and each of your Zotero libraries with search and collections. Citing from it adds the key to the citation at the cursor or inserts a new one, with an optional locator in the document's language (`p. 23`, `S. 23`).
+- Find page: an item's PDF opens with PDF.js, which searches its text for the quotation before the citation (hyphenation and ligatures normalized, long quotations matched by their first or last words) and highlights it. The printed page comes from the PDF's page labels, else from the item's page range (an article on pp. 123–145 starts at 123), else from a number the user corrects once per PDF. *Cite this page* sets the citation's locator.
 - Unknown keys are flagged inline. A references panel lists every cited item.
 
 ## 11. Storage
@@ -1552,7 +1557,7 @@ The roadmap is a thin vertical slice first. The **first release gate** is: *I ca
 3. **Suggestion mode**: worth building on top of the operation log after v1?
 4. **LaTeX live preview**: is latexmk fast enough for long documents, or are draft-mode or partial compiles needed?
 5. **OIDC in the UI**: should providers be editable in the admin area (secrets encrypted in the database) instead of only in the config file?
-6. **Zotero desktop helper**: is a small helper for Zotero's local API worth it?
+6. **Zotero desktop helper**: the server reaches Zotero's local API when it runs on the same network. Is a small helper worth it for hosted servers?
 7. **Mobile**: what is the minimum acceptable editing experience on phones?
 8. **Scaling**: is more than one app process (with sticky routing per document) needed for any realistic deployment?
 9. **Two-way scroll sync**: a small nonce-allowed script in the preview could report its scroll position to the editor via `postMessage`. Is that worth the extra surface on the preview origin?

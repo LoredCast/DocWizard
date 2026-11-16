@@ -8,13 +8,14 @@ import { PdfPreview } from "../preview/pdf.js";
 import { getCitations, getDoc, getDocByUrl, prune, putCitations, putLayout } from "../store/idb.js";
 import { $, api, confirmDialog, el, t, toast, wireCommon } from "../ui/dom.js";
 import { AnchorLoader, anchorsField, conflictGutter } from "./anchors.js";
-import { setLibrary } from "./citations.js";
+import { setCiteHooks, setLibrary } from "./citations.js";
 import {
   activeFormatting, cycleHeading, insertCitation, insertFootnote, insertLink,
   toggleBold, toggleBulletList, toggleCode, toggleInlineMath, toggleItalic,
   toggleOrderedList, toggleQuote, toggleStrike, toggleTaskList,
 } from "./commands.js";
 import { CommentsPanel } from "./comments.js";
+import { ReferencesPanel } from "./references.js";
 import { baseExtensions } from "./setup.js";
 
 wireCommon();
@@ -66,6 +67,7 @@ const store = (key, value) => {
 const socket = new Socket();
 const base = baseExtensions({ kind, readOnly });
 let library = new Map();
+let references = null; // the references panel, created below
 // Clicking commented text opens its thread.
 const markClicks = EditorView.domEventHandlers({
   click(event) {
@@ -99,6 +101,7 @@ const view = new EditorView({
       updateFormatBar();
     }
     if (trs.some((tr) => tr.selection)) cursorMoved();
+    if (trs.some((tr) => tr.selection || tr.docChanged)) references?.cursorMoved();
   },
 });
 const { text: _text, version: _version, clientID: _clientID, ...meta } = snap;
@@ -114,6 +117,7 @@ const FORMAT_CMDS = {
   heading: cycleHeading, quote: toggleQuote, bullet: toggleBulletList,
   ordered: toggleOrderedList, task: toggleTaskList,
   link: insertLink, math: toggleInlineMath, cite: insertCitation, footnote: insertFootnote,
+  refs: () => references?.toggle(),
 };
 if (formatBar) {
   formatBar.hidden = readOnly || !isMarkdown;
@@ -299,11 +303,25 @@ async function loadCitations() {
     putCitations(projectId, citationsEtag, data.items);
     library = new Map(data.items.map((item) => [item.id, item]));
     view.dispatch({ effects: setLibrary.of(library) });
+    references?.libraryChanged();
   } catch {
     /* offline: keep the current library */
   }
 }
 loadCitations();
+
+// Citing from a library the document didn't use yet: once the front matter reaches the
+// server, the project's citation list has the new items (and their chips their labels).
+let citeReload = [];
+function reloadCitationsSoon() {
+  citeReload.forEach(clearTimeout);
+  citeReload = [1500, 5000].map((ms) => setTimeout(loadCitations, ms));
+}
+const canBrowse = !snap.user?.guest && !offlineRecord;
+setCiteHooks({
+  remoteSearch: canBrowse ? async (q) => (await api("GET", `/api/citations/search?q=${encodeURIComponent(q)}`)).items : null,
+  afterCite: reloadCitationsSoon,
+});
 // Bibliography files edited elsewhere show up on focus.
 window.addEventListener("focus", loadCitations);
 
@@ -647,10 +665,29 @@ sidePanel.addEventListener("toggle", () => {
   split.classList.toggle("with-panel", !sidePanel.hidden);
   $("#open-comments").setAttribute("aria-pressed", String(!sidePanel.hidden));
 });
-$("#open-comments").addEventListener("click", () => (comments.open ? comments.hide() : comments.show()));
+$("#open-comments").addEventListener("click", () => {
+  if (!comments.open && references?.open) references.hide();
+  if (comments.open) comments.hide();
+  else comments.show();
+});
 $("#close-panel").addEventListener("click", () => comments.hide());
 $("#new-comment").hidden = !snap.can.comment;
 $("#new-comment").addEventListener("click", () => comments.compose());
+
+// -- References (§10.4) ------------------------------------------------------
+const refsPanel = $("#refs-panel");
+references = isMarkdown && refsPanel ? new ReferencesPanel({
+  view, panel: refsPanel, readOnly, canBrowse,
+  onToggle: (open) => {
+    if (open && comments.open) comments.hide();
+    split.classList.toggle("with-panel", open || comments.open);
+    split.classList.toggle("refs-open", open);
+    $("#open-refs")?.setAttribute("aria-pressed", String(open));
+    formatBar?.querySelector('[data-cmd="refs"]')?.setAttribute("aria-pressed", String(open));
+  },
+  onCited: reloadCitationsSoon,
+}) : null;
+$("#open-refs")?.addEventListener("click", () => references?.toggle());
 
 // -- Conflicts (§12.3) ------------------------------------------------------
 let conflicts = [];
@@ -864,6 +901,9 @@ document.addEventListener("keydown", (event) => {
   } else if (mod && event.key === "e" && !event.shiftKey) {
     event.preventDefault();
     $("#open-export").click();
+  } else if (mod && event.altKey && event.code === "KeyR" && references) {
+    event.preventDefault();
+    references.toggle();
   } else if (mod && event.altKey && (event.key === "m" || event.code === "KeyM")) {
     event.preventDefault();
     if (snap.can.comment) comments.compose();

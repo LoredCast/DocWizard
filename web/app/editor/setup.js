@@ -3,7 +3,7 @@ import {
   EditorState, EditorView, HighlightStyle, Language, autocompletion, closeBrackets, closeBracketsKeymap,
   completionKeymap, defaultKeymap, defineLanguageFacet, drawSelection, dropCursor, foldKeymap, foldService,
   highlightSelectionMatches, highlightSpecialChars, history, historyKeymap, indentOnInput, keymap, markdownParser,
-  GFM, rectangularSelection, searchKeymap, syntaxHighlighting, tags as t,
+  GFM, languageDataProp, rectangularSelection, searchKeymap, syntaxHighlighting, tags as t,
 } from "codemirror";
 import { citationCompletions, libraryField } from "./citations.js";
 import { markdownKeymap } from "./commands.js";
@@ -16,9 +16,11 @@ const markdownData = defineLanguageFacet({
   autocomplete: citationCompletions,
 });
 
+// The document node carries the language data, so citation autocomplete (and comment
+// tokens) apply; a bare Language doesn't attach it by itself.
 export const markdownLanguage = new Language(
   markdownData,
-  markdownParser.configure([GFM, ...pandocExtensions]),
+  markdownParser.configure([GFM, ...pandocExtensions, { props: [languageDataProp.add({ Document: markdownData })] }]),
   [],
   "markdown",
 );

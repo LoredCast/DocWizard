@@ -17,6 +17,7 @@ from pathlib import Path
 from ..logs import fields
 from ..render import jobs
 from ..render.worker_client import WorkerUnavailable
+from .zotero import referenced_sources
 
 log = logging.getLogger("docwizard.citations")
 
@@ -45,8 +46,12 @@ def summarize(item: dict) -> dict | None:
             year = issued["literal"]
     title = item.get("title") if isinstance(item.get("title"), str) else ""
     container = item.get("container-title") if isinstance(item.get("container-title"), str) else ""
-    return {"id": key, "authors": [a for a in authors if a], "year": year, "title": title[:300],
-            "container": container[:200], "type": item.get("type", "")}
+    out = {"id": key, "authors": [a for a in authors if a], "year": year, "title": title[:300],
+           "container": container[:200], "type": item.get("type", "")}
+    page = item.get("page")
+    if isinstance(page, (str, int)) and str(page).strip():
+        out["page"] = str(page)[:40]  # the page range, which tells a PDF's first printed page
+    return out
 
 
 def label(summary: dict) -> str:
@@ -108,6 +113,8 @@ class CitationLibrary:
         snap, _ = await self.app.renderer.snapshot(project_id)
         out: dict[str, dict] = {}
         for path in sorted(snap.texts):
+            if path.startswith("_zotero/"):
+                continue  # the render input for zotero:<name>, summarized from the library below
             text = snap.texts[path]
             suffix = Path(path).suffix.lower()
             raw: list = []
@@ -128,6 +135,12 @@ class CitationLibrary:
                 if s is not None and s["id"] not in out:
                     s["label"] = label(s)
                     s["source"] = path
+                    out[s["id"]] = s
+        # Items of the zotero:<name> libraries the project's documents use (§10.2).
+        names = referenced_sources(snap.texts)
+        for name, summaries in (await self.app.zotero.summaries_for_project(project_id, names)).items():
+            for s in summaries:
+                if s["id"] not in out:
                     out[s["id"]] = s
         items = list(out.values())
         etag = '"' + hashlib.sha256(json.dumps(items, sort_keys=True).encode()).hexdigest()[:32] + '"'

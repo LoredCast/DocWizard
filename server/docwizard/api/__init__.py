@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 def register(app) -> None:
-    from . import comments, layouts, projects, publish, render, sync
+    from . import citations, comments, layouts, projects, publish, render, sync
 
     projects.register(app)
     layouts.register(app)
@@ -12,3 +12,4 @@ def register(app) -> None:
     comments.register(app)
     sync.register(app)
     publish.register(app)
+    citations.register(app)
