@@ -18,6 +18,7 @@
     <span class="status menu-status" id="menu-save-state" aria-hidden="true">{{ _("Saved") }}</span>
     <button type="button" id="new-comment" title="{{ _('Comment on the selection (Ctrl+Alt+M)') }}">{{ _("Comment") }}</button>
     <button type="button" id="open-comments" aria-pressed="false">{{ _("Comments") }}</button>
+    {% if doc.kind == "markdown" %}<button type="button" id="open-refs" aria-pressed="false" title="{{ _('References (Ctrl+Alt+R)') }}">{{ _("References") }}</button>{% endif %}
     <button type="button" id="open-export">{{ _("Export") }}</button>
     <button type="button" id="open-versions">{{ _("Versions") }}</button>
     {% if can(role, "share", project) and not guest %}<button type="button" id="open-share">{{ _("Share") }}</button>{% endif %}
@@ -52,6 +53,7 @@
       <button type="button" data-cmd="link" aria-pressed="false" aria-label="{{ _('Link') }}" title="{{ _('Link') }}">{{ _("Link") }}</button>
       <button type="button" data-cmd="math" aria-pressed="false" aria-label="{{ _('Inline math') }}" title="{{ _('Inline math') }}">$</button>
       <button type="button" data-cmd="cite" aria-label="{{ _('Citation') }}" title="{{ _('Citation') }}">[@]</button>
+      <button type="button" data-cmd="refs" aria-pressed="false" aria-label="{{ _('References') }}" title="{{ _('References (Ctrl+Alt+R)') }}">{{ _("Refs") }}</button>
       <button type="button" data-cmd="footnote" aria-pressed="false" aria-label="{{ _('Footnote') }}" title="{{ _('Footnote') }}">[^]</button>
     </div>
     <div id="editor"></div>
@@ -72,6 +74,7 @@
     <div class="pane-head"><span>{{ _("Comments") }}</span><span class="spacer"></span><button type="button" id="close-panel">{{ _("Close") }}</button></div>
     <div class="panel-body" id="comments-list"></div>
   </aside>
+  <aside class="pane side-panel refs-panel" id="refs-panel" aria-label="{{ _('References') }}" hidden></aside>
 </div>
 <dialog id="export-dialog" aria-labelledby="export-title">
   <form method="dialog" class="form" id="export-form">
