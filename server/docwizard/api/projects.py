@@ -6,6 +6,8 @@ import asyncio
 import datetime as dt
 
 from ..auth import permissions
+from ..citations import lookup
+from ..netpolicy import FetchError, PolicyError
 from ..http.request import HTTPError, Request, bad_request, not_found
 from ..http.response import Response, json_response, user_content
 from ..projects import docx_import, files, fountain, history
@@ -315,6 +317,48 @@ def register(app) -> None:
             made["suggestions" if t.suggestion is not None else "comments"] += 1
         return json_response({"id": doc_id, "type": "document", "path": doc_path, "imported": "docx", **made}, 201)
 
+    async def add_reference(req: Request) -> Response:
+        """Look up a DOI, ISBN or arXiv ID and add it to a CSL-JSON file of the project (§10.5)."""
+        project, _ = await project_access(app, req, req.param("id"), "edit")
+        body = await req.json_object()
+        target = str(body.get("file") or "references.json")
+        try:
+            target = files.normalize(target)
+        except files.PathError as exc:
+            raise bad_request(str(exc)) from None
+        if not target.endswith(".json"):
+            raise bad_request("References are added to a CSL-JSON file (.json).")
+        try:
+            item = await asyncio.to_thread(lookup.fetch_item, app.net, str(body.get("id", "")))
+        except lookup.IdentifierError as exc:
+            raise HTTPError(422, "not_found", str(exc)) from None
+        except (FetchError, PolicyError) as exc:
+            raise HTTPError(502, "lookup_failed", f"The lookup failed: {exc}") from None
+        existing = await app.db.read(lambda c: svc.get_document_by_path(c, project["id"], target))
+        if existing:
+            room = await app.rooms.get(existing["id"])
+
+            async def append():
+                try:
+                    text, key, added = lookup.add_to_file(room.text(), item)
+                except lookup.IdentifierError as exc:
+                    raise HTTPError(409, "bad_file", str(exc)) from None
+                if added:
+                    await room.apply_text(text, "system:reference", author_of(req))
+                return key, added
+
+            key, added = await room.call(append)
+        else:
+            text, key, added = lookup.add_to_file(None, item)
+            try:
+                doc_id = await app.db.write(lambda c: svc.create_document(c, project["id"], target, text))
+            except ValueError as exc:
+                raise bad_request(str(exc)) from None
+            room = await app.rooms.get(doc_id)
+            await room.call(room.materialize)
+        return json_response({"key": key, "file": target, "added": added, "item": {"id": key, **item}},
+                             201 if added else 200)
+
     async def get_asset(req: Request) -> Response:
         project, _ = await project_access(app, req, req.param("id"), "read")
         try:
@@ -425,6 +469,7 @@ def register(app) -> None:
 
     r.add("GET", "/api/projects", list_projects)
     r.add("POST", "/api/projects", create_project)
+    r.add("POST", "/api/projects/{id}/references", add_reference)
     r.add("GET", "/api/projects/{id}", get_project, guest=True)
     r.add("PATCH", "/api/projects/{id}", patch_project, guest=True)
     r.add("DELETE", "/api/projects/{id}", delete_project)

@@ -789,7 +789,7 @@ if (review) {
 // -- References (§10.4) ------------------------------------------------------
 const refsPanel = $("#refs-panel");
 references = isMarkdown && refsPanel ? new ReferencesPanel({
-  view, panel: refsPanel, readOnly, canBrowse,
+  view, panel: refsPanel, readOnly, canBrowse, projectId: offlineRecord ? null : projectId,
   onToggle: (open) => {
     if (open && comments.open) comments.hide();
     if (open && fieldsPanel?.open) fieldsPanel.hide();

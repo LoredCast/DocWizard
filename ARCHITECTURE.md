@@ -952,6 +952,10 @@ Generated keys are stored in `citation_keys`, so a key never changes once it has
 - Find page: an item's PDF opens with PDF.js, which searches its text for the quotation before the citation (hyphenation and ligatures normalized, long quotations matched by their first or last words) and highlights it. The printed page comes from the PDF's page labels, else from the item's page range (an article on pp. 123–145 starts at 123), else from a number the user corrects once per PDF. *Cite this page* sets the citation's locator.
 - Unknown keys are flagged inline. A references panel lists every cited item.
 
+### 10.5 Adding a reference by identifier
+
+The References panel takes a DOI, an ISBN or an arXiv ID (also as a doi.org or arxiv.org link) and cites it at the cursor (`POST /api/projects/{id}/references`, `citations/lookup.py`). DOIs and arXiv IDs (as their DataCite DOIs, `10.48550/arXiv.<id>`) are resolved at doi.org by content negotiation for CSL-JSON, which works for Crossref and DataCite records alike; ISBNs are looked up in Open Library's books API. The requests go through the outbound request policy and send nothing but the identifier. The item keeps the fields citation styles use, gets a key like `lecun2015deep` (first author, year, first significant title word; `a`, `b`, … when taken) and is appended to the document's CSL-JSON bibliography file (`references.json` unless the front matter lists another `.json` file), which is created and added to the front matter when missing. An item with the same DOI or ISBN is reused instead of added twice.
+
 ## 11. Storage
 
 ### 11.1 Data directories

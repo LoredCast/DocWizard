@@ -1029,5 +1029,10 @@
  "Fountain screenplay": "Fountain-Drehbuch",
  "E-book (EPUB)": "E-Book (EPUB)",
  "Word files (.docx) become Markdown documents: their comments become comment threads and tracked changes become suggestions to accept or reject. Fountain screenplays (.fountain) become documents for the Screenplay and Drehbuch layouts.": "Word-Dateien (.docx) werden zu Markdown-Dokumenten: Ihre Kommentare werden zu Kommentar-Threads, nachverfolgte Änderungen zu Vorschlägen, die du annimmst oder ablehnst. Fountain-Drehbücher (.fountain) werden zu Dokumenten für die Layouts Screenplay und Drehbuch.",
- "Suggested by {name}": "Vorgeschlagen von {name}"
+ "Suggested by {name}": "Vorgeschlagen von {name}",
+ "DOI, ISBN or arXiv ID": "DOI, ISBN oder arXiv-ID",
+ "Add a reference by DOI, ISBN or arXiv ID": "Quelle per DOI, ISBN oder arXiv-ID hinzufügen",
+ "Looking up…": "Wird gesucht…",
+ "Added @{key} to {file} and cited it.": "@{key} zu {file} hinzugefügt und zitiert.",
+ "@{key} was already in {file}; cited it.": "@{key} war schon in {file}; zitiert."
 }
