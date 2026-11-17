@@ -290,6 +290,7 @@
   .layout-card-main { flex: 1 1 24rem; min-width: 0; }
   .layout-card-main p { margin: 4px 0 0; }
   .layout-facts { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 12px; }
+  .layout-fields { font-size: 12px; margin: 2px 0 0; overflow-wrap: anywhere; }
   .layout-list .row { margin: 0; }
   .layout-editor-page { height: 100dvh; grid-template-rows: auto minmax(0, 1fr); }
   .layout-workspace { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
@@ -352,8 +353,8 @@
 
   /* References panel (§10.4) */
   @media (min-width: 901px) {
-    .split.with-panel.refs-open { grid-template-columns: 1fr 1fr 24rem; }
-    .split.no-preview.with-panel.refs-open { grid-template-columns: 1fr 24rem; }
+    .split.with-panel.refs-open, .split.with-panel.fields-open { grid-template-columns: 1fr 1fr 24rem; }
+    .split.no-preview.with-panel.refs-open, .split.no-preview.with-panel.fields-open { grid-template-columns: 1fr 24rem; }
   }
   .refs-controls { display: grid; gap: 6px; padding: 8px 16px; border-bottom: 1px solid var(--line); }
   .refs-controls select, .refs-controls input { width: 100%; }
@@ -392,6 +393,26 @@
   .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .refs-more { padding: 8px 0; }
   .cite-info { display: grid; gap: 2px; max-width: 22rem; white-space: normal; }
+
+  /* Fields panel and front matter help (§9.4) */
+  .fields-panel { min-width: 0; overflow: hidden; }
+  .fields-panel .panel-body { overflow-x: hidden; }
+  .field-intro, .field-note { font-size: 13px; margin: 4px 0 8px; }
+  .field-list { margin: 0 0 8px; }
+  .field-list li.field-item { display: block; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .field-line { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .field-line .spacer { flex: 1; }
+  .field-key { font-family: var(--mono); font-size: 13px; }
+  .field-label { color: var(--muted); font-size: 13px; }
+  .field-filled { color: var(--accent); border-color: var(--accent); }
+  .field-help, .field-where { margin: 2px 0 0; font-size: 13px; }
+  .field-where { font-size: 12px; }
+  .field-example summary, .field-general > summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  .field-general > summary { margin: 8px 0 4px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .field-example pre, .field-info pre { margin: 4px 0 0; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .field-info { display: grid; gap: 4px; max-width: 24rem; white-space: normal; }
+  .field-info p { margin: 0; }
+  .cm-field-tip { display: grid; gap: 4px; padding: 6px 8px; max-width: 24rem; }
 
   /* Finding a citation's page in its PDF */
   dialog.pdf-finder {

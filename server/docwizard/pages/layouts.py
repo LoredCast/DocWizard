@@ -5,6 +5,7 @@ from __future__ import annotations
 from ..api.layouts import _get, can_edit
 from ..http.request import Request
 from ..http.response import Response
+from ..render.fields import shown_keys
 from ..render.layouts import style_labels
 
 
@@ -24,7 +25,7 @@ def register(app) -> None:
         return app.page(req, "layouts.html", builtin=builtin, mine=mine, shared=shared, owners=owners,
                         styles=style_labels(), default_layout=app.policy("default_layout"),
                         names={lay.id: lay.name for lay in app.layouts.list()},
-                        can_edit=lambda lay: can_edit(req, lay))
+                        can_edit=lambda lay: can_edit(req, lay), field_keys=shown_keys)
 
     async def editor(req: Request) -> Response:
         layout = _get(app, req, req.param("id"))

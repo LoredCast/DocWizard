@@ -19,6 +19,7 @@
     <button type="button" id="new-comment" title="{{ _('Comment on the selection (Ctrl+Alt+M)') }}">{{ _("Comment") }}</button>
     <button type="button" id="open-comments" aria-pressed="false">{{ _("Comments") }}</button>
     {% if doc.kind == "markdown" %}<button type="button" id="open-refs" aria-pressed="false" title="{{ _('References (Ctrl+Alt+R)') }}">{{ _("References") }}</button>{% endif %}
+    {% if doc.kind == "markdown" %}<button type="button" id="open-fields" aria-pressed="false" title="{{ _('Front matter fields this layout prints') }}">{{ _("Fields") }}</button>{% endif %}
     <button type="button" id="open-export">{{ _("Export") }}</button>
     <button type="button" id="open-versions">{{ _("Versions") }}</button>
     {% if can(role, "share", project) and not guest %}<button type="button" id="open-share">{{ _("Share") }}</button>{% endif %}
@@ -75,6 +76,7 @@
     <div class="panel-body" id="comments-list"></div>
   </aside>
   <aside class="pane side-panel refs-panel" id="refs-panel" aria-label="{{ _('References') }}" hidden></aside>
+  <aside class="pane side-panel fields-panel" id="fields-panel" aria-label="{{ _('Fields') }}" hidden></aside>
 </div>
 <dialog id="export-dialog" aria-labelledby="export-title">
   <form method="dialog" class="form" id="export-form">

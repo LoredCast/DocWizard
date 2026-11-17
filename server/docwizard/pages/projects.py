@@ -15,7 +15,7 @@ from ..http.response import Response, redirect
 from ..http.templates import script_json
 from ..projects import files
 from ..projects import service as svc
-from ..render import languages
+from ..render import fields, languages
 from ..sharing import links
 
 
@@ -230,6 +230,7 @@ def register(app) -> None:
                                 "change_layout")},
             "layout": layout.public(),
             "layoutOptions": options,
+            "fields": fields.for_layout(layout),
             "files": [{"path": e["path"], "type": e["type"]} for e in tree],
             "prefs": {"font": user.preferences.get("editor_font", "sans") if user else "sans",
                       "size": user.preferences.get("editor_size", 17) if user else 17},

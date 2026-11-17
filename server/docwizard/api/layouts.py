@@ -15,6 +15,7 @@ import secrets
 from ..http.request import HTTPError, Request, bad_request, not_found
 from ..http.response import Response, json_response, user_content
 from ..render import design as designs
+from ..render import fields
 from ..render.layouts import Layout, LayoutError, option_specs, style_labels
 
 _KEY = re.compile(r"^[0-9a-f]{64}$")
@@ -98,6 +99,7 @@ def register(app) -> None:
         lay = _get(app, req, req.param("id"))
         out = describe(req, lay)
         out["design"] = lay.design
+        out["fields"] = fields.for_layout(lay)
         if lay.custom:
             manifest = app.layouts.custom[lay.id][0]
             out["own"] = {"design": manifest.get("design", {}), "options": manifest.get("options"),
