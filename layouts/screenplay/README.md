@@ -13,7 +13,9 @@ release (their site could not be reached), so this layout does not claim to matc
   `email` in the front matter).
 - **Elements**: scene headings flush left after two blank lines; action full width; character cues 2.2 inches
   from the margin in capitals; parentheticals at 1.6 inches; dialogue at 1 inch, 3.5 inches wide; transitions
-  flush right. A speech is never split across pages.
+  flush right. A long speech breaks between lines at the foot of a page, with "(MORE)" under it and the
+  character's name and "(CONT'D)" at the top of the next page. A character who speaks again after action in the
+  same scene gets "(CONT'D)" after the name too.
 
 ## Writing a script
 
@@ -40,8 +42,14 @@ CUT TO:
 - A line in capitals directly followed by text on the next lines is a character cue with its dialogue. Lines in
   parentheses are parentheticals. Start with `@` for names that are not all capitals: `@McCLANE`.
 - A line in capitals ending in `TO:` is a transition; `> FADE OUT.` forces one. `> THE END <` is centred.
+- A cue ending in `^` is dual dialogue: that speech is set beside the one before it (`STEEL ^`).
 - A level 1 heading is an act title; other headings are scene headings.
 - Everything else is action. Explicit blocks also work: `::: dialogue`, `::: character` and so on.
 
 Settings: scene numbers in both margins (`script.scene-numbers`), and the end of a scene heading after a dash
-moved to the right margin (`script.scene-split`). Continued speeches are not marked "(MORE)" and "(CONT'D)".
+moved to the right margin (`script.scene-split`), and the words for continued speeches (`script.more`,
+`script.contd`; leave `script.contd` empty to drop the mark after action).
+
+In the editor, the Outline (Ctrl+Alt+O) lists acts and scenes, typing a cue in capitals on its own line suggests
+the characters already in the script, and the status bar estimates the page count and running time at a page a
+minute. The estimate counts lines like the PDF does (55 to a page); the PDF has the exact number.

@@ -18,6 +18,7 @@ import { CommentsPanel } from "./comments.js";
 import { FieldsPanel, LayoutFields, fieldsExtension } from "./fields.js";
 import { ReferencesPanel } from "./references.js";
 import { SelectionBubble, reviewFrontMatter } from "./review.js";
+import { characterCompletion, openOutline } from "./script.js";
 import { baseExtensions } from "./setup.js";
 
 wireCommon();
@@ -52,6 +53,9 @@ const readOnly = !snap.can.edit;
 const isMarkdown = kind === "markdown";
 // The review view (§14.1): the text as it reads, read-only, for commenting and suggesting.
 const review = Boolean(snap.review) && isMarkdown;
+// Screenplay layouts: scenes in the outline, character names to complete, a page estimate.
+const isScript = isMarkdown && Boolean(snap.layout?.script);
+let characters = [];
 
 const split = $("#split");
 
@@ -98,7 +102,8 @@ const session = new DocSession({
   makeState: (text, version) => EditorState.create({ doc: text, extensions: [
     base, peersField, anchorsField, conflictGutter((id) => openConflicts(id)), markClicks,
     review ? reviewFrontMatter : [],
-    layoutFields ? fieldsExtension(layoutFields) : [], session.extension(version)] }),
+    layoutFields ? fieldsExtension(layoutFields) : [], isScript ? characterCompletion(() => characters) : [],
+    session.extension(version)] }),
   onStatus: showStatus,
   onEvent: handleEvent,
   onUpdates: () => { presence.flush(); comments.flush(); conflictLoader.flush(); },
@@ -290,10 +295,21 @@ stats.onmessage = (event) => {
   const n = event.data.words.toLocaleString(locale);
   const notes = event.data.notes && isMarkdown ? t(" · {n} in notes", { n: event.data.notes.toLocaleString(locale) }) : "";
   $("#word-count").textContent = t("{n} words", { n }) + notes;
+  const sp = event.data.script;
+  if (sp) {
+    characters = sp.characters;
+    // About a page a minute on screen (§9.3).
+    const pages = sp.pages.toLocaleString(locale, { maximumFractionDigits: 1 });
+    const minutes = Math.max(1, Math.round(sp.pages));
+    $("#script-stats").textContent = !sp.pages ? ""
+      : sp.pages === 1 ? t("about 1 page · 1 min") : t("about {pages} pages · {minutes} min", { pages, minutes });
+    $("#script-stats").title = t("{n} scenes. Estimated at 55 lines a page; the PDF has the exact count.",
+                                 { n: sp.scenes });
+  }
 };
 function countWords() {
   statsId += 1;
-  stats.postMessage({ id: statsId, text: view.state.doc.toString() });
+  stats.postMessage({ id: statsId, text: view.state.doc.toString(), script: isScript });
 }
 countWords();
 
@@ -302,6 +318,11 @@ function docChanged() {
   statsTimer = setTimeout(countWords, 400);
   requestPreview();
 }
+
+function showOutline() {
+  openOutline(view, outline, { script: isScript });
+}
+$("#open-outline")?.addEventListener("click", showOutline);
 
 // -- Citations ---------------------------------------------------------
 let citationsEtag = "";
@@ -533,6 +554,7 @@ function cursorMoved() {
   const line = view.state.doc.lineAt(view.state.selection.main.head).number;
   let current = null;
   for (const h of outline) {
+    if (h.scene) continue; // scene headings aren't headings in the HTML preview
     if (h.line > line) break;
     current = h;
   }
@@ -1018,6 +1040,9 @@ document.addEventListener("keydown", (event) => {
   } else if (mod && event.altKey && (event.key === "g" || event.code === "KeyG")) {
     event.preventDefault();
     if (snap.can.comment) comments.compose(true);
+  } else if (mod && event.altKey && event.code === "KeyO" && isMarkdown) {
+    event.preventDefault();
+    showOutline();
   }
 });
 

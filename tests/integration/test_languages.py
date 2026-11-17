@@ -154,8 +154,47 @@ def test_screenplay_elements():
     assert "McCLANE" in out and "@" not in out  # a forced character cue, not a citation
     out = pandoc(SCREENPLAY, "screenplay", to="typst", meta={"dw-scene-numbers": "true", "dw-scene-split": "true"})
     assert '#dw-scene([EXT. HARBOUR], right: [DAWN], number: "1")' in out
-    assert "#dw-character([MARA])" in out and "#dw-parenthetical([\\(quietly)])" in out
-    assert "#dw-dialogue([You came back.])" in out and "#dw-transition([CUT TO:])" in out
+    assert '#dw-speech((cue: [MARA], parts: ((kind: "parenthetical", body: [\\(quietly)]),' \
+           '(kind: "dialogue", body: [You came back.]),)))' in " ".join(out.split())
+    assert "#dw-transition([CUT TO:])" in out
+
+
+SPEECHES = """INT. KITCHEN - NIGHT
+
+MARA
+Where were you?
+
+She waits.
+
+MARA
+I asked you something.
+
+BRICK
+Out.
+
+STEEL ^
+Nowhere.
+
+EXT. YARD - DAY
+
+MARA
+Morning.
+"""
+
+
+@needs_pandoc
+def test_continued_speeches_and_dual_dialogue():
+    out = pandoc(SPEECHES, "screenplay", to="html")
+    # Mara speaks again after action in the same scene: (CONT'D); not in the next scene.
+    assert out.count("CONT") == 1 and "MARA (CONT" in out
+    assert 'class="dual-dialogue"' in out and out.index("BRICK") < out.index("STEEL") and "^" not in out
+    out = pandoc(SPEECHES, "screenplay", to="typst")
+    assert out.count("#dw-dual(") == 1 and "(cue: [BRICK]" in out and "(cue: [STEEL]" in out
+    assert out.count("#dw-speech(") == 3  # Brick and Steel speak in the dual block
+    # The mark is a setting; empty turns it off.
+    out = pandoc(SPEECHES, "screenplay", to="html", meta={"dw-contd": "(FORTS.)"})
+    assert "MARA (FORTS.)" in out
+    assert "CONT" not in pandoc(SPEECHES, "screenplay", to="html", meta={"dw-contd": ""})
 
 
 @needs_pandoc

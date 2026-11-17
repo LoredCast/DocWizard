@@ -368,6 +368,12 @@ FIELDS: list[dict] = [
     _field("script.dialogue-width", "length", "3.5in", "Dialogue: width", "script"),
     _field("script.parenthetical-indent", "length", "1.6in", "Parenthetical: indent", "script"),
     _field("script.parenthetical-width", "length", "2in", "Parenthetical: width", "script"),
+    _field("script.more", "text", "(MORE)", "Speech continues on the next page: mark under it", "script",
+           help="A speech that runs over a page break ends the page with this, under the name's position. "
+                "Empty: speeches are never split."),
+    _field("script.contd", "text", "(CONT'D)", "Continued speech: after the name", "script",
+           help="After the name above the rest of a split speech, and when a character speaks again after "
+                "action in the same scene. Empty: never added after action."),
     _field("script.scene-weight", "enum", "regular", "Scene heading weight", "script", values=WEIGHTS),
     _field("script.scene-numbers", "boolean", False, "Number the scenes", "script",
            help="Shooting scripts number scenes; spec scripts don't."),
@@ -746,6 +752,10 @@ def css_design(design: dict) -> str:
         f" max-width: {_css_len(d['script.dialogue-width'])}; text-indent: 0; }}",
         ".dialogue p, .action p, .parenthetical p, .character p { margin: 0; text-indent: 0; }",
         ".transition { text-align: right; text-transform: uppercase; margin: 1em 0; }",
+        ".dual-dialogue { display: grid; grid-template-columns: 1fr 1fr; gap: 0 2em; margin: 1em 0 1em"
+        f" {_css_len(d['script.dialogue-indent'])}; }} .dual-dialogue .character, .dual-dialogue .dialogue,"
+        " .dual-dialogue .parenthetical { margin: 0; max-width: none; text-align: left; }"
+        " .dual-dialogue .character { text-align: center; }",
         ".centered { text-align: center; } .act { text-align: center; font-weight: 700; text-decoration: underline; }",
         "table.av { width: 100%; border-collapse: collapse; } table.av td, table.av th { border: 1px solid #999;"
         " vertical-align: top; text-align: left; padding: 0.4em 0.6em; } table.av td p { text-indent: 0; }",

@@ -155,6 +155,7 @@ def metadata(layout: Layout, project_options: dict, inputs: list[str], layout_di
             meta.setdefault(f"dw-run-in-{level}", design[f"heading.{level}.run-in"])
     meta.setdefault("dw-scene-split", design["script.scene-split"])
     meta.setdefault("dw-scene-numbers", design["script.scene-numbers"])
+    meta.setdefault("dw-contd", design["script.contd"])
     meta.setdefault("dw-av-video", design["script.video-label"])
     meta.setdefault("dw-av-audio", design["script.audio-label"])
     meta.setdefault("dw-av-numbers", design["script.row-numbers"])

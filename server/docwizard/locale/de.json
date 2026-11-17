@@ -1017,5 +1017,14 @@
  "You're reading {path}.": "Du liest {path}.",
  "The document opens as it reads, without Markdown. Select text to comment on it or to suggest a change.": "Das Dokument öffnet sich so, wie es sich liest, ohne Markdown. Markiere Text, um ihn zu kommentieren oder eine Änderung vorzuschlagen.",
  "Selection": "Auswahl",
- "Suggest change": "Änderung vorschlagen"
+ "Suggest change": "Änderung vorschlagen",
+ "character": "Figur",
+ "Outline": "Gliederung",
+ "Outline (Ctrl+Alt+O)": "Gliederung (Strg+Alt+O)",
+ "(untitled)": "(ohne Titel)",
+ "No scenes yet. A scene starts with a line like INT. KITCHEN - DAY.": "Noch keine Szenen. Eine Szene beginnt mit einer Zeile wie INNEN. KÜCHE – TAG.",
+ "No headings yet. Lines that start with # are headings.": "Noch keine Überschriften. Zeilen, die mit # beginnen, sind Überschriften.",
+ "about 1 page · 1 min": "etwa 1 Seite · 1 Min.",
+ "about {pages} pages · {minutes} min": "etwa {pages} Seiten · {minutes} Min.",
+ "{n} scenes. Estimated at 55 lines a page; the PDF has the exact count.": "{n} Szenen. Geschätzt mit 55 Zeilen pro Seite; das PDF hat die genaue Zahl."
 }
