@@ -22,6 +22,7 @@ from pathlib import Path
 from ..citations.zotero import referenced_sources
 from ..http.request import HTTPError
 from ..logs import fields
+from ..projects import fountain
 from ..projects import service as svc
 from . import jobs, sample
 from .layouts import Layout, LayoutError
@@ -266,6 +267,13 @@ class Renderer:
         output = jobs.OUTPUTS[target]
         if target == "md-source":
             await asyncio.to_thread(_zip_snapshot, snap, dest, output)
+            return self._finish(key, project_id, target, "ok", [], dest)
+        if target == "fountain":
+            def write_fountain():
+                dest.mkdir(parents=True, exist_ok=True)
+                (dest / output).write_text(fountain.from_markdown(snap.texts.get(inputs[0], "")))
+
+            await asyncio.to_thread(write_fountain)
             return self._finish(key, project_id, target, "ok", [], dest)
         job_id = jobs.new_job_id()
         job_dir = self.cfg.jobs_dir / "run" / job_id

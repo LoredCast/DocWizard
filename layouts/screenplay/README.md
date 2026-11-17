@@ -50,6 +50,10 @@ Settings: scene numbers in both margins (`script.scene-numbers`), and the end of
 moved to the right margin (`script.scene-split`), and the words for continued speeches (`script.more`,
 `script.contd`; leave `script.contd` empty to drop the mark after action).
 
+Fountain files (`.fountain`) from other screenwriting apps become Markdown documents when you upload them: the
+title page becomes front matter and notes, boneyard and synopses become comments. Export → Fountain screenplay
+writes the script back out as Fountain.
+
 In the editor, the Outline (Ctrl+Alt+O) lists acts and scenes, typing a cue in capitals on its own line suggests
 the characters already in the script, and the status bar estimates the page count and running time at a page a
 minute. The estimate counts lines like the PDF does (55 to a page); the PDF has the exact number.

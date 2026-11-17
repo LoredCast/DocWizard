@@ -32,6 +32,7 @@ OUTPUTS = {
     "typ-source": "document.typ",
     "tex-source": "document.tex",
     "md-source": "project.zip",
+    "fountain": "document.fountain",
 }
 TARGETS = set(OUTPUTS)
 PREVIEW_TARGETS = {"html", "pdf-typst", "pdf-latex"}

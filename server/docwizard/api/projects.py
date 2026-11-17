@@ -8,7 +8,7 @@ import datetime as dt
 from ..auth import permissions
 from ..http.request import HTTPError, Request, bad_request, not_found
 from ..http.response import Response, json_response, user_content
-from ..projects import files, history
+from ..projects import files, fountain, history
 from ..projects import service as svc
 from ..render import fields, languages
 
@@ -215,6 +215,13 @@ def register(app) -> None:
         except files.PathError as exc:
             raise bad_request(str(exc)) from None
         data = await req.body(limits.max_upload_bytes)
+        if path.lower().endswith(".fountain"):
+            # Fountain screenplays become Markdown documents for the script layouts (§9.3).
+            try:
+                text = fountain.to_markdown(files.decode_text(data)[0])
+            except UnicodeDecodeError:
+                raise bad_request("Text files must be UTF-8.") from None
+            path, data = path[: -len(".fountain")] + ".md", text.encode()
         kind = files.kind_for(path)
         if kind is not None:
             # Text files become documents.
