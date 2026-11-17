@@ -75,11 +75,21 @@ NUMBERING = {
     "I.1": "I, I.1, I.1.1",
     "I.A.1": "I., A., 1. (one level each, Physical Review)",
     "trad": "I., 1., a) (traditional)",
+    "ieee": "I., A., 1), a) (IEEE)",
 }
 CASES = {"normal": "As written", "upper": "UPPERCASE", "smallcaps": "Small caps"}
 WEIGHTS = {"bold": "Bold", "semibold": "Semibold", "regular": "Regular"}
 STYLES = {"normal": "Upright", "italic": "Italic"}
 ALIGNS = {"left": "Left", "center": "Centred"}
+RUN_IN = {"": "On a line of its own", "period": "Run into the text, ending with a full stop",
+          "colon": "Run into the text, ending with a colon"}
+# Terms DocWizard writes in the document's language (filters/locales.json).
+BIB_TERMS = {"bibliography": "Bibliography", "references": "References", "works-cited": "Works Cited",
+             "reference-list": "Reference List", "sources": "Sources"}
+DATE_FORMATS = {"long": "In the language's long form (November 16, 2026; 16. November 2026)",
+                "day-month-year": "Day, month, year (16 November 2026)",
+                "numeric": "Numeric, in the language's order (11/16/2026; 16.11.2026)",
+                "iso": "ISO (2026-11-16)", "as-written": "As written in the front matter"}
 
 # Front matter fields a title block or title page can show, in the editor's order.
 COVER_KEYS = {
@@ -100,8 +110,20 @@ COVER_KEYS = {
     "place": "Place (place)",
     "place-date": "Place and date",
     "keywords": "Keywords",
+    "abstract": "Abstract (here instead of after the fields)",
+    "byline": "Byline (“by” and the authors, in the document's language)",
+    "address": "Postal address (address)",
+    "phone": "Telephone (phone)",
+    "word-count": "Word count, rounded (“about 80,000 words”)",
+    "genre": "Genre or format (genre)",
+    "draft": "Draft or version (draft)",
+    "contact": "Contact or agent (contact)",
+    "submission": "Submitted for (submission)",
+    "birthplace": "Place of birth (birthplace)",
 }
-COVER_STYLES = {"normal": "Regular", "bold": "Bold", "italic": "Italic", "small": "Small", "large": "Large"}
+COVER_STYLES = {"normal": "Regular", "bold": "Bold", "italic": "Italic", "small": "Small", "large": "Large",
+                "left": "Flush left", "right": "Flush right", "upper": "Capitals",
+                "bold-left": "Bold, flush left"}
 
 
 def _field(key, ftype, default, label, group, **extra):
@@ -110,7 +132,14 @@ def _field(key, ftype, default, label, group, **extra):
 
 def _heading_fields(level: int, size: float, weight: str, above: str, below: str) -> list[dict]:
     g = f"heading-{level}"
-    return [
+    extra = []
+    if level >= 3:
+        extra = [
+            _field(f"heading.{level}.indent", "length", "0", "Indent", g),
+            _field(f"heading.{level}.run-in", "enum", "", "Placement", g, values=RUN_IN,
+                   help="APA levels 4 and 5 and IEEE's third level run into their paragraph."),
+        ]
+    return [*extra,
         _field(f"heading.{level}.size", "number", size, "Size (× body text)", g, min=0.7, max=3, step=0.05),
         _field(f"heading.{level}.weight", "enum", weight, "Weight", g, values=WEIGHTS),
         _field(f"heading.{level}.style", "enum", "normal", "Style", g, values=STYLES),
@@ -127,7 +156,8 @@ GROUPS = [
     ("headings", "Headings", "Font and numbering for all headings."),
     ("heading-1", "Heading level 1", ""),
     ("heading-2", "Heading level 2", ""),
-    ("heading-3", "Heading level 3 and below", ""),
+    ("heading-3", "Heading level 3", ""),
+    ("heading-4", "Heading level 4 and below", ""),
     ("cover", "Title and title page", "What appears with the title, and whether it gets a page of its own."),
     ("declaration", "Declaration page", "A page after the title page, for example a declaration of authorship."),
     ("toc", "Table of contents", ""),
@@ -135,6 +165,8 @@ GROUPS = [
     ("footnote", "Footnotes", ""),
     ("cite", "Citations and bibliography", ""),
     ("caption", "Figures and tables", ""),
+    ("script", "Scripts", "Screenplays and two-column A/V scripts: where scene headings, characters, dialogue and "
+                          "transitions sit."),
 ]
 
 FIELDS: list[dict] = [
@@ -147,19 +179,32 @@ FIELDS: list[dict] = [
     _field("page.columns", "enum", "1", "Columns", "page", values={"1": "One column", "2": "Two columns"}),
     _field("page.column-gap", "length", "1.5em", "Space between columns", "page"),
     _field("page.number-format", "enum", "1", "Page numbers", "page",
-           values={"1": "1, 2, 3", "- 1 -": "- 1 -", "1 / N": "1 / 12", "i": "i, ii, iii", "none": "None"}),
+           values={"1": "1, 2, 3", "1.": "1., 2., 3. (screenplays)", "- 1 -": "- 1 -", "1 / N": "1 / 12",
+                   "i": "i, ii, iii", "none": "None"}),
     _field("page.number-position", "enum", "bottom-center", "Page number position", "page",
            values={"bottom-center": "Bottom, centred", "bottom-right": "Bottom right", "bottom-left": "Bottom left",
                    "top-right": "Top right", "top-center": "Top, centred"}),
     _field("page.number-distance", "length", "", "Page number distance from the page edge", "page", optional=True,
            help="Empty: set by the margin."),
+    _field("page.number-first", "boolean", True, "Number on the first page", "page",
+           help="Off: the first page (after a title page, the first page of text) shows no number."),
+    _field("page.number-label", "enum", "none", "Before the page number", "page",
+           values={"none": "Nothing", "surname": "First author's surname (MLA: Doe 4)",
+                   "surname-title": "Surname / short title / (manuscripts: Doe / Silvertide / 4)"},
+           help="The short title is short-title: in the front matter, else the title."),
+    _field("page.front-numbering", "enum", "", "Front matter page numbers", "page",
+           values={"": "Like the text", "i": "i, ii, iii, then 1 for the text", "I": "I, II, III, then 1 for the text"},
+           help="Title page, declaration, contents and lists before the first heading of the text."),
+    _field("page.back-numbering", "boolean", False, "Bibliography and appendix continue the front matter numbers",
+           "page", help="As some German universities ask: text 1, 2, 3; bibliography and appendix go on from the "
+                        "Roman numbers of the front matter."),
     _field("page.header", "enum", "none", "Running header", "page",
            values={"none": "None", "title": "Title", "author": "Authors", "author-title": "Authors and title"}),
     _field("page.header-rule", "boolean", False, "Line under the header", "page"),
     # Body text
     _field("text.font", "font", "Libertinus Serif", "Font", "text", kind="serif"),
     _field("text.size", "number", 11, "Font size (pt)", "text", min=8, max=16, step=0.5),
-    _field("text.leading", "number", 1.25, "Line spacing", "text", min=0.8, max=3, step=0.05,
+    _field("text.leading", "number", 1.25, "Line spacing", "text", min=0.5, max=3, step=0.01,
            help="1 is single spacing, 1.5 one-and-a-half, 2 double, as in word processors."),
     _field("text.paragraph-spacing", "length", "0.6em", "Space between paragraphs", "text",
            help="0 for none; with an indent, most styles use none."),
@@ -169,21 +214,48 @@ FIELDS: list[dict] = [
     _field("text.lang", "lang", "", "Default language", "text",
            help="Used when the document doesn't set lang:, for hyphenation, quotation marks and citation terms. "
                 "For example en-GB or de-AT."),
+    _field("text.indent-first", "boolean", False, "Indent the first paragraph after a heading", "text",
+           help="APA, MLA and manuscripts indent every paragraph; many book styles don't indent the first."),
+    _field("text.quotes", "enum", "language", "Quotation marks", "text",
+           values={"language": "The language's own („…“ in German, «…» in French)",
+                   "single": "Single first (‘…“…”…’), as MHRA asks",
+                   "double": "Double first (“…‘…’…”)"},
+           help="Single and double first apply to the document's main language; other passages keep theirs."),
+    _field("text.date-format", "enum", "long", "Dates", "text", values=DATE_FORMATS,
+           help="How an ISO date in the front matter (date: 2026-11-16) is written, in the document's language."),
+    _field("text.scene-break", "enum", "rule", "Scene break (*** or ---)", "text",
+           values={"rule": "A short line", "#": "#, centred (manuscripts)", "* * *": "* * *, centred",
+                   "blank": "A blank line"}),
     _field("text.code-font", "font", "DejaVu Sans Mono", "Code font", "text", kind="mono"),
     _field("text.link-color", "color", "", "Link colour", "text", help="Hex colour such as 1a4fa0; empty for none."),
     # Headings
     _field("heading.font", "font", "", "Heading font", "headings", kind="serif", help="Empty: the body font."),
     _field("heading.numbering", "enum", "", "Numbering", "headings", values=NUMBERING),
     _field("heading.chapter-break", "boolean", False, "Start level 1 headings on a new page", "headings"),
+    _field("heading.chapter-drop", "length", "0", "Space above a level 1 heading on a new page", "headings",
+           help="Book and novel manuscripts start chapters lower on the page, at the same height each time."),
     *_heading_fields(1, 1.4, "bold", "1.4em", "0.7em"),
     *_heading_fields(2, 1.2, "bold", "1.2em", "0.6em"),
     *_heading_fields(3, 1.05, "bold", "1em", "0.5em"),
+    *_heading_fields(4, 1, "bold", "1em", "0.4em"),
     # Title and title page
     _field("cover.page", "boolean", False, "Title page", "cover",
            help="On: the title gets a page of its own. Off: the title block opens the first page."),
     _field("cover.align", "enum", "center", "Alignment", "cover", values=ALIGNS),
     _field("cover.position", "enum", "third", "Position on the title page", "cover",
            values={"top": "Top", "third": "A third down", "center": "Centred"}),
+    _field("cover.title-align", "enum", "", "Title alignment", "cover",
+           values={"": "Like the fields", "left": "Left", "center": "Centred"}),
+    _field("cover.fields-first", "boolean", False, "Fields above the title", "cover",
+           help="MLA puts the name, instructor, course and date above the title."),
+    _field("cover.offset", "length", "0", "Space above the title block", "cover",
+           help="Without a title page: how far down the first page the title starts (manuscripts: a third down)."),
+    _field("cover.space-after", "length", "2em", "Space after the title block", "cover",
+           help="Without a title page: the space between the title block and the text."),
+    _field("cover.corner-left", "cover", [], "Top left of the first page", "cover",
+           help="Manuscripts: the contact block. Single-spaced."),
+    _field("cover.corner-right", "cover", [], "Top right of the first page", "cover",
+           help="Manuscripts: the word count."),
     _field("cover.title-size", "number", 1.6, "Title size (× body text)", "cover", min=1, max=3, step=0.05),
     _field("cover.title-weight", "enum", "bold", "Title weight", "cover", values=WEIGHTS),
     _field("cover.title-case", "enum", "normal", "Title letter case", "cover", values=CASES),
@@ -195,12 +267,22 @@ FIELDS: list[dict] = [
            help="Shown in this order when the document's front matter has them."),
     _field("cover.field-spacing", "length", "0.4em", "Space between title fields", "cover"),
     _field("cover.abstract", "boolean", True, "Show the abstract", "cover"),
+    _field("cover.abstract-page", "boolean", False, "Abstract on a page of its own", "cover",
+           help="After the title page, under a centred heading (APA)."),
+    _field("cover.abstract-separator", "enum", "space", "Between the abstract heading and text", "cover",
+           values={"space": "A space", "em-dash": "An em dash (IEEE: Abstract—)", "break": "A line break"}),
+    _field("cover.repeat-title", "boolean", False, "Repeat the title on the first page of text", "cover",
+           help="APA repeats the title, centred and bold, above the text."),
     _field("cover.abstract-title", "text", "", "Abstract heading", "cover", help="Empty: “Abstract” in the "
                                                                                   "document's language."),
     _field("cover.counted", "boolean", True, "Count the title page", "cover",
            help="On: the first page after the title page is page 2. Off: it is page 1."),
+    _field("cover.page-number", "boolean", False, "Page number on the title page", "cover",
+           help="APA numbers the title page too; most other styles leave it bare."),
     # Declaration
     _field("declaration.enabled", "boolean", False, "Add a declaration page", "declaration"),
+    _field("declaration.position", "enum", "front", "Where it goes", "declaration",
+           values={"front": "Before the contents", "end": "At the end, after the bibliography"}),
     _field("declaration.title", "text", "Declaration", "Heading", "declaration"),
     _field("declaration.text", "longtext", "I declare that I wrote this paper myself and used only the sources and "
            "aids I have named.", "Text", "declaration",
@@ -211,6 +293,9 @@ FIELDS: list[dict] = [
     _field("toc.title", "text", "", "Heading", "toc", help="Empty: “Contents” in the document's language."),
     _field("toc.depth", "number", 3, "Levels", "toc", min=1, max=4, step=1),
     _field("toc.page", "boolean", False, "On a page of its own", "toc"),
+    _field("toc.figures", "boolean", False, "List of figures", "toc",
+           help="After the contents, headed in the document's language."),
+    _field("toc.tables", "boolean", False, "List of tables", "toc"),
     # Block quotations
     _field("quote.size", "number", 1, "Size (× body text)", "quote", min=0.7, max=1.2, step=0.05),
     _field("quote.leading", "number", 0, "Line spacing", "quote", min=0, max=3, step=0.05,
@@ -233,12 +318,19 @@ FIELDS: list[dict] = [
     # Citations and bibliography
     _field("cite.style", "citation-style", "chicago-author-date", "Citation style", "cite"),
     _field("cite.link", "boolean", True, "Link citations to the bibliography", "cite"),
-    _field("bib.title", "text", "", "Bibliography heading", "cite",
-           help="For example “Bibliography” or “Literaturverzeichnis”. Empty: no heading, unless the document "
+    _field("bib.heading", "enum", "none", "Bibliography heading", "cite", values={"none": "None", **BIB_TERMS},
+           help="Written in the document's language: Bibliography becomes Literaturverzeichnis in German."),
+    _field("bib.heading-author-date", "enum", "", "Heading with an author-date style", "cite",
+           values={"": "The same", **BIB_TERMS},
+           help="Used when the chosen citation style puts author and year in the text."),
+    _field("bib.title", "text", "", "Fixed bibliography heading", "cite",
+           help="Replaces the heading above in every language. Empty: the heading above, unless the document "
                 "sets reference-section-title."),
-    _field("bib.title-author-date", "text", "", "Heading with an author-date style", "cite",
-           help="Used when the chosen citation style puts author and year in the text, for example “Reference "
-                "List”. Empty: the bibliography heading."),
+    _field("bib.title-author-date", "text", "", "Fixed heading with an author-date style", "cite",
+           help="Empty: the heading with an author-date style above."),
+    _field("bib.heading-style", "enum", "heading", "Heading style", "cite",
+           values={"heading": "Like a level 1 heading", "center": "Centred, like a level 1 heading",
+                   "center-plain": "Centred, regular weight (MLA)"}),
     _field("bib.page-break", "boolean", False, "Bibliography on a new page", "cite"),
     _field("bib.size", "number", 1, "Size (× body text)", "cite", min=0.7, max=1.2, step=0.05),
     _field("bib.leading", "number", 0, "Line spacing", "cite", min=0, max=3, step=0.05,
@@ -256,6 +348,39 @@ FIELDS: list[dict] = [
     _field("caption.leading", "number", 0, "Caption line spacing", "caption", min=0, max=3, step=0.05,
            help="0: the same as the body text."),
     _field("caption.table-position", "enum", "top", "Table captions", "caption", values={"top": "Above", "bottom": "Below"}),
+    _field("caption.figure-position", "enum", "bottom", "Figure captions", "caption",
+           values={"top": "Above", "bottom": "Below"}),
+    _field("caption.label-weight", "enum", "regular", "Label weight", "caption", values=WEIGHTS),
+    _field("caption.break", "enum", "none", "Caption text on a line of its own", "caption",
+           values={"none": "No", "table": "For tables", "all": "For figures and tables"},
+           help="APA: “Figure 1” in bold, the title in italics on the next line. MLA and IEEE tables: “Table 1”, "
+                "then the title."),
+    _field("caption.title-style", "enum", "normal", "Caption text style", "caption", values=STYLES),
+    _field("caption.title-case", "enum", "normal", "Caption text letter case", "caption",
+           values={**CASES, "smallcaps-tables": "Small caps, table titles only (IEEE)"}),
+    _field("caption.by-chapter", "boolean", False, "Number by chapter (1.1, 1.2, 2.1)", "caption"),
+    # Scripts
+    _field("script.character-indent", "length", "2.2in", "Character name: indent", "script",
+           help="From the left margin."),
+    _field("script.character-align", "enum", "indent", "Character name: position", "script",
+           values={"indent": "At the indent above", "center": "Centred (German Drehbuch)"}),
+    _field("script.dialogue-indent", "length", "1in", "Dialogue: indent", "script"),
+    _field("script.dialogue-width", "length", "3.5in", "Dialogue: width", "script"),
+    _field("script.parenthetical-indent", "length", "1.6in", "Parenthetical: indent", "script"),
+    _field("script.parenthetical-width", "length", "2in", "Parenthetical: width", "script"),
+    _field("script.scene-weight", "enum", "regular", "Scene heading weight", "script", values=WEIGHTS),
+    _field("script.scene-numbers", "boolean", False, "Number the scenes", "script",
+           help="Shooting scripts number scenes; spec scripts don't."),
+    _field("script.scene-split", "boolean", False, "Interior or exterior and time of day flush right", "script",
+           help="For “Kitchen – interior / day” headings: the part after the last dash goes to the right "
+                "margin, as German Drehbücher do."),
+    _field("script.video-label", "text", "VIDEO", "A/V script: left column heading", "script"),
+    _field("script.audio-label", "text", "AUDIO", "A/V script: right column heading", "script"),
+    _field("script.video-width", "number", 0.45, "A/V script: left column share", "script", min=0.2, max=0.8,
+           step=0.05),
+    _field("script.row-numbers", "boolean", True, "A/V script: number the rows", "script"),
+    _field("script.end-mark", "text", "", "End mark", "script",
+           help="Centred after the last line, for example THE END or ENDE. Empty: none."),
 ]
 FIELD = {f["key"]: f for f in FIELDS}
 DEFAULTS = {f["key"]: f["default"] for f in FIELDS}
@@ -522,18 +647,25 @@ def css_design(design: dict) -> str:
     ]
     if indent != "0":
         out.append(f"p + p {{ text-indent: {indent}; }}")
+        if d["text.indent-first"]:
+            out.append(f"section > p, article > p, p:first-child {{ text-indent: {indent}; }}"
+                       " .title-block p, .abstract p, figure p, .footnotes p { text-indent: 0; }")
     out.append(f"pre, code {{ font-family: {font_css(d['text.code-font'] or 'DejaVu Sans Mono', 'mono')}; }}")
     if d["text.link-color"]:
         out.append(f"a {{ color: #{d['text.link-color']}; }}")
     else:
         out.append("a { color: inherit; }")
-    for lvl in (1, 2, 3):
+    for lvl in (1, 2, 3, 4):
         p = f"heading.{lvl}."
-        sel = {1: "h1:not(.title)", 2: "h2", 3: "h3, h4, h5, h6"}[lvl]
+        sel = {1: "h1:not(.title)", 2: "h2", 3: "h3", 4: "h4, h5, h6"}[lvl]
+        indent = f" padding-left: {_css_len(d[p + 'indent'])};" if lvl >= 3 and d[p + "indent"] != "0" else ""
         out.append(
             f"{sel} {{ font-family: {head_font}; font-size: {d[p + 'size']:g}em; font-weight: {_WEIGHT_CSS[d[p + 'weight']]};"
             f" font-style: {d[p + 'style']}; text-align: {d[p + 'align']}; margin: {_css_len(d[p + 'above'])} 0"
-            f" {_css_len(d[p + 'below'])}; line-height: 1.25; {_case_css(d[p + 'case'])} }}")
+            f" {_css_len(d[p + 'below'])}; line-height: 1.25;{indent} {_case_css(d[p + 'case'])} }}")
+        if lvl >= 3:
+            out.append(f".run-in-{lvl} {{ font-weight: {_WEIGHT_CSS[d[p + 'weight']]}; font-style: {d[p + 'style']};"
+                       f" {_case_css(d[p + 'case'])} }}")
     out += _counter_css(d["heading.numbering"])
     # Title block
     align = d["cover.align"]
@@ -545,8 +677,21 @@ def css_design(design: dict) -> str:
         f" font-weight: {_WEIGHT_CSS[d['cover.subtitle-weight']]}; margin: 0 0 1em; }}",
         ".title-block .cover-field { margin: 0.2em 0; }",
         ".cover-bold { font-weight: 700; } .cover-italic { font-style: italic; }"
-        " .cover-small { font-size: 0.85em; } .cover-large { font-size: 1.2em; }",
+        " .cover-small { font-size: 0.85em; } .cover-large { font-size: 1.2em; } .cover-left { text-align: left; }"
+        " .cover-right { text-align: right; } .cover-upper { text-transform: uppercase; }"
+        " .cover-bold-left { font-weight: 700; text-align: left; }",
     ]
+    if d["cover.title-align"]:
+        out.append(f".title-block .title, .title-block .subtitle {{ text-align: {d['cover.title-align']}; }}")
+    out.append(".corners { display: flex; justify-content: space-between; line-height: 1.2; margin-bottom: 2em; }"
+               " .corners p { margin: 0; text-indent: 0; } .corners .corner-right { text-align: right; }")
+    if d["cover.offset"] != "0":
+        out.append(f".title-block {{ margin-top: {_css_len(d['cover.offset'])}; }}")
+    if d["cover.repeat-title"] and d["cover.page"]:
+        out.append(".title-block + .repeat-title, .repeat-title { display: block; text-align: center; font-weight: 700;"
+                   " margin: 0 0 1em; }")
+    else:
+        out.append(".repeat-title { display: none; }")
     if d["cover.title-colon"]:
         out.append('.title-block .title:has(+ .subtitle)::after { content: ":"; }')
     if d["cover.page"]:
@@ -571,6 +716,41 @@ def css_design(design: dict) -> str:
     out.append(f"figcaption, caption {{ font-size: {d['caption.size']:g}em; text-align: {d['caption.align']};"
                f" line-height: {c_line}; }}")
     out.append(f"caption {{ caption-side: {d['caption.table-position']}; }}")
+    if d["caption.figure-position"] == "top":
+        out.append("figure { display: flex; flex-direction: column; } figure figcaption { order: -1; }")
+    if d["caption.title-style"] == "italic":
+        out.append("figcaption, caption { font-style: italic; }")
+    # Bibliography heading
+    if d["bib.heading-style"] != "heading":
+        weight = "400" if d["bib.heading-style"] == "center-plain" else _WEIGHT_CSS[d["heading.1.weight"]]
+        out.append(f"#bibliography > h1, h1#bibliography {{ text-align: center; font-weight: {weight}; }}")
+    # Scene breaks
+    brk = d["text.scene-break"]
+    if brk == "blank":
+        out.append("hr { border: 0; margin: 1em 0; }")
+    elif brk != "rule":
+        out.append(f"hr {{ border: 0; width: auto; text-align: center; margin: 0.5em 0; overflow: visible; }}"
+                   f" hr::after {{ content: {json.dumps(brk)}; }}")
+    # Scripts (filters/screenplay.lua, avscript.lua)
+    out += [
+        ".scene-heading p { margin: 2em 0 1em; display: flex; justify-content: space-between; gap: 1em; font-weight:"
+        f" {_WEIGHT_CSS[d['script.scene-weight']]}; }}",
+        ".action { margin: 0 0 1em; text-indent: 0; }",
+        (".character { margin: 1em 0 0; text-align: center; text-transform: uppercase; text-indent: 0; }"
+         if d["script.character-align"] == "center" else
+         f".character {{ margin: 1em 0 0 {_css_len(d['script.character-indent'])}; text-transform: uppercase;"
+         " text-indent: 0; }"),
+        f".parenthetical {{ margin: 0 0 0 {_css_len(d['script.parenthetical-indent'])};"
+        f" max-width: {_css_len(d['script.parenthetical-width'])}; text-indent: 0; }}",
+        f".dialogue {{ margin: 0 0 1em {_css_len(d['script.dialogue-indent'])};"
+        f" max-width: {_css_len(d['script.dialogue-width'])}; text-indent: 0; }}",
+        ".dialogue p, .action p, .parenthetical p, .character p { margin: 0; text-indent: 0; }",
+        ".transition { text-align: right; text-transform: uppercase; margin: 1em 0; }",
+        ".centered { text-align: center; } .act { text-align: center; font-weight: 700; text-decoration: underline; }",
+        "table.av { width: 100%; border-collapse: collapse; } table.av td, table.av th { border: 1px solid #999;"
+        " vertical-align: top; text-align: left; padding: 0.4em 0.6em; } table.av td p { text-indent: 0; }",
+        ".end-mark { text-align: center; margin-top: 2em; }",
+    ]
     return "\n".join(out) + "\n"
 
 
@@ -579,10 +759,9 @@ def _tmpl_text(s: str) -> str:
     return html.escape(s, quote=True).replace("$", "$$")
 
 
-def html_cover(design: dict) -> str:
-    """The pandoc partial with the title block's fields, in the design's order."""
-    lines = ["$-- Generated from the layout's design settings. Edit the layout instead."]
-    for item in design["cover.fields"]:
+def _html_fields(items: list[dict], design: dict) -> list[str]:
+    lines = []
+    for item in items:
         style = item.get("style", "normal")
         cls = "cover-field" + (f" cover-{style}" if style != "normal" else "")
         label = _tmpl_text(item["label"]) + " " if item.get("label") else ""
@@ -605,13 +784,47 @@ def html_cover(design: dict) -> str:
                 lines.append(f'$if(keywords)$<p class="{cls}">{label}$for(keywords)$$keywords$$sep$, $endfor$</p>$endif$')
             elif key == "place-date":
                 lines.append(f'$if(date)$<p class="{cls}">{label}$if(place)$$place$, $endif$$date$</p>$endif$')
+            elif key == "byline":
+                lines.append(f'$if(author)$<p class="{cls}">{label}$dw-terms.by$ $for(author)$$if(author.name)$'
+                             f'$author.name$$else$$author$$endif$$sep$, $endfor$</p>$endif$')
+            elif key == "abstract":
+                if design["cover.abstract"] and not design["cover.abstract-page"]:
+                    lines.append(_html_abstract(design))
             else:
                 lines.append(f'$if({key})$<p class="{cls}">{label}${key}$</p>$endif$')
-    if design["cover.abstract"]:
-        heading = (_tmpl_text(design["cover.abstract-title"]) if design["cover.abstract-title"]
-                   else "$if(abstract-title)$$abstract-title$$endif$")
-        lines.append(f'$if(abstract)$<div class="abstract"><span class="abstract-title">{heading}</span> '
-                     f'$abstract$</div>$endif$')
+    return lines
+
+
+def _html_abstract(design: dict) -> str:
+    heading = (_tmpl_text(design["cover.abstract-title"]) if design["cover.abstract-title"]
+               else "$if(abstract-title)$$abstract-title$$endif$")
+    sep = {"em-dash": "—", "break": "<br>"}.get(design["cover.abstract-separator"], " ")
+    return f'$if(abstract)$<div class="abstract"><span class="abstract-title">{heading}</span>{sep}$abstract$</div>$endif$'
+
+
+def html_cover(design: dict) -> str:
+    """The pandoc partial with the title block's fields, in the design's order."""
+    lines = ["$-- Generated from the layout's design settings. Edit the layout instead."]
+    if not design["cover.fields-first"]:
+        lines += _html_fields(design["cover.fields"], design)
+    has_abstract = any(item.get("key") == "abstract" for item in design["cover.fields"])
+    if design["cover.abstract"] and not has_abstract:
+        lines.append(_html_abstract(design))
+    return "\n".join(lines) + "\n"
+
+
+def html_cover_top(design: dict) -> str:
+    """The partial before the title: the corners (manuscripts) and fields that go above the title (MLA)."""
+    lines = ["$-- Generated from the layout's design settings. Edit the layout instead."]
+    left, right = design["cover.corner-left"], design["cover.corner-right"]
+    if left or right:
+        lines.append('<div class="corners"><div class="corner-left">')
+        lines += _html_fields(left, design)
+        lines.append('</div><div class="corner-right">')
+        lines += _html_fields(right, design)
+        lines.append("</div></div>")
+    if design["cover.fields-first"]:
+        lines += _html_fields(design["cover.fields"], design)
     return "\n".join(lines) + "\n"
 
 
@@ -644,6 +857,7 @@ def generated_files(design: dict, variables: dict | None = None) -> dict[str, st
     variables = variables or {}
     return {"typst/design.typ": typst_design(design) + typst_overrides(variables),
             "html/design.css": css_design(design), "html/cover.html": html_cover(design),
+            "html/cover-top.html": html_cover_top(design),
             "html/options.html": html_options(variables)}
 
 

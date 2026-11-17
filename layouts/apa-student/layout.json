@@ -1,0 +1,109 @@
+{
+  "id": "apa-student",
+  "name": "APA student paper",
+  "version": "1.0.0",
+  "extends": "default",
+  "description": "After the APA Publication Manual (7th ed.) and APA's Student Paper Setup Guide: US Letter, one-inch margins, 12 pt Tinos (Times New Roman metrics), double-spaced throughout, half-inch indents, ragged right, page numbers top right from the title page, five heading levels, References on a new page.",
+  "design": {
+    "page.paper": "us-letter",
+    "page.margin-top": "1in",
+    "page.margin-bottom": "1in",
+    "page.margin-left": "1in",
+    "page.margin-right": "1in",
+    "page.number-position": "top-right",
+    "page.number-distance": "0.5in",
+    "text.font": "Tinos",
+    "text.size": 12,
+    "text.leading": 2,
+    "text.paragraph-spacing": "0",
+    "text.indent": "0.5in",
+    "text.indent-first": true,
+    "text.justify": false,
+    "text.hyphenate": false,
+    "text.lang": "en-US",
+    "heading.numbering": "",
+    "heading.1.size": 1,
+    "heading.1.weight": "bold",
+    "heading.1.align": "center",
+    "heading.1.above": "1.3em",
+    "heading.1.below": "1.3em",
+    "heading.2.size": 1,
+    "heading.2.weight": "bold",
+    "heading.2.align": "left",
+    "heading.2.above": "1.3em",
+    "heading.2.below": "1.3em",
+    "heading.3.size": 1,
+    "heading.3.weight": "bold",
+    "heading.3.style": "italic",
+    "heading.3.above": "1.3em",
+    "heading.3.below": "1.3em",
+    "heading.4.size": 1,
+    "heading.4.weight": "bold",
+    "heading.4.indent": "0.5in",
+    "heading.4.run-in": "period",
+    "cover.page": true,
+    "cover.position": "top",
+    "cover.offset": "6em",
+    "cover.counted": true,
+    "cover.title-size": 1,
+    "cover.title-weight": "bold",
+    "cover.subtitle-size": 1,
+    "cover.subtitle-weight": "bold",
+    "cover.title-colon": true,
+    "cover.field-spacing": "1.3em",
+    "cover.fields": [
+      {
+        "space": "1.3em"
+      },
+      {
+        "key": "author"
+      },
+      {
+        "key": "affiliation"
+      },
+      {
+        "key": "course"
+      },
+      {
+        "key": "instructor"
+      },
+      {
+        "key": "date"
+      }
+    ],
+    "cover.abstract-page": true,
+    "cover.repeat-title": true,
+    "quote.size": 1,
+    "quote.leading": 0,
+    "quote.indent-left": "0.5in",
+    "quote.indent-right": "0",
+    "quote.spacing": "1.3em",
+    "cite.style": "apa",
+    "bib.heading": "references",
+    "bib.page-break": true,
+    "bib.size": 1,
+    "bib.leading": 0,
+    "bib.hanging": "0.5in",
+    "bib.spacing": "0",
+    "caption.label-weight": "bold",
+    "caption.break": "all",
+    "caption.title-style": "italic",
+    "caption.align": "left",
+    "caption.size": 1,
+    "caption.figure-position": "top",
+    "caption.table-position": "top",
+    "cover.page-number": true
+  },
+  "variables": {
+    "citation-style": {
+      "type": "enum",
+      "values": [
+        "apa"
+      ],
+      "labels": {
+        "apa": "APA 7th edition"
+      },
+      "label": "Citation style"
+    }
+  }
+}

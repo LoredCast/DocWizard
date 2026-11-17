@@ -443,7 +443,7 @@ The main thread runs only the editor and the UI.
 | `identities` | id, user_id, provider, issuer, subject, email, last_login_at | unique `(issuer, subject)` |
 | `sessions` | token_hash, user_id?, guest_id?, csrf_token, created_at, expires_at, last_seen_at, user_agent | the cookie holds the token, the table its SHA-256 |
 | `guests` | id, display_name, share_link_id, created_at | |
-| `projects` | id, owner_id, name, layout_id, build_inputs, preview_scope, created_at, updated_at, deleted_at | folder `projects/<id>/`; for `build_inputs` and `preview_scope` see [§9.2](#92-render-jobs) |
+| `projects` | id, owner_id, name, layout_id, lang, build_inputs, preview_scope, created_at, updated_at, deleted_at | folder `projects/<id>/`; for `build_inputs` and `preview_scope` see [§9.2](#92-render-jobs), for `lang` [§9.8](#98-document-languages) |
 | `project_members` | project_id, user_id, role | `owner`, `editor`, `commenter`, `viewer` |
 | `documents` | id, project_id, path, kind, version, snapshot_version, materialized_version, materialized_sha256, pending_sha256?, materialized_stat, line_ending, deleted_at | `kind` is `markdown`, `latex`, `bib` or `text`. `materialized_sha256` names the blob holding exactly what was last written to the file; `pending_sha256` is set just before a write; `materialized_stat` is the file's `(mtime_ns, inode, size)` after it ([§11.2](#112-canonical-state)) |
 | `doc_ops` | doc_id, version, client_id, author, changes, merge_id?, created_at | append-only, compacted ([§8.5](#85-persistence-and-compaction)) |
@@ -799,6 +799,7 @@ Manifest:
   - user layouts;
   - project layouts in `_layouts/<name>/` inside the project folder, so they sync with the project.
 - **Design settings**: how a layout renders is a flat object of typed settings in the manifest, `design` (for example `text.font`, `page.margin-left`, `heading.1.size`, `cover.fields`, `cite.style`). Children inherit their parent's settings key by key. The default layout's templates are static and read every setting: when a layout is cached, DocWizard generates `typst/design.typ` (a Typst dictionary, loaded as the pandoc partial `$design()$`), `html/design.css`, `html/cover.html` and `html/options.html` next to the templates. Every value is validated against the schema in `render/design.py` and written as a literal, so settings can't inject template or Typst code. The classic options (`fontsize`, `linestretch`, `papersize`, `section-numbering`, `toc`, `columns`, `titlepage`, `citation-style`) override the matching setting and take their default from it.
+- **Built-in layouts** follow published style guides, each with a README that cites the sections it implements: Chicago/Turabian, Oxford, APS, MLA, APA (student paper), MHRA and IEEE papers; the Vienna philosophy, Würzburg Germanistik and Göttingen value-chain-management guides; Shunn's short story and novel manuscript formats, the German *Normseite* and a book manuscript; and scripts: a screenplay, a German *Drehbuch* and a two-column A/V script. Script layouts name their filters (`screenplay`, `avscript`) in the manifest; the filters turn plain Markdown written after Fountain's rules into script elements, which the default templates set from the `script.*` settings.
 - **Layout editor** (`/layouts`): anyone with an account can copy a layout and change its design settings in a form built from the same schema, with a live PDF preview of a sample document (rendered from a draft copy of the layout that is deleted afterwards). A custom layout is a manifest in the database (`custom_layouts`) with `extends`, `design` (only what differs from the parent), the options authors get, and whether it is shared with everyone on the instance. Templates, files and filters always come from the parent, so custom layouts can't add code. Owners and admins change or delete them; a layout others are based on can't be deleted.
 - **Fonts**: Typst sees its embedded fonts, the fonts in `/usr/local/share/docwizard/fonts` (installed in the worker image by `deploy/fetch_tools.py`: Noto Serif and Sans, Tinos, Carlito, Cousine) and the layout's `fonts/` folder, never system fonts.
 - **Editing files**: users can also duplicate a layout folder and edit its files, since templates and CSS are just text documents.
@@ -832,6 +833,8 @@ link-citations: true
 - DocWizard reads the front matter with a `meta` job, and only when the hash of the front-matter block changes.
 - `zotero:` entries are resolved by the app into a CSL-JSON file in the job directory before pandoc runs.
 - DocWizard-specific keys (`layout`, `layout-options`) are consumed by the app. Their values reach pandoc as variables.
+- `lang` is the document's main language as a BCP 47 tag, `otherlangs` lists others it uses; passages in another language are marked `[mot]{lang=fr}` or `::: {lang=fr}`. See [§9.8](#98-document-languages).
+- `date` written as `2026-11-13` (or `2026-11`) is formatted for the language and the layout; anything else stays as written.
 
 ### 9.5 Targets
 
@@ -862,6 +865,24 @@ These ship with DocWizard and are pre-approved:
 - `crossref.lua`: numbered figures, tables, equations and sections, referenced as `[@fig:map]`. It runs before citeproc and replaces pandoc-crossref, which has to match the exact pandoc version.
 - `wordcount.lua`: word count in exports, using the same rules as the editor.
 - `pagebreak.lua`: one page-break syntax that works in every output format.
+- `lang.lua`: runs first. Normalizes the document's languages, formats the date and sets the localized names of generated headings and labels ([§9.8](#98-document-languages)).
+- `quotes.lua`: runs after citeproc. Quotation marks in each passage's language, and language-scoped passages in Typst.
+- `runin.lua`: headings that run into their paragraph (APA levels 4–5, IEEE level 3), when the layout asks for them.
+- `screenplay.lua` and `avscript.lua`: script elements for the script layouts (§9.3).
+
+The order in a render is `lang.lua`, the layout's filters, `runin.lua`, Zotero resolution, citeproc, `quotes.lua`. The filters share `dwlocale.lua` and its data, `locales.json`.
+
+### 9.8 Document languages
+
+A document says which language it is written in, and the render follows: dates, quotation marks, hyphenation, the bibliography's terms and punctuation, and every heading and label DocWizard generates.
+
+- **Where the language comes from**: the front matter's `lang`, else the project's language (set on the project page, stored in `projects.lang`), else the layout's `text.lang`. Tags are normalized (`de_at` → `de-AT`, `German` → `de`); the project form lists the languages DocWizard knows by their own names. A project language changes the render cache key.
+- **Other languages**: spans and divs with a `lang` attribute, plus any listed in `otherlangs`. Pandoc passes them to citeproc and to HTML as `lang` attributes; `quotes.lua` sets their quotation marks and wraps them in Typst in `#text(lang: …)`, so hyphenation and Typst's own quotes follow too.
+- **Locale data** (`filters/locales.json`, after CLDR): for English, German, French, Spanish, Italian, Portuguese and Dutch, with regional variants (British English, Austrian and Swiss German, …), quotation marks, month names, date patterns, number grouping and terms. For fifteen other languages quotation marks only; their dates fall back to ISO and their terms to English. The project form marks which is which.
+- **Dates**: `text.date-format` chooses `long` ("13 November 2026", "13. November 2026", "November 13, 2026"), `day-month-year`, `numeric`, `iso` or `as-written`. The original stays available as `date-iso`.
+- **Terms**: the layout names a term rather than a string — `bib.heading` is `bibliography`, `references`, `works-cited`, `sources`, … — and `lang.lua` writes it in the document's language ("Literaturverzeichnis", "Bibliographie"). The same goes for Contents, Abstract, the lists of figures and tables, figure and table labels in captions and cross-references, "and" in reference lists, "by" and the rounded word count of manuscripts. A layout can still set a fixed string (`bib.title`, `caption.figure`), which wins.
+- **Citations**: citeproc localizes citations and the bibliography from the CSL locale of the document's language; a style's own `default-locale` applies only when no language is set anywhere.
+
 
 ## 10. Citations and Zotero
 

@@ -10,6 +10,7 @@ from ..http.request import HTTPError, Request, bad_request, not_found
 from ..http.response import Response, json_response, user_content
 from ..projects import files
 from ..projects import service as svc
+from ..render import languages
 
 
 # Guests never manage a project or see who else is in it (§14.2).
@@ -107,7 +108,7 @@ def register(app) -> None:
         p = dict(project)
         return json_response({"id": p["id"], "name": p["name"], "layout": p["layout_id"], "role": role,
                               "layoutOptions": _json(p["layout_options"]),
-                              "buildInputs": _json(p["build_inputs"]), "tree": tree})
+                              "buildInputs": _json(p["build_inputs"]), "lang": p.get("lang"), "tree": tree})
 
     async def patch_project(req: Request) -> Response:
         project, role = await project_access(app, req, req.param("id"), "change_layout")
@@ -126,6 +127,13 @@ def register(app) -> None:
                 kwargs["layout_options"] = layout.validate_options(body["layoutOptions"])
             except ValueError as exc:
                 raise bad_request(str(exc)) from None
+        if "lang" in body:
+            # The document language (§9.8): a language tag, or null for the layout's.
+            value = body["lang"]
+            tag = languages.normalize(value) if value not in (None, "") else None
+            if value not in (None, "") and tag is None:
+                raise bad_request("lang must be a language tag such as en-GB or de-AT.")
+            kwargs["lang"] = tag
         if "buildInputs" in body:
             inputs = body["buildInputs"]
             if inputs is not None:

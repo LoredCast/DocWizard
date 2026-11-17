@@ -48,10 +48,11 @@
     "footnote.size": 0.8,
     "footnote.rule": true,
     "cite.style": "oxford-guide-to-style-notes",
-    "bib.title": "Bibliography",
     "bib.hanging": "1.5em",
     "caption.separator": " – ",
-    "page.number-position": "bottom-right"
+    "page.number-position": "bottom-right",
+    "bib.heading": "bibliography",
+    "text.quotes": "single"
   },
   "variables": {
     "papersize": {

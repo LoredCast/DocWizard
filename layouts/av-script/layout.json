@@ -1,0 +1,59 @@
+{
+  "id": "av-script",
+  "name": "A/V script (two columns)",
+  "version": "1.0.0",
+  "extends": "default",
+  "description": "A two-column script for documentaries, video essays and explainers, after the CUNY BMCC A/V script template: picture (VIDEO) on the left, sound (AUDIO) on the right, numbered rows, the preparer, date and course above the title.",
+  "filters": [
+    "avscript"
+  ],
+  "design": {
+    "page.paper": "us-letter",
+    "page.margin-top": "1in",
+    "page.margin-bottom": "1in",
+    "page.margin-left": "1in",
+    "page.margin-right": "1in",
+    "page.header": "title",
+    "page.number-position": "top-right",
+    "text.font": "Tinos",
+    "text.size": 12,
+    "text.leading": 1.15,
+    "text.paragraph-spacing": "0.5em",
+    "text.justify": false,
+    "text.lang": "en-US",
+    "heading.1.size": 1.1,
+    "heading.2.size": 1,
+    "cover.align": "left",
+    "cover.fields-first": true,
+    "cover.title-size": 1.4,
+    "cover.field-spacing": "0.2em",
+    "cover.space-after": "1.5em",
+    "cover.fields": [
+      {
+        "key": "author",
+        "label": "Prepared by:"
+      },
+      {
+        "key": "date",
+        "label": "Date completed:"
+      },
+      {
+        "key": "course"
+      },
+      {
+        "key": "instructor"
+      }
+    ],
+    "cover.abstract": false
+  },
+  "variables": {
+    "papersize": {
+      "type": "enum",
+      "values": [
+        "us-letter",
+        "a4"
+      ],
+      "label": "Paper size"
+    }
+  }
+}

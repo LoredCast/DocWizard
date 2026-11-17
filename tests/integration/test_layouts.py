@@ -14,7 +14,9 @@ from tests.asgi_client import Client
 from tests.integration.test_collab import new_project, open_editor
 from tests.integration.test_render import HAS_TYPST, _pandoc_ok, _path, rapp, rclient, wait_job  # noqa: F401
 
-NEW_LAYOUTS = ("oxford", "uni-wien-philosophie", "aps", "turabian")
+NEW_LAYOUTS = ("oxford", "uni-wien-philosophie", "aps", "turabian", "mla", "apa-student", "mhra", "ieee", "screenplay",
+               "drehbuch", "av-script", "manuscript-story", "manuscript-novel", "normseite", "book-manuscript",
+               "goettingen-vcm", "wuerzburg-germanistik")
 
 
 # -- designs -------------------------------------------------------------------
@@ -64,7 +66,9 @@ def test_builtin_layouts_resolve_with_design_defaults(tmp_path):
     assert "Matrikelnummer:" in (cached / "html" / "cover.html").read_text()
     assert "font-family: Tinos" in (cached / "html" / "design.css").read_text()
     meta = jobs.metadata(wien, {}, ["paper.md"], cached)
-    assert meta["lang"] == "de-AT" and meta["reference-section-title"] == "Literaturverzeichnis"
+    # The heading is a term, written in the document's language by lang.lua (§9.8).
+    assert meta["lang"] == "de-AT" and meta["dw-bib-heading"] == "bibliography"
+    assert "reference-section-title" not in meta
     assert meta["csl"] == "uni-wien-philosophie.csl"
     steps, _ = jobs.pandoc_steps(wien, cached, "pdf-typst", ["paper.md"], {}, True)
     assert "--toc" in steps[0]["args"] and designs.SHARED_FONTS_DIR in steps[1]["args"]
@@ -93,14 +97,14 @@ def test_turabian_follows_its_manual(tmp_path):
     tur = layouts.get("turabian")
     d = tur.design
     assert d["page.number-distance"] == "0.5in" and d["cover.title-colon"] and d["caption.align"] == "left"
-    assert d["footnote.number"] == "period" and d["toc.title"] == "Contents"
+    assert d["footnote.number"] == "period" and d["toc.title"] == ""
     cached = layouts.cached_dir(tur)
     meta = jobs.metadata(tur, {}, ["paper.md"], cached)
     # Turabian's 9th edition follows Chicago's 17th: full first notes, then author-title short notes.
     assert meta["csl"] == "chicago-notes-bibliography-subsequent-author-title-17th-edition.csl"
-    assert meta["reference-section-title"] == "Bibliography"
+    assert meta["dw-bib-heading"] == "bibliography"
     meta = jobs.metadata(tur, {"citation-style": "chicago-author-date-17th-edition"}, ["paper.md"], cached)
-    assert meta["reference-section-title"] == "Reference List"
+    assert meta["dw-bib-heading"] == "reference-list"
     assert '"page-number-distance": 0.5in' in (cached / "typst" / "design.typ").read_text()
     assert designs.validate({"quote.spacing": ""}) == {"quote.spacing": ""}
 
@@ -173,7 +177,7 @@ async def test_layout_editor_api(app, client):
                                                                     "options": ["fontsize"], "shared": True})
     assert r.status == 200, r.text
     lay = app.layouts.get(lid)
-    assert lay.design["text.size"] == 11.5 and lay.design["bib.title"] == "Literaturverzeichnis"
+    assert lay.design["text.size"] == 11.5 and lay.design["bib.heading"] == "bibliography"
     assert list(lay.variables) == ["fontsize"] and lay.shared
 
     # Projects can use it, and it survives a restart of the layout registry.

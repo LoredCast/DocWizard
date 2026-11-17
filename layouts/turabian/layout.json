@@ -78,8 +78,6 @@
     "footnote.rule": true,
     "footnote.spacing": "1em",
     "cite.style": "chicago-notes-bibliography-subsequent-author-title-17th-edition",
-    "bib.title": "Bibliography",
-    "bib.title-author-date": "Reference List",
     "bib.page-break": true,
     "bib.leading": 1,
     "bib.hanging": "0.5in",
@@ -88,7 +86,8 @@
     "caption.align": "left",
     "caption.leading": 1,
     "caption.size": 1,
-    "toc.title": "Contents"
+    "bib.heading": "bibliography",
+    "bib.heading-author-date": "reference-list"
   },
   "variables": {
     "linestretch": {

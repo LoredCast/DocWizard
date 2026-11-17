@@ -21,6 +21,31 @@ local names = {
   eq = { "Equation", "Equations" },
   sec = { "Section", "Sections" },
 }
+local conj = { word = "and", serial = true }
+local by_chapter = false
+local separator = ":"
+
+-- Words in the document's language, from lang.lua (which runs first).
+local function read_terms(meta)
+  local terms = meta["dw-terms"]
+  if not terms then return end
+  local function term(key, fallback)
+    return terms[key] and pandoc.utils.stringify(terms[key]) or fallback
+  end
+  for kind, keys in pairs({ fig = { "figure", "figures" }, tbl = { "table", "tables" },
+                            eq = { "equation", "equations" }, sec = { "section", "sections" } }) do
+    names[kind] = { term(keys[1], names[kind][1]), term(keys[2], names[kind][2]) }
+  end
+  conj.word = term("and", "and")
+  if meta["dw-caption-separator"] then
+    separator = pandoc.utils.stringify(meta["dw-caption-separator"]):gsub("%s+$", "")
+  end
+  local by = meta["dw-caption-by-chapter"]
+  by_chapter = by == true or (by ~= nil and pandoc.utils.stringify(by) == "true")
+  local lang = meta["dw-lang"] and pandoc.utils.stringify(meta["dw-lang"]) or "en"
+  conj.serial = lang:match("^en") ~= nil
+end
+
 local numbers = {}
 local counters = { fig = 0, tbl = 0, eq = 0 }
 local section = {}
@@ -31,8 +56,14 @@ local function prefix_of(id)
   return nil
 end
 
+-- "3" or, numbered by chapter, "2.3" (the layout's caption.by-chapter).
+local function label_of(n)
+  if by_chapter then return tostring(section[1] or 0) .. "." .. tostring(n) end
+  return tostring(n)
+end
+
 local function caption_prefix(kind, n)
-  return { pandoc.Str(names[kind][1]), pandoc.Space(), pandoc.Str(tostring(n) .. ":"), pandoc.Space() }
+  return { pandoc.Str(names[kind][1]), pandoc.Space(), pandoc.Str(label_of(n) .. separator), pandoc.Space() }
 end
 
 local function prepend_caption(caption, kind, n)
@@ -57,6 +88,7 @@ local number_pass = {
     local level = h.level
     section[level] = (section[level] or 0) + 1
     for l = level + 1, 9 do section[l] = nil end
+    if level == 1 and by_chapter then counters.fig, counters.tbl = 0, 0 end
     if prefix_of(h.identifier) == "sec" then
       local parts = {}
       for l = 1, level do parts[#parts + 1] = tostring(section[l] or 0) end
@@ -68,7 +100,7 @@ local number_pass = {
     -- Typst numbers every figure itself; count the same way so references match.
     if labelled or TYPST then counters.fig = counters.fig + 1 end
     if labelled then
-      numbers[fig.identifier] = tostring(counters.fig)
+      numbers[fig.identifier] = label_of(counters.fig)
       if not TYPST then
         fig.caption = prepend_caption(fig.caption, "fig", counters.fig)
         return fig
@@ -80,7 +112,7 @@ local number_pass = {
     local captioned = #tbl.caption.long > 0
     if labelled or (TYPST and captioned) then counters.tbl = counters.tbl + 1 end
     if labelled then
-      numbers[tbl.identifier] = tostring(counters.tbl)
+      numbers[tbl.identifier] = label_of(counters.tbl)
       if not TYPST then
         tbl.caption = prepend_caption(tbl.caption, "tbl", counters.tbl)
         return tbl
@@ -133,7 +165,13 @@ local function reference(cite)
   for _, k in ipairs(kinds) do if k ~= kind then same = false end end
   for i, id in ipairs(refs) do
     if i > 1 then
-      out:insert(pandoc.Str(i == #refs and (#refs > 2 and ", and" or " and") or ","))
+      if i == #refs then
+        if #refs > 2 and conj.serial then out:insert(pandoc.Str(",")) end
+        out:insert(pandoc.Space())
+        out:insert(pandoc.Str(conj.word))
+      else
+        out:insert(pandoc.Str(","))
+      end
       out:insert(pandoc.Space())
     end
     local k = kinds[i]
@@ -149,6 +187,7 @@ local function reference(cite)
 end
 
 return {
+  { Meta = function(meta) read_terms(meta) end },
   number_pass,
   { Cite = reference },
 }

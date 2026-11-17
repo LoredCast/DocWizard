@@ -1,0 +1,29 @@
+{
+  "id": "manuscript-novel",
+  "name": "Novel manuscript",
+  "version": "1.0.0",
+  "extends": "manuscript-story",
+  "description": "William Shunn's novel manuscript format: a title page with the contact block, title, byline and rounded word count; numbering from the first page of text, “Surname / Title / 1” on every text page, each chapter on a new page at the same height.",
+  "design": {
+    "page.number-first": true,
+    "cover.page": true,
+    "cover.position": "center",
+    "cover.counted": false,
+    "cover.offset": "0",
+    "cover.corner-right": [],
+    "cover.fields": [
+      {
+        "key": "byline"
+      },
+      {
+        "space": "1.3em"
+      },
+      {
+        "key": "word-count"
+      }
+    ],
+    "heading.chapter-break": true,
+    "heading.chapter-drop": "3in"
+  },
+  "variables": {}
+}

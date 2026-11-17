@@ -1,0 +1,108 @@
+{
+  "id": "ieee",
+  "name": "IEEE article",
+  "version": "1.0.0",
+  "extends": "default",
+  "description": "After the IEEE Editorial Style Manual for Authors (2024) on the geometry of IEEE's article template: US Letter, two columns, 10 pt Tinos (Times metrics), sections I., A., 1) with small-capital and italic heads, “Abstract—” and “Index Terms—”, “Fig. 1.” and “TABLE I”, numbered references.",
+  "design": {
+    "page.paper": "us-letter",
+    "page.columns": "2",
+    "page.column-gap": "0.25in",
+    "page.margin-top": "0.75in",
+    "page.margin-bottom": "1in",
+    "page.margin-left": "0.625in",
+    "page.margin-right": "0.625in",
+    "text.font": "Tinos",
+    "text.size": 10,
+    "text.leading": 1,
+    "text.paragraph-spacing": "0",
+    "text.indent": "1em",
+    "text.lang": "en-US",
+    "text.date-format": "day-month-year",
+    "heading.numbering": "ieee",
+    "heading.1.size": 1,
+    "heading.1.weight": "regular",
+    "heading.1.case": "smallcaps",
+    "heading.1.align": "center",
+    "heading.1.above": "1.2em",
+    "heading.1.below": "0.6em",
+    "heading.2.size": 1,
+    "heading.2.weight": "regular",
+    "heading.2.style": "italic",
+    "heading.2.above": "1em",
+    "heading.2.below": "0.4em",
+    "heading.3.size": 1,
+    "heading.3.weight": "regular",
+    "heading.3.style": "italic",
+    "heading.3.indent": "1em",
+    "heading.3.run-in": "colon",
+    "heading.4.size": 1,
+    "heading.4.weight": "regular",
+    "heading.4.style": "italic",
+    "heading.4.indent": "2em",
+    "heading.4.run-in": "colon",
+    "cover.title-size": 2.4,
+    "cover.title-weight": "regular",
+    "cover.subtitle-size": 1.4,
+    "cover.fields": [
+      {
+        "key": "author"
+      },
+      {
+        "key": "affiliation",
+        "style": "italic"
+      },
+      {
+        "key": "email",
+        "style": "small"
+      },
+      {
+        "key": "abstract"
+      },
+      {
+        "key": "keywords",
+        "label": "Index Terms—",
+        "style": "bold-left"
+      }
+    ],
+    "cover.abstract-title": "Abstract",
+    "cover.abstract-separator": "em-dash",
+    "footnote.size": 0.8,
+    "cite.style": "ieee",
+    "bib.heading": "references",
+    "bib.size": 0.8,
+    "bib.hanging": "0",
+    "bib.spacing": "0.1em",
+    "caption.figure": "Fig.",
+    "caption.table": "TABLE",
+    "caption.table-numbering": "I",
+    "caption.separator": ". ",
+    "caption.size": 0.8,
+    "caption.break": "table",
+    "caption.title-case": "smallcaps-tables"
+  },
+  "variables": {
+    "columns": {
+      "type": "enum",
+      "values": [
+        "2",
+        "1"
+      ],
+      "labels": {
+        "2": "Two columns",
+        "1": "One column (draft)"
+      },
+      "label": "Columns"
+    },
+    "citation-style": {
+      "type": "enum",
+      "values": [
+        "ieee"
+      ],
+      "labels": {
+        "ieee": "IEEE"
+      },
+      "label": "Citation style"
+    }
+  }
+}

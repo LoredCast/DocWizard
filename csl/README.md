@@ -2,8 +2,8 @@
 
 These CSL styles are licensed under [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/). Most come
 from the [Citation Style Language styles repository](https://github.com/citation-style-language/styles) and are
-bundled unchanged; each file names its authors in its `<info>` block. The two `uni-wien-philosophie` styles are
-DocWizard's own. Layouts offer the styles as the "Citation style" option and the layout editor lists them all;
+bundled unchanged; each file names its authors in its `<info>` block. The two `uni-wien-philosophie` styles and
+`wuerzburg-germanistik` are DocWizard's own. Layouts offer the styles as the "Citation style" option and the layout editor lists them all;
 a document can still use any other style with `csl: some-style.csl` in its front matter.
 
 | File | Style |
@@ -23,6 +23,9 @@ a document can still use any other style with `csl: some-style.csl` in its front
 | `oxford-guide-to-style-notes.csl` | Oxford Guide to Style (notes), the Oxford house style |
 | `uni-wien-philosophie.csl` | Universität Wien, Philosophie: footnotes after the department's *Leitfaden für schriftliche Arbeiten* (9/2021). DocWizard's own |
 | `uni-wien-philosophie-kurzbelege.csl` | The same guide's short citations (Kurzbelege), author-date. DocWizard's own |
+| `mhra-notes.csl` | MHRA Style Guide 4th edition, footnotes and bibliography |
+| `mhra-author-date.csl` | MHRA Style Guide 4th edition, author-date |
+| `wuerzburg-germanistik.csl` | Short citations (author year, "S." page) after the Würzburg Germanistik guidelines, derived from `uni-wien-philosophie-kurzbelege`. DocWizard's own |
 
 The 18th edition (2024) drops the place of publication, gives only the first author and "et al." in notes for
 three or more authors, and repeats names in the bibliography instead of a 3-em dash. Turabian's 9th edition still
