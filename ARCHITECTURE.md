@@ -1179,6 +1179,14 @@ The CLI (`python -m docwizard …`) provides `serve`, `migrate`, `create-admin`,
   - everyone else becomes a guest after entering a display name, and the password if one is set.
 - Admins can cap the highest role a link may grant, or turn guest access off.
 
+### 14.1a Review links and the review view
+
+People who review a text often don't write Markdown: supervisors, editors, producers. A share link can open the **review view** (`share_links.review`): the editor page with the document read-only and shown as it reads, set like a page (a serif face, a measure of about 70 characters), with the front matter as a title block and no line ever revealing its Markdown (live preview in reading mode, [§6.3](#63-editor)). Selecting text shows a small toolbar with Comment and Suggest change ([§8.10](#810-suggestions)); the comments panel is open beside the text, and the PDF is one click away.
+
+- The view is still the real document in CodeMirror, so selections are ranges of the source and comments and suggestions anchor exactly as in the editor. Nothing is converted back from HTML.
+- Review links usually grant the commenter role, but any role works. Guests from a review link land in the review view; members who join through one land there once. Anyone can switch with `?view=review` and `?view=source` (the Actions menu has both).
+- The text stays focusable (read-only), so passages can be selected with the keyboard; on touch screens it isn't, so no keyboard pops up.
+
 ### 14.2 Guests
 
 - Guest sessions are limited to one project, expire after 24 hours of inactivity, and can never see other projects or users.

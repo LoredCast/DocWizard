@@ -973,7 +973,6 @@
  "The history starts with the next edits.": "Der Verlauf beginnt mit den nächsten Änderungen.",
  "Changes from “{title}” to the current text": "Änderungen von „{title}“ bis zum aktuellen Text",
  "Restore this version": "Diese Version wiederherstellen",
- "{added} words added, {removed} removed since then": "Seitdem {added} Wörter hinzugefügt, {removed} entfernt",
  "No changes since then.": "Seitdem keine Änderungen.",
  "… 1 unchanged line …": "… 1 unveränderte Zeile …",
  "… {n} unchanged lines …": "… {n} unveränderte Zeilen …",
@@ -1008,5 +1007,15 @@
  "Reject": "Ablehnen",
  "Accept": "Annehmen",
  "The passage changed since this suggestion was made. Replace it with the suggestion anyway?": "Die Stelle hat sich geändert, seit der Vorschlag gemacht wurde. Trotzdem durch den Vorschlag ersetzen?",
- "Replace": "Ersetzen"
+ "Replace": "Ersetzen",
+ "Since then: {added} words added, {removed} removed": "Seitdem: {added} Wörter hinzugefügt, {removed} entfernt",
+ "review view": "Leseansicht",
+ "Open in the review view: the text as it reads, without Markdown, for commenting and suggesting changes": "In der Leseansicht öffnen: der Text, wie er sich liest, ohne Markdown, zum Kommentieren und Vorschlagen von Änderungen",
+ "Edit the source": "Quelltext bearbeiten",
+ "Review view": "Leseansicht",
+ "You're reviewing {path}. Select text, then choose Comment or Suggest change.": "Du begutachtest {path}. Markiere Text und wähle dann Kommentieren oder Änderung vorschlagen.",
+ "You're reading {path}.": "Du liest {path}.",
+ "The document opens as it reads, without Markdown. Select text to comment on it or to suggest a change.": "Das Dokument öffnet sich so, wie es sich liest, ohne Markdown. Markiere Text, um ihn zu kommentieren oder eine Änderung vorzuschlagen.",
+ "Selection": "Auswahl",
+ "Suggest change": "Änderung vorschlagen"
 }

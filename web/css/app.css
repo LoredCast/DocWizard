@@ -279,6 +279,7 @@
   .thread blockquote.suggested { white-space: pre-wrap; color: var(--fg); }
   .thread del, .cm-suggest-del { color: var(--danger); text-decoration: line-through; }
   .thread ins { color: var(--ok); text-decoration: underline; }
+  .thread del + ins, .thread ins + del { margin-left: 3px; }
   .cm-suggest-ins { color: var(--ok); text-decoration: underline; cursor: pointer; }
   .thread.draft.suggestion label { display: flex; flex-direction: column; gap: 4px; }
   .thread.unread { border-left: 2px solid var(--accent); padding-left: 8px; }
@@ -512,6 +513,17 @@
   #editor .cm-remote-cursor { position: relative; border-left: 2px solid var(--peer); margin-left: -1px; margin-right: -1px; }
   #editor .cm-remote-sel { border-bottom: 2px solid var(--peer); }
   #editor .cm-comment-mark { text-decoration: underline 2px dotted var(--accent); text-underline-offset: 3px; cursor: pointer; }
+  /* The review view (§14.1): the text as it reads */
+  .review-mode #editor .cm-content { font-family: Charter, "Bitstream Charter", "Noto Serif", Georgia, serif; font-size: calc(var(--editor-size) + 1px); line-height: 1.7; max-width: 42rem; margin: 0 auto; padding: 24px 16px 96px; }
+  .review-mode #editor .cm-gutters { display: none; }
+  .review-mode #editor .cm-md-frontmatter { display: none; }
+  .review-banner { margin: 0; padding: 6px 16px; border-bottom: 1px solid var(--line); color: var(--muted); }
+  .cm-review-title { padding: 8px 0 16px; text-align: center; font-family: inherit; }
+  .cm-review-title h1 { font-size: 1.6em; font-weight: 600; margin: 8px 0; }
+  .cm-review-title .subtitle { font-size: 1.15em; margin: 0 0 8px; }
+  .review-bubble[hidden] { display: none; }
+  .review-mode #open-refs, .review-mode #open-fields, .review-mode #open-options { display: none; }
+  .review-bubble { position: absolute; z-index: 5; display: flex; gap: 4px; background: var(--bg); border: 1px solid var(--edge); padding: 4px; box-shadow: 0 2px 8px rgb(0 0 0 / .25); }
   #editor .cm-comment-mark.cm-suggest-del { text-decoration: line-through 1px; color: var(--danger); }
   #editor .cm-suggest-ins { margin-left: 2px; }
   #editor .cm-comment-active { background: var(--sel); }

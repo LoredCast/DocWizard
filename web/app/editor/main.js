@@ -17,6 +17,7 @@ import {
 import { CommentsPanel } from "./comments.js";
 import { FieldsPanel, LayoutFields, fieldsExtension } from "./fields.js";
 import { ReferencesPanel } from "./references.js";
+import { SelectionBubble, reviewFrontMatter } from "./review.js";
 import { baseExtensions } from "./setup.js";
 
 wireCommon();
@@ -49,6 +50,8 @@ const projectId = snap.project.id;
 const kind = snap.doc.kind;
 const readOnly = !snap.can.edit;
 const isMarkdown = kind === "markdown";
+// The review view (§14.1): the text as it reads, read-only, for commenting and suggesting.
+const review = Boolean(snap.review) && isMarkdown;
 
 const split = $("#split");
 
@@ -66,7 +69,11 @@ const store = (key, value) => {
 
 // -- Editor and collaboration ---------------------------------------------
 const socket = new Socket();
-const base = baseExtensions({ kind, readOnly });
+// The review view keeps the text focusable (read-only), so keyboard users can select passages too;
+// on touch screens that would bring up the keyboard, so there it isn't.
+const base = baseExtensions({ kind, readOnly: readOnly || review, reading: review,
+                              editable: review ? !window.matchMedia("(pointer: coarse)").matches : !readOnly });
+let bubble = null; // the review view's selection toolbar
 let library = new Map();
 let references = null; // the references panel, created below
 let fieldsPanel = null; // the fields panel, created below
@@ -90,6 +97,7 @@ const session = new DocSession({
   socket, docId, clientID: snap.clientID, text: snap.text, version: snap.version,
   makeState: (text, version) => EditorState.create({ doc: text, extensions: [
     base, peersField, anchorsField, conflictGutter((id) => openConflicts(id)), markClicks,
+    review ? reviewFrontMatter : [],
     layoutFields ? fieldsExtension(layoutFields) : [], session.extension(version)] }),
   onStatus: showStatus,
   onEvent: handleEvent,
@@ -109,6 +117,7 @@ const view = new EditorView({
       updateFormatBar();
     }
     if (trs.some((tr) => tr.selection)) cursorMoved();
+    if (bubble && trs.some((tr) => tr.selection || tr.docChanged)) bubble.update();
     if (trs.some((tr) => tr.selection || tr.docChanged)) references?.cursorMoved();
     if (trs.some((tr) => tr.docChanged)) fieldsPanel?.docChanged();
   },
@@ -129,13 +138,13 @@ const FORMAT_CMDS = {
   refs: () => references?.toggle(),
 };
 if (formatBar) {
-  formatBar.hidden = readOnly || !isMarkdown;
+  formatBar.hidden = readOnly || !isMarkdown || review;
   formatBar.addEventListener("mousedown", (event) => {
     if (event.target.closest("[data-cmd]")) event.preventDefault();
   });
   formatBar.addEventListener("click", (event) => {
     const btn = event.target.closest("[data-cmd]");
-    if (!btn || readOnly || !isMarkdown) return;
+    if (!btn || readOnly || !isMarkdown || review) return;
     const cmd = FORMAT_CMDS[btn.dataset.cmd];
     if (cmd) {
       cmd(view);
@@ -348,7 +357,7 @@ const narrow = window.matchMedia("(max-width: 900px)");
 const isLatex = kind === "latex";
 const pdfTarget = isLatex ? "pdf-latex" : (snap.layout.defaultPdf === "pdf-latex" ? "pdf-latex" : "pdf-typst");
 let target = isLatex || stored("dw.previewTarget", "html") === "pdf" ? pdfTarget : "html";
-let previewOn = stored("dw.preview", "on") === "on";
+let previewOn = stored(review ? "dw.reviewPreview" : "dw.preview", review ? "off" : "on") === "on";
 let previewTimer = null;
 let shown = { html: -1, "pdf-typst": -1, "pdf-latex": -1 };
 const previewFailed = { html: false, pdf: false };
@@ -455,7 +464,7 @@ $("#toggle-preview").addEventListener("click", () => {
     return;
   }
   previewOn = !previewOn;
-  store("dw.preview", previewOn ? "on" : "off");
+  store(review ? "dw.reviewPreview" : "dw.preview", previewOn ? "on" : "off");
   applyPreviewLayout();
   requestPreview(0);
   if (previewVisible()) cursorMoved();
@@ -673,7 +682,7 @@ async function compareVersion(v, title) {
   try {
     const diff = await api("GET", `/api/documents/${docId}/versions/${v.id}/compare`);
     $("#diff-stats").textContent = diff.added || diff.removed
-      ? t("{added} words added, {removed} removed since then", { added: diff.added, removed: diff.removed })
+      ? t("Since then: {added} words added, {removed} removed", { added: diff.added, removed: diff.removed })
       : t("No changes since then.");
     body.replaceChildren(...diff.segments.map((s) => {
       if (s.op === "skip") return el("span", { class: "diff-skip" }, s.lines === 1 ? t("… 1 unchanged line …") : t("… {n} unchanged lines …", { n: s.lines }));
@@ -748,6 +757,12 @@ $("#new-comment").hidden = !snap.can.comment;
 $("#new-comment").addEventListener("click", () => comments.compose());
 $("#new-suggestion").hidden = !snap.can.comment;
 $("#new-suggestion").addEventListener("click", () => comments.compose(true));
+if (review) {
+  if (snap.can.comment) {
+    bubble = new SelectionBubble(view, { onComment: () => comments.compose(), onSuggest: () => comments.compose(true) });
+  }
+  if (!narrow.matches) comments.show();
+}
 
 // -- References (§10.4) ------------------------------------------------------
 const refsPanel = $("#refs-panel");
@@ -875,7 +890,7 @@ if (shareButton) {
       roleSelect.replaceChildren(...data.roles.map((r) => el("option", { value: r }, r[0].toUpperCase() + r.slice(1))));
       list.replaceChildren(...data.links.map((l) => el("li", {},
         el("span", { class: "spacer" }, l.label || t("Link"), " ",
-          el("span", { class: "muted" }, `(${[l.role, l.has_password && "password", l.expired ? "expired" : l.expires_at && "expires",
+          el("span", { class: "muted" }, `(${[l.role, l.review && t("review view"), l.has_password && "password", l.expired ? "expired" : l.expires_at && "expires",
                                                l.guests && `${l.guests} ${l.guests === 1 ? "guest" : "guests"}`].filter(Boolean).join(", ")})`)),
         el("button", { type: "button", class: "link", onclick: async () => {
           await api("DELETE", `/api/projects/${projectId}/shares/${l.id}`);
@@ -897,7 +912,8 @@ if (shareButton) {
     const f = event.target.elements;
     try {
       const { url } = await api("POST", `/api/projects/${projectId}/shares`, {
-        role: f.role.value, expires_days: f.expires_days.value, password: f.password.value, label: f.label.value });
+        role: f.role.value, expires_days: f.expires_days.value, password: f.password.value, label: f.label.value,
+        review: f.review.checked });
       const input = el("input", { readonly: true, value: url, "aria-label": t("Share link"), "data-select-on-focus": true });
       $("#share-result").replaceChildren(input,
         el("button", { type: "button", onclick: () => { navigator.clipboard?.writeText(url); toast(t("Link copied.")); } }, t("Copy link")));

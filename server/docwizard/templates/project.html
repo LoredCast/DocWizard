@@ -106,7 +106,7 @@
   {% endif %}
   <ul class="plain">
     {% for l in shares %}
-    <li><span class="spacer">{{ l.label or _("Link") }} <span class="muted">({{ _(l.role) }}{% if l.has_password %}, {{ _("password") }}{% endif %}{% if l.expired %}, {{ _("expired") }}{% elif l.expires_at %}, {{ _("expires") }}{% endif %}{% if l.guests %}, {{ _("1 guest") if l.guests == 1 else _("{n} guests", n=l.guests) }}{% endif %})</span></span>
+    <li><span class="spacer">{{ l.label or _("Link") }} <span class="muted">({{ _(l.role) }}{% if l.review %}, {{ _("review view") }}{% endif %}{% if l.has_password %}, {{ _("password") }}{% endif %}{% if l.expired %}, {{ _("expired") }}{% elif l.expires_at %}, {{ _("expires") }}{% endif %}{% if l.guests %}, {{ _("1 guest") if l.guests == 1 else _("{n} guests", n=l.guests) }}{% endif %})</span></span>
       <form method="post" class="inline">
         <input type="hidden" name="_csrf" value="{{ csrf }}">
         <input type="hidden" name="action" value="revoke-link">
@@ -129,6 +129,7 @@
     </label>
     <label>{{ _("Password (optional)") }} <input name="password" type="password" autocomplete="new-password" minlength="6"></label>
     <label>{{ _("Name (optional)") }} <input name="label" maxlength="80" placeholder="{{ _('Seminar group') }}"></label>
+    <label class="choice"><input type="checkbox" name="review" value="1"> {{ _("Open in the review view: the text as it reads, without Markdown, for commenting and suggesting changes") }}</label>
     <div><button type="submit">{{ _("Create share link") }}</button></div>
   </form>
 </section>

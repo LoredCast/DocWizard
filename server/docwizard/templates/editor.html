@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ doc.path }} · {{ project.name }} · DocWizard{% endblock %}
-{% block body_class %}page editor-page{% endblock %}
+{% block body_class %}page editor-page{% if review %} review-mode{% endif %}{% endblock %}
 {% block head %}
 <script type="importmap" nonce="{{ nonce }}">{"imports": {"codemirror": "{{ static }}/vendor/codemirror.js", "temml": "{{ static }}/vendor/temml/temml.mjs"}}</script>
 <link rel="modulepreload" href="{{ static }}/vendor/codemirror.js">
@@ -21,6 +21,7 @@
     <button type="button" id="open-comments" aria-pressed="false">{{ _("Comments") }}</button>
     {% if doc.kind == "markdown" %}<button type="button" id="open-refs" aria-pressed="false" title="{{ _('References (Ctrl+Alt+R)') }}">{{ _("References") }}</button>{% endif %}
     {% if doc.kind == "markdown" %}<button type="button" id="open-fields" aria-pressed="false" title="{{ _('Front matter fields this layout prints') }}">{{ _("Fields") }}</button>{% endif %}
+    {% if doc.kind == "markdown" %}<a class="button" id="switch-view" href="?view={{ 'source' if review else 'review' }}">{{ _("Edit the source") if review else _("Review view") }}</a>{% endif %}
     <button type="button" id="open-export">{{ _("Export") }}</button>
     <button type="button" id="open-versions">{{ _("Versions") }}</button>
     {% if can(role, "share", project) and not guest %}<button type="button" id="open-share">{{ _("Share") }}</button>{% endif %}
@@ -37,6 +38,7 @@
 </div>
 <div class="split" id="split">
   <section class="pane editor-pane" aria-label="{{ _('Editor') }}">
+    {% if review %}<p class="review-banner" id="review-banner">{{ _("You're reviewing {path}. Select text, then choose Comment or Suggest change.", path=doc.path) if can(role, "comment", project) else _("You're reading {path}.", path=doc.path) }}</p>{% endif %}
     <div class="format-bar" id="format-bar" role="toolbar" aria-label="{{ _('Formatting') }}"{% if doc.kind != "markdown" or not can(role, "edit", project) %} hidden{% endif %}>
       <button type="button" data-cmd="undo" aria-label="{{ _('Undo') }}" title="{{ _('Undo (Ctrl+Z)') }}">↶</button>
       <button type="button" data-cmd="redo" aria-label="{{ _('Redo') }}" title="{{ _('Redo (Ctrl+Y)') }}">↷</button>
@@ -150,6 +152,7 @@
       </div>
       <label>{{ _("Password (optional)") }} <input name="password" type="password" autocomplete="new-password" minlength="6"></label>
       <label>{{ _("Name (optional)") }} <input name="label" maxlength="80" placeholder="{{ _('Seminar group') }}"></label>
+      <label class="choice"><input type="checkbox" name="review" value="1" checked> {{ _("Open in the review view: the text as it reads, without Markdown, for commenting and suggesting changes") }}</label>
       <div class="row" id="share-result"></div>
       <div class="buttons">
         <button type="button" data-close-dialog>{{ _("Close") }}</button>

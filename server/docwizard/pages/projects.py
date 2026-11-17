@@ -47,7 +47,8 @@ async def create_share_link(app, req: Request, project, role: str, values: dict)
 
     def work(c):
         link_id, token = links.create(c, project["id"], link_role, uid, expires_at=expires_at,
-                                      password_hash=pw_hash, label=str(values.get("label", "") or ""))
+                                      password_hash=pw_hash, label=str(values.get("label", "") or ""),
+                                      review=values.get("review") in (True, "1", "on"))
         c.execute("INSERT INTO audit_log(actor, action, target, meta_json) VALUES (?, 'share_link.create', ?, ?)",
                   (f"user:{uid}", project["id"], json.dumps({"link": link_id, "role": link_role})))
         return token
@@ -198,6 +199,11 @@ def register(app) -> None:
             raise not_found("This document doesn't exist.")
         client_id = "c_" + secrets.token_hex(16)
         user, guest = req.user, req.guest
+        # The review view (§14.1): the text as it reads, with comments and suggestions. Review links
+        # open it; anyone can switch with ?view=review or back with ?view=source.
+        view = req.query.get("view")
+        review = doc["kind"] == "markdown" and (view == "review" or (view != "source" and guest is not None
+                                                                      and guest.review))
         now = time.time()
 
         def work(c):
@@ -244,9 +250,10 @@ def register(app) -> None:
             "prefs": {"font": user.preferences.get("editor_font", "sans") if user else "sans",
                       "size": user.preferences.get("editor_size", 17) if user else 17},
             "previewOrigin": app.cfg.preview_origin,
+            "review": review,
         }
         return app.page(req, "editor.html", project=project, doc=doc, role=role, snapshot=script_json(snapshot),
-                        layout=layout, can=permissions.can)
+                        layout=layout, can=permissions.can, review=review)
 
     app.router.add("GET", "/", home)
     app.router.add("POST", "/projects", new_project)

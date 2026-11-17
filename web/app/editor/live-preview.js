@@ -68,10 +68,11 @@ function cursorLines(state) {
   return lines;
 }
 
-function build(view, enabled) {
+function build(view, enabled, reading = false) {
   const { state } = view;
   const out = [];
-  const active = cursorLines(state);
+  // Reading (the review view, §14.1): no line ever shows its source.
+  const active = reading ? new Set() : cursorLines(state);
   const library = state.field(libraryField, false) ?? new Map();
   const onActive = (from, to) => {
     const a = state.doc.lineAt(from).number, b = state.doc.lineAt(to).number;
@@ -173,18 +174,18 @@ function build(view, enabled) {
   return Decoration.set(out, true);
 }
 
-export function livePreview({ enabled = true } = {}) {
+export function livePreview({ enabled = true, reading = false } = {}) {
   return ViewPlugin.fromClass(class {
     constructor(view) {
       this.enabled = enabled;
-      this.decorations = build(view, this.enabled);
+      this.decorations = build(view, this.enabled, reading);
       onTemmlReady(() => view.dispatch({ effects: refreshDecorations.of(null) }));
     }
     update(update) {
       const refresh = update.transactions.some((tr) => tr.effects.some((e) => e.is(setLibrary) || e.is(refreshDecorations)));
       if (update.docChanged || update.viewportChanged || update.selectionSet || refresh
           || syntaxTree(update.startState) !== syntaxTree(update.state)) {
-        this.decorations = build(update.view, this.enabled);
+        this.decorations = build(update.view, this.enabled, reading);
       }
     }
   }, {
