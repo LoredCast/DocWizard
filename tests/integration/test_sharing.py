@@ -180,7 +180,7 @@ async def test_anchors_survive_unload_and_reload(client, app):
     pid = await new_project(client)
     snap = await open_editor(client, pid)
     doc = snap["doc"]["id"]
-    pos = snap["text"].index("# References")
+    pos = snap["text"].index("# Introduction")
     r = await client.post(f"/api/documents/{doc}/comments",
                           json={"body": "Check", "from": pos, "to": pos + 12, "version": snap["version"]})
     assert r.status == 201
