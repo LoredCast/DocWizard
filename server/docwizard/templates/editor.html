@@ -100,7 +100,7 @@
         <option value="md-gfm">GitHub Markdown</option>
         <option value="typ-source">{{ _("Typst source") }}</option>
         <option value="tex-source">{{ _("LaTeX source") }}</option>
-        {% if layout.public().script %}<option value="fountain">{{ _("Fountain screenplay") }}</option>{% endif %}
+        {% if layout.public is defined and layout.public().script %}<option value="fountain">{{ _("Fountain screenplay") }}</option>{% endif %}
         <option value="md-source">{{ _("Project source (zip)") }}</option>
         {% endif %}
       </select>

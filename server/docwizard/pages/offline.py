@@ -64,7 +64,7 @@ def register(app) -> None:
     # The editor shell is the editor page with placeholders; the script fills them in
     # from the IndexedDB copy of the document.
     editor_ctx = {"project": {"id": "", "name": ""}, "doc": {"path": "", "kind": "markdown"}, "role": "viewer",
-                  "layout": {"name": ""}, "snapshot": "null", "can": lambda *a: False}
+                  "layout": {"name": ""}, "snapshot": "null", "can": lambda *a: False, "review": False}
 
     app.router.add("GET", "/sw.js", service_worker, auth=False, no_session=True)
     app.router.add("GET", "/_shell/home", shell("shell_home.html"), auth=False, no_session=True)
