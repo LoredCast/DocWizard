@@ -459,6 +459,13 @@ darkPaper.checked = stored("dw.darkPaper", "off") === "on";
 html.setDark(darkPaper.checked);
 pane.classList.toggle("dark-paper", darkPaper.checked);
 
+// The preview header's state; on phones, where the Preview tab already says it, only news shows.
+function setPreviewState(text, idle = false) {
+  const node = $("#preview-state");
+  node.textContent = text;
+  node.classList.toggle("idle", idle);
+}
+
 function previewVisible() {
   return narrow.matches ? split.classList.contains("show-preview") : previewOn;
 }
@@ -542,7 +549,7 @@ function requestPreview(delay = target === "html" ? 300 : 1000) {
   previewTimer = setTimeout(() => {
     const sent = socket.send({ t: "render", doc: docId, version: session.version(), target,
                                layout: snap.layout.id, options: layoutOptions });
-    if (sent) $("#preview-state").textContent = t("Rendering…");
+    if (sent) setPreviewState(t("Rendering…"));
   }, delay);
 }
 
@@ -562,12 +569,12 @@ function showRendered(msg) {
   }
   if (msg.target !== target) return;
   if (!msg.url) {
-    $("#preview-state").textContent = t("Preview failed");
+    setPreviewState(t("Preview failed"));
     return;
   }
   if ((msg.version ?? 0) < shown[msg.target]) return;
   shown[msg.target] = msg.version ?? 0;
-  $("#preview-state").textContent = t("Preview");
+  setPreviewState(t("Preview"), true);
   if (msg.target === "html") {
     clearPreviewError("html");
     html.show(msg.url);
@@ -632,49 +639,124 @@ $("#export-form").addEventListener("submit", async (event) => {
   }
 });
 
-// -- Layout options -------------------------------------------------------
+// -- Layout and its options -------------------------------------------------
+// The dialog shows the project's layout and the options it offers authors. Each option
+// starts at the layout's own setting; only options someone changed are stored, so they
+// stay overrides and everything else keeps following the layout (and a new layout).
 const optionsDialog = $("#options-dialog");
-function optionField(name, spec, value) {
-  const label = spec.label ?? name;
-  const current = value ?? spec.default;
-  if (spec.type === "boolean") {
-    return el("label", { class: "choice" },
-      el("input", { type: "checkbox", name, checked: Boolean(current) }), label);
-  }
-  if (spec.type === "enum") {
-    return el("label", {}, label,
-      el("select", { name }, spec.values.map((v) =>
-        el("option", { value: v, selected: v === current }, spec.labels?.[v] ?? (v === "" ? t("None") : v)))));
-  }
-  if (spec.type === "number") {
-    return el("label", {}, label,
-      el("input", { type: "number", name, min: spec.min, max: spec.max, step: spec.step ?? "any",
-                    value: current ?? "" }));
-  }
-  return el("label", {}, label, el("input", { type: "text", name, value: current ?? "", maxlength: 200 }));
+const optionsForm = $("#options-form");
+const OPTION_LABELS = { "a4": "A4", "a5": "A5", "us-letter": "US Letter", "us-legal": "US Legal" };
+let optionsLayout = snap.layout; // the layout picked in the dialog
+let layoutList = null; // from /api/layouts, loaded when the dialog first opens
+
+const sameValue = (a, b) => (a ?? "") === (b ?? "") || (typeof a === "number" && Number(b) === a);
+
+function optionValue(name, spec) {
+  const input = optionsForm.elements[name];
+  if (!input) return undefined;
+  if (spec.type === "boolean") return input.checked;
+  if (spec.type === "number") return input.value === "" ? undefined : Number(input.value);
+  return input.value;
 }
 
-$("#open-options").addEventListener("click", () => {
+function optionField(name, spec, value) {
+  const label = t(spec.label ?? name);
+  const current = value ?? spec.default;
+  const id = `option-${name.replace(/[^a-z0-9]/gi, "-")}`;
+  const disabled = !snap.can.change_layout;
+  let control;
+  if (spec.type === "boolean") {
+    control = el("input", { type: "checkbox", id, name, checked: Boolean(current), disabled });
+  } else if (spec.type === "enum") {
+    control = el("select", { id, name, disabled }, spec.values.map((v) =>
+      el("option", { value: v, selected: v === (current ?? "") },
+        spec.labels?.[v] ?? OPTION_LABELS[v] ?? (v === "" ? t("None") : v))));
+  } else if (spec.type === "number") {
+    control = el("input", { type: "number", id, name, min: spec.min, max: spec.max, step: spec.step ?? "any",
+                            value: current ?? "", disabled });
+  } else {
+    control = el("input", { type: "text", id, name, value: current ?? "", maxlength: 200, disabled });
+  }
+  const wide = spec.type === "text" || Boolean(spec.labels);
+  const field = el("div", { class: `design-field type-${spec.type}${wide ? " wide" : ""}` },
+    el("span", { class: "field-head" },
+      el("label", { class: "field-label", for: id }, label),
+      el("span", { class: "changed-dot", title: t("Changed") }),
+      disabled ? null : el("button", { type: "button", class: "link reset-field", title: t("Use the layout's setting"),
+                                       "aria-label": t("Reset {label}", { label }), onclick: () => {
+        if (spec.type === "boolean") control.checked = Boolean(spec.default);
+        else control.value = spec.default ?? "";
+        markChanged();
+      } }, "↺")),
+    control);
+  const markChanged = () => field.classList.toggle("changed", !sameValue(optionValue(name, spec), spec.default));
+  control.addEventListener(spec.type === "boolean" || spec.type === "enum" ? "change" : "input", markChanged);
+  queueMicrotask(markChanged);
+  return field;
+}
+
+function renderOptions(carry) {
   const fields = $("#options-fields");
-  const vars = snap.layout.variables ?? {};
-  fields.replaceChildren(...Object.entries(vars).map(([name, spec]) => optionField(name, spec, layoutOptions[name])));
+  const vars = optionsLayout?.variables ?? {};
+  fields.replaceChildren(...Object.entries(vars).map(([name, spec]) => optionField(name, spec, carry[name])));
   if (!Object.keys(vars).length) fields.append(el("p", { class: "muted" }, t("This layout has no options.")));
-  optionsDialog.showModal();
+  const edit = $("#options-edit-layout");
+  if (edit && optionsLayout) edit.href = `/layouts/${encodeURIComponent(optionsLayout.id)}`;
+}
+
+// The changed options of the layout picked in the dialog.
+function changedOptions() {
+  const next = {};
+  for (const [name, spec] of Object.entries(optionsLayout?.variables ?? {})) {
+    const value = optionValue(name, spec);
+    if (value !== undefined && !sameValue(value, spec.default)) next[name] = value;
+  }
+  return next;
+}
+
+async function loadLayoutPicker() {
+  const pick = $("#options-layout");
+  if (!pick || !snap.can.change_layout || layoutList) return;
+  try {
+    layoutList = (await api("GET", "/api/layouts")).layouts;
+  } catch {
+    return; // offline: the current layout's options still work
+  }
+  if (!layoutList.some((l) => l.id === snap.layout.id)) layoutList.unshift(snap.layout);
+  pick.replaceChildren(...layoutList.map((l) => el("option", { value: l.id, selected: l.id === snap.layout.id }, l.name)));
+  pick.closest("label").hidden = false;
+}
+
+$("#options-layout")?.addEventListener("change", (event) => {
+  const carry = changedOptions();
+  optionsLayout = layoutList.find((l) => l.id === event.target.value) ?? snap.layout;
+  renderOptions(carry);
 });
 
-$("#options-form").addEventListener("submit", async (event) => {
+$("#open-options").addEventListener("click", async () => {
+  optionsLayout = snap.layout;
+  const pick = $("#options-layout");
+  if (pick) pick.value = snap.layout.id;
+  renderOptions(layoutOptions);
+  $("#options-save").hidden = !snap.can.change_layout;
+  optionsDialog.showModal();
+  await loadLayoutPicker();
+});
+
+optionsForm.addEventListener("submit", async (event) => {
   if (event.submitter?.value !== "save") return;
   event.preventDefault();
-  const next = {};
-  for (const [name, spec] of Object.entries(snap.layout.variables ?? {})) {
-    const input = event.target.elements[name];
-    if (!input) continue;
-    if (spec.type === "boolean") next[name] = input.checked;
-    else if (spec.type === "number") { if (input.value !== "") next[name] = Number(input.value); }
-    else next[name] = input.value;
-  }
+  const next = changedOptions();
+  const layoutChanged = optionsLayout && optionsLayout.id !== snap.layout.id;
   try {
-    await api("PATCH", `/api/projects/${projectId}`, { layoutOptions: next });
+    await api("PATCH", `/api/projects/${projectId}`,
+              { ...(layoutChanged ? { layout: optionsLayout.id } : {}), layoutOptions: next });
+    if (layoutChanged) {
+      // Fields, scripts and the preview all follow the layout: load the document with the new one.
+      for (let i = 0; i < 50 && session.unconfirmed() > 0; i++) await new Promise((r) => setTimeout(r, 100));
+      location.reload();
+      return;
+    }
     layoutOptions = next;
     optionsDialog.close();
     shown = { html: -1, "pdf-typst": -1, "pdf-latex": -1 };
@@ -778,7 +860,7 @@ $("#version-form").addEventListener("submit", async (event) => {
 const sidePanel = $("#side-panel");
 const comments = new CommentsPanel({
   session, docId, panel: sidePanel, list: $("#comments-list"),
-  members: snap.members ?? [], isUser: !snap.user?.guest && !offlineRecord,
+  members: snap.members ?? [], isUser: !snap.user?.guest && !offlineRecord, selectText: !review,
   onCount: (n, unread) => {
     const button = $("#open-comments");
     button.textContent = n ? t("Comments ({n})", { n }) : t("Comments");
@@ -796,6 +878,8 @@ async function openLinkedThread() {
 }
 sidePanel.addEventListener("toggle", () => {
   split.classList.toggle("with-panel", !sidePanel.hidden || Boolean(references?.open) || Boolean(fieldsPanel?.open));
+  split.classList.toggle("comments-open", !sidePanel.hidden);
+  bubble?.update();
   $("#open-comments").setAttribute("aria-pressed", String(!sidePanel.hidden));
 });
 $("#open-comments").addEventListener("click", () => {

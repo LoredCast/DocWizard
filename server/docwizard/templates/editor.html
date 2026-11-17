@@ -64,12 +64,12 @@
   </section>
   <section class="pane preview-pane" id="preview-pane" aria-label="{{ _('Preview') }}">
     <div class="pane-head">
-      <span id="preview-state">{{ _("Preview") }}</span>
+      <span id="preview-state" class="idle">{{ _("Preview") }}</span>
       <span class="spacer"></span>
       <label class="choice"><input type="radio" name="preview-target" value="html" checked> HTML</label>
       <label class="choice"><input type="radio" name="preview-target" value="pdf"> PDF</label>
       <label class="choice"><input type="checkbox" id="dark-paper"> {{ _("Dark paper") }}</label>
-      <button type="button" id="open-options">{{ _("Layout options") }}</button>
+      <button type="button" id="open-options" title="{{ _('Layout options') }}">{{ _("Layout") }}</button>
     </div>
     <div class="preview-empty" id="preview-error" role="alert" hidden></div>
     <iframe id="preview" title="{{ _('Preview') }}" sandbox referrerpolicy="no-referrer"></iframe>
@@ -166,11 +166,14 @@
 {% endif %}
 <dialog id="options-dialog" aria-labelledby="options-title">
   <form method="dialog" class="form" id="options-form">
-    <h2 id="options-title">{{ _("Layout options") }} · <span data-layout-name>{{ layout.name }}</span></h2>
-    <div id="options-fields"></div>
+    <h2 id="options-title">{{ _("Layout") }}</h2>
+    <label hidden>{{ _("Layout") }} <select id="options-layout" name="layout-id"></select></label>
+    <p class="muted">{{ _("Options you change here apply to this project. The rest follow the layout.") }}</p>
+    <div id="options-fields" class="design-fields"></div>
     <div class="buttons">
+      {% if not guest %}<a id="options-edit-layout" class="spacer" href="/layouts{% if layout.id is defined %}/{{ layout.id }}{% endif %}">{{ _("Edit layouts") }}</a>{% endif %}
       <button type="button" data-close-dialog>{{ _("Cancel") }}</button>
-      <button type="submit" class="primary" value="save">{{ _("Save") }}</button>
+      <button type="submit" class="primary" value="save" id="options-save">{{ _("Save") }}</button>
     </div>
   </form>
 </dialog>

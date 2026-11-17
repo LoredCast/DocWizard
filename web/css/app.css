@@ -43,6 +43,7 @@
   html { background: var(--bg); color: var(--fg); font: 14px/1.4 var(--font); }
   body { margin: 0; min-height: 100dvh; background: var(--bg); }
   h1, h2 { font-size: 14px; font-weight: 600; margin: 24px 0 8px; }
+  h2 a { font-weight: 400; margin-left: 8px; }
   p { margin: 8px 0; }
   a { color: var(--accent); text-decoration: none; }
   a:hover, a:focus-visible { text-decoration: underline; }
@@ -58,13 +59,16 @@
   button.primary { background: var(--accent); color: var(--on-accent); border-color: transparent; }
   button.danger { color: var(--danger); border-color: var(--danger); }
   button.link { border: 0; padding: 0; min-height: 0; color: var(--accent); background: none; }
-  a.button {
+  a.button, label.button {
     display: inline-flex; align-items: center; justify-content: center; min-height: var(--control);
     padding: 0 12px; border: 1px solid var(--edge); border-radius: var(--radius); color: var(--fg);
     text-decoration: none; white-space: nowrap;
   }
-  a.button:hover { background: var(--hover); }
+  a.button:hover, label.button:hover { background: var(--hover); }
+  label.button { cursor: pointer; }
+  label.button:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
   input, select, textarea { padding: 0 8px; }
+  select { max-width: 100%; min-width: 0; text-overflow: ellipsis; }
   textarea { padding: 8px; }
   input::placeholder { color: var(--muted); }
   input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); min-height: 0; }
@@ -74,7 +78,7 @@
   th, td { padding: 4px 16px; border-bottom: 1px solid var(--line); height: var(--control); }
   tbody tr:hover { background: var(--hover); }
   tr[data-href] { cursor: pointer; }
-  .num { text-align: right; }
+  .num { text-align: right; white-space: nowrap; }
   dialog {
     background: var(--bg); color: var(--fg); border: 1px solid var(--line);
     border-radius: var(--radius); padding: 16px; width: min(32rem, calc(100vw - 32px));
@@ -91,13 +95,13 @@
     display: flex; align-items: center; gap: 12px; padding: 4px 16px; min-height: 40px;
     border-bottom: 1px solid var(--line); min-width: 0; position: relative;
   }
-  .crumbs { display: flex; gap: 8px; align-items: center; flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; }
+  .crumbs { display: flex; gap: 8px; align-items: center; flex: 1 1 0; min-width: 0; overflow: hidden; white-space: nowrap; }
   .crumbs > * { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .crumbs > span:nth-child(even) { flex: none; }
   .crumbs a { color: var(--fg); }
   .crumbs span:last-child { font-weight: 600; }
   .wordmark { font-weight: 600; flex: none; }
-  .actions { margin-left: auto; display: flex; gap: 8px; align-items: center; flex: 0 1 auto; min-width: 0; }
+  .actions { margin-left: auto; display: flex; gap: 8px; align-items: center; flex: none; max-width: 100%; }
   .actions form.inline { display: contents; }
   .content { padding-bottom: 32px; min-width: 0; }
   .pad { padding: 0 16px; }
@@ -111,7 +115,13 @@
   }
   .statusbar .spacer, .pane-head .spacer { flex: 1; }
   .statusbar > span:empty:not(.spacer) { display: none; }
-  .panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 0 32px; padding: 0 16px; }
+  /* The project page's sections flow in columns, so a long one leaves no gap beside it. */
+  .panels { columns: 24rem; column-gap: 32px; padding: 0 16px; }
+  .panels > section { break-inside: avoid; display: inline-block; width: 100%; }
+  .file-actions { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-top: 12px; }
+  .file-actions .row { margin: 0; }
+  .file-actions input[name="path"] { width: 12rem; }
+  .hint { margin: 4px 0 0; font-size: 13px; }
 
   .editor-page { height: 100dvh; grid-template-rows: auto minmax(0, 1fr) auto; }
   .workspace { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
@@ -134,7 +144,7 @@
   .side-panel[hidden] { display: none; }
   .panel-body { overflow: auto; padding: 8px 16px 32px; flex: 1; }
   .pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-  .editor-pane { overflow: hidden; }
+  .editor-pane { overflow: hidden; position: relative; }
   .format-bar {
     display: flex; align-items: center; gap: 2px; padding: 4px 8px;
     border-bottom: 1px solid var(--line); background: var(--bg);
@@ -156,6 +166,9 @@
     border-bottom: 1px solid var(--line); color: var(--muted);
   }
   .pane-head button { min-height: 24px; }
+  .pane-head .choice { flex: none; white-space: nowrap; gap: 4px; }
+  .preview-pane .pane-head { flex-wrap: nowrap; gap: 12px; }
+  #preview-state { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   @media (pointer: coarse) { .pane-head button { min-height: var(--control); } }
   #preview, .pdf-frame { flex: 1; width: 100%; border: 0; background: #fff; }
   #preview[hidden], .pdf-frame[hidden], .pdf-viewer[hidden], .preview-empty[hidden] { display: none; }
@@ -178,6 +191,10 @@
     .preview-pane { border-left: 0; }
     .split.with-panel, .split.no-preview.with-panel { grid-template-columns: 1fr; position: relative; }
     .side-panel { position: absolute; inset: 0; border-left: 0; z-index: 2; }
+    /* Comments are a sheet over the lower half, so the commented passage stays in view above. */
+    #side-panel { top: auto; height: 55%; border-top: 1px solid var(--line); }
+    .preview-pane .pane-head { gap: 8px; padding-right: 8px; }
+    #preview-state.idle { display: none; }
     .actions > .status, .presence .name { display: none; }
     .menu-status { display: block; padding: 4px 8px; font-size: 12px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
   }
@@ -189,21 +206,38 @@
     .editor-more.open .toolbar-buttons {
       position: absolute; right: 0; top: calc(100% + 4px); z-index: 20;
       width: min(15rem, calc(100vw - 32px)); background: var(--bg);
-      border: 1px solid var(--line); border-radius: var(--radius); padding: 8px;
-      display: grid; gap: 4px;
+      border: 1px solid var(--line); border-radius: var(--radius); padding: 4px;
+      display: grid; gap: 0;
     }
-    .editor-more.open .toolbar-buttons button, .editor-more.open .toolbar-buttons .button { justify-content: flex-start; text-align: left; }
+    .editor-more.open .toolbar-buttons button, .editor-more.open .toolbar-buttons .button {
+      justify-content: flex-start; text-align: left; border-color: transparent; padding: 0 8px;
+    }
+    .editor-more.open .toolbar-buttons [aria-pressed="true"] { color: var(--accent); }
   }
   @media (max-width: 640px) {
+    /* Three levels deep, the middle link leads back; the wordmark gives its room to the names. */
+    .crumbs:has(> :nth-child(5)) > .wordmark, .crumbs:has(> :nth-child(5)) > .wordmark + span { display: none; }
     .page:not(.editor-page) .toolbar { flex-wrap: wrap; gap: 8px; padding: 6px 16px; }
-    .page:not(.editor-page) .actions { flex-wrap: wrap; max-width: 100%; }
+    .page:not(.editor-page) .actions { flex-wrap: wrap; }
+    /* With a search field: the wordmark and the account menu, then search across the width. */
+    .toolbar:has(.toolbar-search) { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-auto-flow: row dense; }
+    .toolbar:has(.toolbar-search) .actions, .toolbar:has(.toolbar-search) form.inline { display: contents; }
+    .toolbar:has(.toolbar-search) .crumbs { grid-area: 1 / 1; }
+    .toolbar:has(.toolbar-search) .account-menu { grid-area: 1 / 2; justify-self: end; }
+    .toolbar:not(:has(.actions > button)) .toolbar-search { grid-column: 1 / -1; }
+    th, td { padding: 4px 8px; }
+    th:first-child, td:first-child { padding-left: 16px; }
+    th:last-child, td:last-child { padding-right: 16px; }
+    th.opt, td.opt { display: none; }
+    .file-actions input[name="path"] { flex: 1; width: auto; }
+    .file-actions form:first-child { flex: 1 1 100%; }
   }
 }
 
 @layer components {
   /* Search */
   .toolbar-search { width: min(16rem, 40vw); min-width: 0; }
-  @media (max-width: 640px) { .toolbar-search { width: auto; flex: 1 1 8rem; } }
+  @media (max-width: 640px) { .toolbar-search { width: 100%; } }
   .narrow.wide { max-width: 52rem; }
   .search-results li { display: block; padding: 8px 0; border-bottom: 1px solid var(--line); }
   .search-results .snippet { margin: 4px 0 0; color: var(--muted); }
@@ -238,13 +272,14 @@
   }
   details.account-menu summary::-webkit-details-marker { display: none; }
   details.account-menu summary::after { content: "▾"; font-size: 11px; color: var(--muted); flex: none; }
-  details.account-menu[open] .menu-body { width: min(14rem, calc(100vw - 32px)); padding: 8px; gap: 4px; z-index: 20; }
+  details.account-menu[open] .menu-body { width: min(14rem, calc(100vw - 32px)); padding: 4px; gap: 0; z-index: 20; }
   details.account-menu form.inline { display: contents; }
-  .actions-list { display: grid; gap: 4px; }
-  .actions-list button { justify-content: flex-start; text-align: left; }
+  /* Menus (§25.7): plain rows, the hovered one in --hover. */
+  .actions-list { display: grid; gap: 0; }
+  .actions-list button { justify-content: flex-start; text-align: left; border-color: transparent; padding: 0 8px; }
   .actions-list a.menu-item {
-    display: flex; align-items: center; min-height: var(--control); padding: 0 12px;
-    border: 1px solid var(--edge); border-radius: var(--radius); color: var(--fg); text-decoration: none;
+    display: flex; align-items: center; min-height: var(--control); padding: 0 8px;
+    border: 1px solid transparent; border-radius: var(--radius); color: var(--fg); text-decoration: none;
   }
   .actions-list a.menu-item:hover { background: var(--hover); }
   @media (max-width: 640px) { .admin .grid { display: block; overflow-x: auto; } }
@@ -253,7 +288,13 @@
   .form label { display: flex; flex-direction: column; gap: 4px; }
   .form label.choice, label.choice { flex-direction: row; align-items: center; gap: 8px; display: inline-flex; }
   label.choice[hidden], label[hidden] { display: none; }
-  .buttons { display: flex; gap: 8px; justify-content: flex-end; }
+  .buttons { display: flex; gap: 8px; justify-content: flex-end; align-items: center; flex-wrap: wrap; }
+  .buttons .spacer { margin-right: auto; }
+  .row select { flex: 1 1 8rem; }
+  .form-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: 12px 16px; }
+  details.disclosure { margin: 8px 0; }
+  details.disclosure > summary { cursor: pointer; color: var(--accent); width: fit-content; }
+  details.disclosure[open] > summary { margin-bottom: 12px; }
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
   .row input:not([type]), .row input[name] { flex: 1; min-width: 8rem; }
   .muted { color: var(--muted); }
@@ -294,7 +335,12 @@
   .inbox li { flex-wrap: wrap; }
   .inbox li.unread a { font-weight: 600; }
   .reply { display: flex; gap: 8px; align-items: flex-start; }
-  .reply textarea { flex: 1; }
+  /* A reply box starts one line high, level with its buttons, and grows with the text. */
+  .reply textarea { flex: 1; min-width: 0; resize: none; min-height: var(--control); padding: 3px 8px; field-sizing: content; max-height: 12rem; }
+  .reply textarea[rows="1"] { height: var(--control); }
+  @supports (field-sizing: content) { .reply textarea[rows="1"] { height: auto; } }
+  .thread-foot { display: flex; gap: 8px; align-items: flex-start; margin-top: 4px; }
+  .thread-foot .reply { flex: 1; min-width: 0; }
   dialog.wide { width: min(56rem, calc(100vw - 32px)); }
   .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .conflicts li { flex-direction: column; align-items: stretch; padding: 8px 0; }
@@ -341,7 +387,7 @@
   .design-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; padding-bottom: 12px; }
   .design-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
   .design-field.type-longtext, .design-field.type-cover, .design-field.type-font,
-  .design-field.type-text, .design-field.type-citation-style { grid-column: 1 / -1; }
+  .design-field.type-text, .design-field.type-citation-style, .design-field.wide { grid-column: 1 / -1; }
   .design-field select, .design-field input:not([type="checkbox"]):not([type="color"]), .design-field textarea { width: 100%; }
   .design-field input[aria-invalid="true"] { border-color: var(--danger); }
   .design-field.type-boolean { flex-direction: row-reverse; justify-content: flex-end; align-items: center; gap: 8px; }
@@ -548,6 +594,11 @@
   .review-bubble[hidden] { display: none; }
   .review-mode #open-refs, .review-mode #open-fields, .review-mode #open-options { display: none; }
   .review-bubble { position: absolute; z-index: 5; display: flex; gap: 4px; background: var(--bg); border: 1px solid var(--edge); padding: 4px; box-shadow: 0 2px 8px rgb(0 0 0 / .25); }
+  .review-bubble.docked { inset: auto 0 0; z-index: 3; gap: 8px; padding: 8px 16px; border: 0; border-top: 1px solid var(--line); box-shadow: none; }
+  .review-bubble.docked button { flex: 1; }
+  /* On touch screens the phone draws the selection; a second, redrawn one would trail behind it. */
+  @media (pointer: coarse) { .review-mode #editor .cm-selectionLayer { display: none; } }
+  @media (max-width: 900px) { .split.comments-open #editor .cm-content { padding-bottom: 60dvh; } }
   #editor .cm-comment-mark.cm-suggest-del { text-decoration: line-through 1px; color: var(--danger); }
   #editor .cm-suggest-ins { margin-left: 2px; }
   #editor .cm-comment-active { background: var(--sel); }

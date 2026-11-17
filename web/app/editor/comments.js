@@ -1,7 +1,7 @@
 // Comment threads in a side panel (ARCHITECTURE.md §8.8). Comments live on the server,
 // never in the text; their anchors are kept current by the authority and, in this
 // editor, by the anchors field.
-import { EditorSelection } from "codemirror";
+import { EditorSelection, EditorView } from "codemirror";
 import { api, confirmDialog, el, t as tr, toast } from "../ui/dom.js";
 import { diffNodes } from "../ui/worddiff.js";
 import { AnchorLoader, anchorsField, setActiveThread, setAnchors } from "./anchors.js";
@@ -71,8 +71,9 @@ export function attachMentions(textarea, members) {
 }
 
 export class CommentsPanel {
-  constructor({ session, docId, panel, list, onCount, members = [], isUser = false }) {
+  constructor({ session, docId, panel, list, onCount, members = [], isUser = false, selectText = true }) {
     this.session = session;
+    this.selectText = selectText; // whether choosing a thread selects its text (not in the review view)
     this.docId = docId;
     this.panel = panel;
     this.list = list;
@@ -160,21 +161,27 @@ export class CommentsPanel {
   focusThread(id) {
     this.show();
     this.select(id, false);
-    this.list.querySelector(`[data-thread="${id}"]`)?.scrollIntoView({ block: "nearest" });
   }
 
+  // Below 900px the panel is a sheet over the lower half of the text, so the passage moves
+  // to the top of the text where it stays visible; the thread moves to the top of the sheet.
   select(id, moveCursor = true) {
     const view = this.session.view;
+    const sheet = window.matchMedia("(max-width: 900px)").matches;
     const anchor = view.state.field(anchorsField).comment.find((a) => a.id === id);
-    const effects = setActiveThread.of(id);
-    if (anchor && moveCursor) {
-      view.dispatch({ effects, selection: EditorSelection.range(anchor.from, anchor.to), scrollIntoView: true });
+    const effects = [setActiveThread.of(id)];
+    if (anchor && (moveCursor || sheet)) {
+      effects.push(EditorView.scrollIntoView(anchor.from, sheet ? { y: "start", yMargin: 32 } : { y: "center" }));
+    }
+    if (anchor && moveCursor && this.selectText) {
+      view.dispatch({ effects, selection: EditorSelection.range(anchor.from, anchor.to) });
     } else {
       view.dispatch({ effects });
     }
     for (const node of this.list.querySelectorAll(".thread")) {
       node.classList.toggle("active", node.dataset.thread === String(id));
     }
+    this.list.querySelector(`[data-thread="${id}"]`)?.scrollIntoView({ block: sheet ? "start" : "nearest" });
   }
 
   async send(method, url, body) {
@@ -276,12 +283,8 @@ export class CommentsPanel {
                          onclick: () => this.send("DELETE", `/api/documents/${this.docId}/comments/${c.id}`) },
             tr("Delete"))) : null));
     }
-    const actions = el("div", { class: "buttons" });
-    if (this.canResolve && (t.suggestion === null || t.suggestionState || t.orphaned)) {
-      actions.append(el("button", { type: "button", onclick: () => this.send("PATCH",
-        `/api/documents/${this.docId}/comments/${t.id}`, { resolved: !t.resolved }) },
-        t.resolved ? tr("Reopen") : tr("Resolve")));
-    }
+    // One row at the end: the reply box, then Resolve or Reopen.
+    const foot = el("div", { class: "thread-foot" });
     if (t.resolved) {
       node.append(el("p", { class: "muted" }, t.resolvedBy ? tr("Resolved by {name}", { name: t.resolvedBy }) : tr("Resolved")));
     } else if (this.canComment) {
@@ -293,10 +296,15 @@ export class CommentsPanel {
         const body = reply.elements.body.value.trim();
         if (body) await this.send("POST", `/api/documents/${this.docId}/comments`, { body, threadId: t.id });
       });
-      node.append(reply);
+      foot.append(reply);
       attachMentions(reply.elements.body, this.members);
     }
-    if (actions.childElementCount) node.append(actions);
+    if (this.canResolve && (t.suggestion === null || t.suggestionState || t.orphaned)) {
+      foot.append(el("button", { type: "button", onclick: () => this.send("PATCH",
+        `/api/documents/${this.docId}/comments/${t.id}`, { resolved: !t.resolved }) },
+        t.resolved ? tr("Reopen") : tr("Resolve")));
+    }
+    if (foot.childElementCount) node.append(foot);
     return node;
   }
 

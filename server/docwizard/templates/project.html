@@ -5,12 +5,12 @@
 {% if error %}<p class="error pad" role="alert">{{ _(error) }}</p>{% endif %}
 <div class="table-wrap">
 <table>
-  <thead><tr><th>{{ _("Name") }} ▴</th><th>{{ _("Kind") }}</th><th>{{ _("Modified") }}</th><th class="num">{{ _("Size") }}</th></tr></thead>
+  <thead><tr><th>{{ _("Name") }} ▴</th><th class="opt">{{ _("Kind") }}</th><th>{{ _("Modified") }}</th><th class="num">{{ _("Size") }}</th></tr></thead>
   <tbody>
   {% for e in tree %}
   <tr data-href="{{ doc_url(project.id, e.path) }}">
     <td><a href="{{ doc_url(project.id, e.path) }}">{{ e.path }}</a></td>
-    <td>{{ _(e.kind) if e.type == "document" else _("file") }}</td>
+    <td class="opt">{{ _(e.kind) if e.type == "document" else _("file") }}</td>
     <td title="{{ e.updatedAt }}">{{ e.updatedAt|reltime }}</td>
     <td class="num">{{ e.size|filesize }}</td>
   </tr>
@@ -20,26 +20,25 @@
   </tbody>
 </table>
 </div>
-<div class="panels">
 {% if can(role, "edit") %}
-<section>
-  <h2>{{ _("New document") }}</h2>
+<div class="pad file-actions">
   <form method="post" class="row">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <input type="hidden" name="action" value="new-document">
     <input name="path" placeholder="chapter.md" required aria-label="{{ _('File name') }}">
     <button type="submit">{{ _("Create document") }}</button>
   </form>
-  <h2>{{ _("Upload") }}</h2>
   <form class="row" data-upload="{{ project.id }}">
-    <input type="file" name="file" multiple aria-label="{{ _('Files to upload') }}">
-    <button type="submit">{{ _("Upload") }}</button>
+    <label class="button">{{ _("Upload files") }}<input type="file" name="file" multiple class="visually-hidden"></label>
+    <span class="muted" data-upload-status></span>
   </form>
-  <p class="muted">{{ _("Word files (.docx) become Markdown documents: their comments become comment threads and tracked changes become suggestions to accept or reject. Fountain screenplays (.fountain) become documents for the Screenplay and Drehbuch layouts.") }}</p>
-  <p class="muted" data-upload-status></p>
-</section>
+</div>
+<p class="pad muted hint">{{ _("Word files (.docx) keep their comments and tracked changes. Fountain screenplays (.fountain) become documents.") }}</p>
+{% endif %}
+<div class="panels">
+{% if can(role, "edit") %}
 <section>
-  <h2>{{ _("Layout") }}</h2>
+  <h2>{{ _("Layout") }}{% if not guest %} <a class="muted" href="/layouts/{{ project.layout_id }}">{{ _("Edit layouts") }}</a>{% endif %}</h2>
   <form method="post" class="row">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <input type="hidden" name="action" value="layout">
@@ -47,7 +46,6 @@
       {% for lay in layouts %}<option value="{{ lay.id }}" {% if lay.id == project.layout_id %}selected{% endif %}>{{ lay.name }}</option>{% endfor %}
     </select>
     <button type="submit">{{ _("Change layout") }}</button>
-    {% if not guest %}<a href="/layouts/{{ project.layout_id }}">{{ _("Edit layouts") }}</a>{% endif %}
   </form>
   <h2 id="language">{{ _("Document language") }}</h2>
   <form method="post" class="row">
@@ -59,7 +57,7 @@
     </select>
     <button type="submit">{{ _("Change language") }}</button>
   </form>
-  <p class="muted">{{ _("Dates, quotation marks, hyphenation, the bibliography and generated headings follow this language. A document can set its own with lang: in its front matter, and mark passages in other languages with [text]{lang=fr}.") }}</p>
+  <p class="muted hint">{{ _("Dates, quotation marks, hyphenation and generated headings follow it. A document can set its own with lang: in its front matter.") }}</p>
 </section>
 {% endif %}
 {% if not guest %}
@@ -119,20 +117,25 @@
     <li class="muted">{{ _("No share links.") }}</li>
     {% endfor %}
   </ul>
-  <form method="post" class="form">
-    <input type="hidden" name="_csrf" value="{{ csrf }}">
-    <input type="hidden" name="action" value="create-link">
-    <label>{{ _("Role") }}
-      <select name="role">{% for r in link_roles %}<option value="{{ r }}">{{ _(r|capitalize) }}</option>{% endfor %}</select>
-    </label>
-    <label>{{ _("Expires") }}
-      <select name="expires_days"><option value="">{{ _("Never") }}</option><option value="1">{{ _("In 1 day") }}</option><option value="7">{{ _("In 7 days") }}</option><option value="30">{{ _("In 30 days") }}</option></select>
-    </label>
-    <label>{{ _("Password (optional)") }} <input name="password" type="password" autocomplete="new-password" minlength="6"></label>
-    <label>{{ _("Name (optional)") }} <input name="label" maxlength="80" placeholder="{{ _('Seminar group') }}"></label>
-    <label class="choice"><input type="checkbox" name="review" value="1"> {{ _("Open in the review view: the text as it reads, without Markdown, for commenting and suggesting changes") }}</label>
-    <div><button type="submit">{{ _("Create share link") }}</button></div>
-  </form>
+  <details class="disclosure"{% if new_link %} open{% endif %}>
+    <summary>{{ _("New share link") }}</summary>
+    <form method="post" class="form">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <input type="hidden" name="action" value="create-link">
+      <div class="form-pair">
+        <label>{{ _("Role") }}
+          <select name="role">{% for r in link_roles %}<option value="{{ r }}">{{ _(r|capitalize) }}</option>{% endfor %}</select>
+        </label>
+        <label>{{ _("Expires") }}
+          <select name="expires_days"><option value="">{{ _("Never") }}</option><option value="1">{{ _("In 1 day") }}</option><option value="7">{{ _("In 7 days") }}</option><option value="30">{{ _("In 30 days") }}</option></select>
+        </label>
+        <label>{{ _("Password (optional)") }} <input name="password" type="password" autocomplete="new-password" minlength="6"></label>
+        <label>{{ _("Name (optional)") }} <input name="label" maxlength="80" placeholder="{{ _('Seminar group') }}"></label>
+      </div>
+      <label class="choice"><input type="checkbox" name="review" value="1"> {{ _("Open in the review view: the text as it reads, without Markdown, for commenting and suggesting changes") }}</label>
+      <div><button type="submit">{{ _("Create share link") }}</button></div>
+    </form>
+  </details>
 </section>
 {% endif %}
 {% if may_sync %}
@@ -152,13 +155,16 @@
   </div>
   {% else %}
   <p class="muted">{{ _("Keep this project in a folder on Nextcloud, Seafile or any WebDAV server. Changes go both ways; overlapping edits become conflicts to review.") }}</p>
-  <form class="form" id="sync-nextcloud">
-    <label>{{ _("Nextcloud address") }} <input name="server" required placeholder="https://cloud.example.org" inputmode="url"></label>
-    <label>{{ _("Folder") }} <input name="remotePath" placeholder="Documents/{{ project.name }}" value="DocWizard/{{ project.name }}"></label>
-    <div><button type="submit" class="primary">{{ _("Connect to Nextcloud") }}</button></div>
-    <p class="muted" id="sync-flow" role="status" hidden></p>
-  </form>
-  <details>
+  <details class="disclosure">
+    <summary>Nextcloud</summary>
+    <form class="form" id="sync-nextcloud">
+      <label>{{ _("Nextcloud address") }} <input name="server" required placeholder="https://cloud.example.org" inputmode="url"></label>
+      <label>{{ _("Folder") }} <input name="remotePath" placeholder="Documents/{{ project.name }}" value="DocWizard/{{ project.name }}"></label>
+      <div><button type="submit" class="primary">{{ _("Connect to Nextcloud") }}</button></div>
+      <p class="muted" id="sync-flow" role="status" hidden></p>
+    </form>
+  </details>
+  <details class="disclosure">
     <summary>{{ _("Seafile or another WebDAV server") }}</summary>
     <form class="form" id="sync-webdav">
       <label>{{ _("Server") }}
