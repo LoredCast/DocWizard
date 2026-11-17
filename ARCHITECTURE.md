@@ -74,7 +74,7 @@ DocWizard should:
 ### Non-goals (v1)
 
 - WYSIWYG or direct manipulation of page layout.
-- Track changes. Comments, suggestions ([§8.10](#810-suggestions)), named versions and the history cover review.
+- Track changes in the document. Comments, suggestions and suggest mode ([§8.10](#810-suggestions)), named versions and the history cover review.
 - Peer-to-peer collaboration or long-lived offline branches.
 - More than one app process per instance (no horizontal scaling).
 - Spreadsheets, slides, drawings.
@@ -705,11 +705,16 @@ Each peer gets a stable color index and a display name, which for guests is the 
 
 ### 8.10 Suggestions
 
-Track changes stays a non-goal ([§2](#2-goals-and-non-goals)); suggestions cover what reviewers need from it, and Word's tracked changes import as suggestions ([§8.11](#811-word-files-in-and-out)).
+Track changes in the document stays a non-goal ([§2](#2-goals-and-non-goals)); suggestions, and suggest mode for typing them, cover what reviewers need from it, and Word's tracked changes import as suggestions ([§8.11](#811-word-files-in-and-out)).
 
 - A suggestion is a comment thread whose first comment carries replacement text (`comments.suggestion`) for the anchored passage; its note is optional. Commenters and editors can suggest. The thread keeps the whole passage as written when it was suggested (other threads keep 500 characters).
 - The editor shows open suggestions in place: the passage struck through, the new text right after it. The panel shows a word-level diff.
-- **Accept** (editors) replaces the anchored passage with the suggestion as an ordinary update from the authority (`system:suggestion`, authored by whoever accepted). If the passage no longer reads as when it was suggested, the server answers `409 changed` and the editor asks before replacing it anyway. **Reject** (editors) leaves the text alone. Either way the thread is resolved with `suggestion_state`, and the people in the thread are notified ([§8.9](#89-mentions-and-notifications)).
+- **Suggest mode** (`web/app/editor/suggest-mode.js`): a toggle (Suggest in the editor's actions, Ctrl+Alt+G) after which typing doesn't change the text but suggests changes to it, as in Word's track changes. Anyone who may comment can turn it on, in the editor and in the review view; it opens the text to typing for commenters and the review view, and it starts on for commenters in the editor. A banner says it is on and takes the formatting bar's place. The choice is remembered per document in the browser.
+  - Typing collects into one pending suggestion: what is typed shows after the cursor's place in green, and Backspace and Delete past it strike the text before or after it in red. The text itself never changes, so typing can't go into the editor (an input method would compose into text that isn't there): while the cursor is in the text, a hidden textarea at the cursor takes the keyboard, as CodeMirror 5 did, and the editor draws its contents and a cursor. Typing over a selection, cutting, pasting and dropping start in the editor and are turned into the same pending suggestion by a transaction filter.
+  - The pending suggestion is sent as an ordinary suggestion thread, without a note, when the cursor leaves it (a click, arrow keys past its ends, Escape), when the editor loses focus or the page is hidden, when the mode is turned off, or after 20 seconds without typing. A pure insertion widens to the word it is in or follows (the word after it at the start of a line), like Word's insertions in [§8.11](#811-word-files-in-and-out). Undo takes back the pending suggestion. One that can't be sent while offline stays in place and is sent when the connection is back.
+  - On touch screens the editor's own keyboard stays closed while suggesting (`inputmode="none"`): a tap puts the cursor and opens the keyboard for the textarea within the tap, and a selection gets a toolbar with Delete, Replace and Comment.
+- In place, the editor strikes and adds only the words a suggestion changes: words it keeps at either end of the passage stay as they are, so an insertion reads as new words, not as its passage struck and written again.
+- **Accept** (editors) replaces the anchored passage with the suggestion as an ordinary update from the authority (`system:suggestion`, authored by whoever accepted). If the passage no longer reads as when it was suggested, the server answers `409 changed` and the editor asks before replacing it anyway. **Reject** (editors) leaves the text alone. Either way the thread is resolved with `suggestion_state`, and the people in the thread are notified ([§8.9](#89-mentions-and-notifications)). With two or more open suggestions the panel offers **Accept all** and **Reject all**, which decide them one by one from the end of the text; any whose passage changed stay open.
 
 ### 8.11 Word files in and out
 
@@ -1629,7 +1634,7 @@ The roadmap is a thin vertical slice first. The **first release gate** is: *I ca
 
 1. **Sharing granularity**: v1 shares whole projects. Is per-document sharing needed?
 2. **Typst as a source format**: should the editor support writing Typst directly, not only as output?
-3. **Suggestion mode**: suggestions exist as threads with replacement text (§8.10). Is a mode where typing itself becomes suggestions worth it?
+3. **Suggestion mode**: settled: suggest mode turns typing into suggestions ([§8.10](#810-suggestions)).
 4. **LaTeX live preview**: is latexmk fast enough for long documents, or are draft-mode or partial compiles needed?
 5. **OIDC in the UI**: should providers be editable in the admin area (secrets encrypted in the database) instead of only in the config file?
 6. **Zotero desktop helper**: the server reaches Zotero's local API when it runs on the same network. Is a small helper worth it for hosted servers?
