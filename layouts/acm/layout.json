@@ -1,0 +1,105 @@
+{
+  "id": "acm",
+  "name": "ACM conference paper",
+  "version": "1.0.0",
+  "extends": "default",
+  "description": "After the geometry of ACM's acmart sigconf format: US Letter, two columns, 9 pt Libertinus (the Linux Libertine family ACM uses), numbered sections in bold capitals, CCS-style keywords, “Figure 1:” captions and the ACM reference format.",
+  "design": {
+    "page.paper": "us-letter",
+    "page.columns": "2",
+    "page.column-gap": "0.33in",
+    "page.margin-top": "0.75in",
+    "page.margin-bottom": "1in",
+    "page.margin-left": "0.75in",
+    "page.margin-right": "0.75in",
+    "page.number-position": "bottom-center",
+    "text.font": "Libertinus Serif",
+    "text.size": 9,
+    "text.leading": 1.05,
+    "text.paragraph-spacing": "0",
+    "text.indent": "1em",
+    "text.lang": "en-US",
+    "text.justify": true,
+    "heading.numbering": "1",
+    "heading.1.size": 1,
+    "heading.1.weight": "bold",
+    "heading.1.case": "upper",
+    "heading.1.above": "1.2em",
+    "heading.1.below": "0.5em",
+    "heading.2.size": 1,
+    "heading.2.weight": "bold",
+    "heading.2.above": "1em",
+    "heading.2.below": "0.4em",
+    "heading.3.size": 1,
+    "heading.3.weight": "regular",
+    "heading.3.style": "italic",
+    "heading.3.run-in": "period",
+    "heading.4.size": 1,
+    "heading.4.weight": "regular",
+    "heading.4.style": "italic",
+    "heading.4.run-in": "period",
+    "cover.title-size": 1.9,
+    "cover.title-weight": "bold",
+    "cover.title-align": "left",
+    "cover.align": "left",
+    "cover.fields": [
+      {
+        "key": "author",
+        "style": "large"
+      },
+      {
+        "key": "affiliation"
+      },
+      {
+        "key": "email",
+        "style": "small"
+      },
+      {
+        "key": "abstract"
+      },
+      {
+        "key": "keywords",
+        "label": "Keywords: ",
+        "style": "bold-left"
+      }
+    ],
+    "cover.abstract-title": "Abstract",
+    "cover.abstract-separator": "break",
+    "footnote.size": 0.85,
+    "cite.style": "association-for-computing-machinery",
+    "bib.heading": "references",
+    "bib.size": 0.85,
+    "bib.hanging": "0",
+    "bib.spacing": "0.15em",
+    "caption.figure": "Figure",
+    "caption.table": "Table",
+    "caption.separator": ": ",
+    "caption.label-weight": "bold",
+    "caption.size": 0.95,
+    "caption.table-position": "top"
+  },
+  "variables": {
+    "columns": {
+      "type": "enum",
+      "values": [
+        "2",
+        "1"
+      ],
+      "labels": {
+        "2": "Two columns",
+        "1": "One column (manuscript)"
+      },
+      "label": "Columns"
+    },
+    "citation-style": {
+      "type": "enum",
+      "values": [
+        "association-for-computing-machinery"
+      ],
+      "labels": {
+        "association-for-computing-machinery": "ACM reference format"
+      },
+      "label": "Citation style"
+    }
+  }
+}

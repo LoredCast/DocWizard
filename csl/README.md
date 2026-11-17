@@ -26,6 +26,10 @@ a document can still use any other style with `csl: some-style.csl` in its front
 | `mhra-notes.csl` | MHRA Style Guide 4th edition, footnotes and bibliography |
 | `mhra-author-date.csl` | MHRA Style Guide 4th edition, author-date |
 | `wuerzburg-germanistik.csl` | Short citations (author year, "S." page) after the Würzburg Germanistik guidelines, derived from `uni-wien-philosophie-kurzbelege`. DocWizard's own |
+| `association-for-computing-machinery.csl` | ACM reference format (ACM layout) |
+| `springer-lecture-notes-in-computer-science.csl` | Springer Lecture Notes in Computer Science (Springer LNCS layout) |
+| `elsevier-with-titles.csl` | Elsevier, numbered, with article titles (Elsevier layout) |
+| `elsevier-harvard.csl` | Elsevier, author-date (Harvard), with titles (Elsevier layout) |
 
 The 18th edition (2024) drops the place of publication, gives only the first author and "et al." in notes for
 three or more authors, and repeats names in the bibliography instead of a 3-em dash. Turabian's 9th edition still

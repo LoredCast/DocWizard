@@ -16,7 +16,7 @@ local function target()
   if FORMAT == "typst" then return "typst" end
   if FORMAT == "docx" then return "openxml" end
   if FORMAT == "odt" or FORMAT == "opendocument" then return "odt" end
-  if FORMAT:match("html") or FORMAT == "epub" then return "html" end
+  if FORMAT:match("html") or FORMAT:match("^epub") then return "html" end
   return nil
 end
 

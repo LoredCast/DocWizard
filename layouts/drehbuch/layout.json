@@ -21,6 +21,8 @@
     "script.parenthetical-indent": "3.5cm",
     "script.parenthetical-width": "6cm",
     "script.end-mark": "ENDE",
+    "script.more": "(WEITER)",
+    "script.contd": "(FORTS.)",
     "cover.title-case": "normal",
     "cover.title-weight": "bold",
     "cover.title-size": 1.3,

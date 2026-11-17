@@ -31,7 +31,10 @@ export async function api(method, url, body, { raw = false } = {}) {
   try { data = await res.json(); } catch { /* empty body */ }
   if (!res.ok) {
     const message = data?.error?.message ?? t("The request failed ({status}).", { status: res.status });
-    throw new Error(message);
+    const error = new Error(message);
+    error.code = data?.error?.code;
+    error.status = res.status;
+    throw error;
   }
   return data;
 }

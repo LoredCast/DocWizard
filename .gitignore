@@ -9,3 +9,4 @@ node_modules/
 /docwizard.toml
 /secrets/
 *.whl
+/web/vendor/harper/

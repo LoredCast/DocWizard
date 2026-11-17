@@ -1,0 +1,90 @@
+{
+  "id": "elsevier",
+  "name": "Elsevier journal manuscript",
+  "version": "1.0.0",
+  "extends": "default",
+  "description": "A manuscript for submission to an Elsevier journal, after the elsarticle preprint format: A4, one column, 12 pt, numbered sections 1 and 1.1, an abstract and keywords on the first page, line spacing for review, numbered or author-date references in Elsevier's styles.",
+  "design": {
+    "page.paper": "a4",
+    "page.margin-left": "2.5cm",
+    "page.margin-right": "2.5cm",
+    "page.margin-top": "2.5cm",
+    "page.margin-bottom": "2.5cm",
+    "text.font": "New Computer Modern",
+    "text.size": 12,
+    "text.leading": 1.25,
+    "text.paragraph-spacing": "0",
+    "text.indent": "1.5em",
+    "text.lang": "en-GB",
+    "text.justify": true,
+    "heading.numbering": "1.",
+    "heading.1.size": 1,
+    "heading.1.weight": "bold",
+    "heading.1.above": "1.4em",
+    "heading.1.below": "0.6em",
+    "heading.2.size": 1,
+    "heading.2.weight": "regular",
+    "heading.2.style": "italic",
+    "heading.2.above": "1.2em",
+    "heading.2.below": "0.5em",
+    "heading.3.size": 1,
+    "heading.3.weight": "regular",
+    "heading.3.style": "italic",
+    "heading.3.run-in": "period",
+    "cover.title-size": 1.45,
+    "cover.title-weight": "regular",
+    "cover.fields": [
+      {
+        "key": "author"
+      },
+      {
+        "key": "affiliation",
+        "style": "italic"
+      },
+      {
+        "key": "email",
+        "style": "small"
+      },
+      {
+        "key": "abstract"
+      },
+      {
+        "key": "keywords",
+        "label": "Keywords: ",
+        "style": "left"
+      }
+    ],
+    "cover.abstract-title": "Abstract",
+    "cover.abstract-separator": "break",
+    "cite.style": "elsevier-with-titles",
+    "bib.heading": "references",
+    "bib.size": 0.95,
+    "bib.hanging": "0",
+    "bib.spacing": "0.3em",
+    "caption.figure": "Fig.",
+    "caption.table": "Table",
+    "caption.separator": ". ",
+    "caption.size": 0.9
+  },
+  "variables": {
+    "linestretch": {
+      "type": "number",
+      "min": 1,
+      "max": 2,
+      "step": 0.25,
+      "label": "Line spacing (2 for review)"
+    },
+    "citation-style": {
+      "type": "enum",
+      "values": [
+        "elsevier-with-titles",
+        "elsevier-harvard"
+      ],
+      "labels": {
+        "elsevier-with-titles": "Numbered [1]",
+        "elsevier-harvard": "Author-date (Harvard)"
+      },
+      "label": "Citation style"
+    }
+  }
+}

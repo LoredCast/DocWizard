@@ -2,7 +2,7 @@
 // bibliography files, and your Zotero libraries with their collections, to search and cite
 // from quickly. Items with a PDF open in the page finder, which sets the citation's locator.
 import { api, el, t, toast } from "../ui/dom.js";
-import { fold, libraryField, scoreItem, sourceName } from "./citations.js";
+import { applyCitation, fold, libraryField, scoreItem, sourceName } from "./citations.js";
 import {
   addBibliography, bibliographyEntries, citationAt, citedKeys, citeChanges, documentLang, formatLocator,
   locatorOf, normalizeEntry, quoteBefore,
@@ -32,8 +32,9 @@ export function locatorFromInput(lang, value) {
 }
 
 export class ReferencesPanel {
-  constructor({ view, panel, readOnly, canBrowse, onToggle, onCited }) {
+  constructor({ view, panel, readOnly, canBrowse, onToggle, onCited, projectId }) {
     this.view = view;
+    this.projectId = projectId;
     this.panel = panel;
     this.readOnly = readOnly;
     this.canBrowse = canBrowse;
@@ -64,6 +65,7 @@ export class ReferencesPanel {
       el("button", { type: "button", onclick: () => this.hide() }, t("Close")));
     const controls = el("div", { class: "refs-controls" },
       this.sourceSelect, this.searchInput, this.collectionSelect, this.sourceNote);
+    if (!this.readOnly && this.projectId) controls.append(this.lookupForm());
     this.panel.replaceChildren(head, controls, el("div", { class: "panel-body" }, this.atCursor, this.list, this.more));
     this.sourceSelect.addEventListener("change", () => {
       this.mode = this.sourceSelect.value;
@@ -89,6 +91,41 @@ export class ReferencesPanel {
       }
     });
     this.cursorMoved = debounce(() => { if (this.open) this.renderCursor(); }, 150);
+  }
+
+  // Add a reference by DOI, ISBN or arXiv ID (§10.5): the server looks it up, adds it to the
+  // document's CSL-JSON file (references.json unless it lists another) and the key is cited here.
+  lookupForm() {
+    const input = el("input", { name: "id", placeholder: t("DOI, ISBN or arXiv ID"), autocomplete: "off",
+                                "aria-label": t("Add a reference by DOI, ISBN or arXiv ID") });
+    const button = el("button", { type: "submit" }, t("Add"));
+    const form = el("form", { class: "row refs-lookup" }, input, button);
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const id = input.value.trim();
+      if (!id) return;
+      const text = this.text();
+      const file = bibliographyEntries(text).map(normalizeEntry).find((e) => /\.json$/i.test(e)) ?? "references.json";
+      button.disabled = true;
+      button.textContent = t("Looking up…");
+      try {
+        const data = await api("POST", `/api/projects/${this.projectId}/references`, { id, file });
+        const pos = this.view.state.selection.main.head;
+        const before = this.view.state.sliceDoc(Math.max(0, pos - 1), pos);
+        const key = `${before && !/\s|\[|\(/.test(before) ? " " : ""}[@${data.key}]`;
+        applyCitation(this.view, { id: data.key, source: data.file }, pos, pos, key);
+        input.value = "";
+        toast(data.added ? t("Added @{key} to {file} and cited it.", { key: data.key, file: data.file })
+          : t("@{key} was already in {file}; cited it.", { key: data.key, file: data.file }));
+        this.onCited();
+      } catch (err) {
+        toast(err.message, { error: true });
+      } finally {
+        button.disabled = false;
+        button.textContent = t("Add");
+      }
+    });
+    return form;
   }
 
   get open() { return !this.panel.hidden; }

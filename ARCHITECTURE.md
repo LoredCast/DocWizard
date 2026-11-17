@@ -74,7 +74,7 @@ DocWizard should:
 ### Non-goals (v1)
 
 - WYSIWYG or direct manipulation of page layout.
-- Track changes / suggestion mode. Comments and named versions cover review in v1.
+- Track changes. Comments, suggestions ([§8.10](#810-suggestions)), named versions and the history cover review.
 - Peer-to-peer collaboration or long-lived offline branches.
 - More than one app process per instance (no horizontal scaling).
 - Spreadsheets, slides, drawings.
@@ -246,6 +246,7 @@ docwizard/
 │   │   │   ├── citations.js         autocomplete, chips, insert dialog
 │   │   │   ├── math.js              Temml widgets (lazy)
 │   │   │   ├── latex-mode.js        StreamLanguage tokenizer for LaTeX
+│   │   │   ├── grammar.js           grammar underlines and fixes (§6.8)
 │   │   │   └── diagnostics.js
 │   │   ├── collab/
 │   │   │   ├── socket.js            reconnecting, multiplexed WebSocket
@@ -258,6 +259,8 @@ docwizard/
 │   │   ├── ui/                      DOM helpers, dialogs, command palette, panels
 │   │   └── workers/
 │   │       ├── citations.js
+│   │       ├── grammar.js           Harper (§6.8)
+│   │       ├── grammar-text.js      what isn't checked, which checker
 │   │       └── stats.js
 │   ├── css/app.css                  the only stylesheet (§25.13)
 │   ├── icons.svg                    icon sprite (§25.9)
@@ -363,7 +366,7 @@ The line with the cursor always shows raw source. A toggle switches to plain sou
 - Outline panel and folding by heading.
 - Word count of body text, excluding front matter, citation keys, code and comments. Footnotes and bibliography are counted separately.
 - Diagnostics from renders (Typst and LaTeX errors) shown in the gutter.
-- The browser's native spellcheck in the document's `lang`.
+- Grammar and spelling underlines ([§6.8](#68-grammar-and-spelling)); without them, the browser's native spellcheck in the document's `lang`.
 - Keyboard first: command palette on `Ctrl/Cmd+K`, and every action reachable from the keyboard.
 
 ### 6.4 Preview
@@ -394,7 +397,8 @@ The line with the cursor always shows raw source. A toggle switches to plain sou
 ### 6.6 Web workers
 
 - `workers/citations.js` holds the citation library, does fuzzy search and formats chip labels.
-- `workers/stats.js` computes word and character counts and the outline for long documents.
+- `workers/grammar.js` runs the Harper grammar checker ([§6.8](#68-grammar-and-spelling)).
+- `workers/stats.js` computes word and character counts and the outline for long documents. With a script layout (one that names the `screenplay` filter; the layout's public data says `script: true`) it follows the filter's rules to add scene headings to the outline, list the characters for cue autocomplete, and estimate pages by counting lines as the PDF sets them (61 characters for action, 35 for dialogue, 55 lines to a page); the status bar shows that as pages and minutes.
 
 The main thread runs only the editor and the UI.
 
@@ -405,6 +409,18 @@ The main thread runs only the editor and the UI.
 - Small DOM helpers in `web/app/ui/`, `<template>` elements for repeated markup, event delegation.
 - i18n: JSON catalogs per language in `web/i18n/`, shared by server pages and JS. English and German first.
 - Accessibility: full keyboard operation, visible focus, ARIA labels on icon-only buttons, `prefers-reduced-motion` respected.
+
+### 6.8 Grammar and spelling
+
+Two checkers underline mistakes as people write Markdown: blue for grammar and style, red for spelling.
+
+- **Harper** ([harper.js](https://writewithharper.com), Apache-2.0) is built in. It checks English in the browser, as WebAssembly in `workers/grammar.js`, so the text never leaves the reader's machine. `deploy/fetch_tools.py --harper DIR` downloads the npm package at a pinned version, checks it against its SHA-256 and copies the four files it needs; both images run it (the proxy image serves them under `/static/<release>/vendor/harper/`, the app image keeps a copy so it knows Harper is there). The checker follows the document's dialect: `en-GB`, `en-AU`, `en-CA` and `en-IN` have their own spellings, other English is American.
+- **LanguageTool** is optional, for other languages. The admin sets `[grammar] languagetool_url` to a LanguageTool server (their own container, or LanguageTool's API with `languagetool_api_key`). The editor sends the text to `POST /api/grammar/check`, which passes it on through a request policy that allows only that host, rate-limits each person (a burst of 30, then one check every two seconds) and answers with the matches in the editor's offsets. The browser never talks to LanguageTool, so the page's CSP keeps `connect-src 'self'`.
+- **Which one**: each person chooses in their settings: automatically (Harper for English and documents without a language, LanguageTool for other languages when there is one), always Harper, always LanguageTool, or off. The document's language is its front matter `lang:`, else the project's. Grammar checking is off in the review view, for read-only documents, for LaTeX, and on connections that ask to save data, since Harper is a 20 MB download the first time.
+- **What isn't checked**: front matter, citations, math, raw LaTeX, comments, attributes and div fences are blanked out with spaces before checking, keeping every offset, and a finding that touches a blanked range is dropped.
+- **Timing**: a check runs 800 ms after typing stops. Underlines move with edits; an edit inside one removes it until the next check, and a result for text that has changed since is dropped.
+- **Fixing**: clicking an underline, or `Ctrl/Cmd+.` at the cursor, opens a card with the explanation and up to five fixes. **Ignore** hides that finding for that word in this document; **Add to dictionary** teaches Harper the word. Both are kept in the browser's `localStorage`.
+- **Security**: compiling WebAssembly needs `'wasm-unsafe-eval'` in the app's `script-src`. It allows WebAssembly only, not `eval`. Harper's files are not precached by the service worker. They are cached the first time the checker loads them.
 
 ## 7. Backend
 
@@ -653,6 +669,7 @@ sequenceDiagram
 - Every accepted update is appended to `doc_ops` before it is broadcast.
 - A snapshot goes into `doc_snapshots` every 500 operations or after 60 s idle.
 - Operations older than the newest snapshot are kept for 7 days (configurable) so reconnecting clients can catch up, then pruned.
+- **History.** Older automatic snapshots are not dropped but thinned by age (`projects/history.py`): every snapshot of the last hour, one per hour for two days, one per day for 60 days, one per week after that. The snapshot kept for a period is its last one. Each automatic snapshot records who edited since the one before (`authors`, display names from the operation log), and a kept snapshot inherits the authors of the ones dropped before it. The Versions dialog lists named versions and this history; any of them can be compared with the current text (a word-level diff with unchanged lines collapsed, `GET /api/documents/{id}/versions/{v}/compare`) and restored.
 - Rooms are unloaded from memory after 10 minutes without connections. The snapshot and operations in SQLite remain authoritative ([§11.2](#112-canonical-state)).
 
 ### 8.6 Reconnect and offline
@@ -678,6 +695,28 @@ Each peer gets a stable color index and a display name, which for guests is the 
 - If the anchored text is deleted entirely, the anchor collapses to a point and the thread is marked as orphaned.
 - Commenters can create threads and reply. Editors and owners can also resolve them.
 - Comments live in SQLite, never in the document text.
+
+### 8.9 Mentions and notifications
+
+- Writing `@username` in a comment or reply notifies that person if they are a member of the project (any role). A reply notifies everyone with an account who wrote in the thread; deciding on a suggestion notifies its author ([§8.10](#810-suggestions)). Nobody is notified about their own comments.
+- Notifications live in `notifications` (user, document, thread, kind, actor, excerpt, read and mailed times). The home page lists unread ones, `/notifications` all of them, and the editor marks threads with news; opening the comments panel marks the document's notifications read. Open editors get a `notifications` message naming the people concerned, so their counts update at once.
+- Mail: every minute, unread notifications older than two minutes that were never mailed go out, several per message, if mail is set up. People choose mentions and replies, only mentions, or nothing in their settings. Each notification is mailed at most once; after 90 days they are deleted.
+- The editor suggests project members after `@` in comment boxes. Guests don't get the member list.
+
+### 8.10 Suggestions
+
+Track changes stays a non-goal ([§2](#2-goals-and-non-goals)); suggestions cover what reviewers need from it, and Word's tracked changes import as suggestions ([§8.11](#811-word-files-in-and-out)).
+
+- A suggestion is a comment thread whose first comment carries replacement text (`comments.suggestion`) for the anchored passage; its note is optional. Commenters and editors can suggest. The thread keeps the whole passage as written when it was suggested (other threads keep 500 characters).
+- The editor shows open suggestions in place: the passage struck through, the new text right after it. The panel shows a word-level diff.
+- **Accept** (editors) replaces the anchored passage with the suggestion as an ordinary update from the authority (`system:suggestion`, authored by whoever accepted). If the passage no longer reads as when it was suggested, the server answers `409 changed` and the editor asks before replacing it anyway. **Reject** (editors) leaves the text alone. Either way the thread is resolved with `suggestion_state`, and the people in the thread are notified ([§8.9](#89-mentions-and-notifications)).
+
+### 8.11 Word files in and out
+
+Many reviewers and supervisors work in Word, so their comments and tracked changes come in and go back out.
+
+- **Import.** Uploading a `.docx` creates `<name>.md` (or `<name>-2.md`, …) instead of storing the file. The render worker runs `pandoc --from docx --track-changes=all` with `filters/docx_import.lua`, which replaces comment and change spans with markers (private-use characters the Markdown writer leaves alone) and appends their authors, dates and comment text as JSON in a final HTML comment. Images are extracted to `<name>-media/`. `projects/docx_import.py` removes the markers and keeps Word's original wording: each tracked change becomes a suggestion ([§8.10](#810-suggestions)) — a deletion suggests empty text, a deletion followed by an insertion suggests the new text, and an insertion widens to the word before it so the thread has text to sit on. Comments become threads at their range (an empty range widens to a word); Word replies, which pandoc gives as further comments on the same range, join the first one's thread. Authors show as "Name (Word)", without an account. A single imported file opens in the editor.
+- **Export.** A DOCX export of a Markdown document carries its open threads as Word comments: before the job, `_with_comments` inserts pandoc `comment-start`/`comment-end` spans at the current anchors (moved past block syntax at the start of a line; threads in the front matter, in code or across paragraphs are left out). An open suggestion becomes a comment that says what was suggested. If the text changed between the snapshot and reading the anchors, the export goes out without comments rather than misplacing them.
 
 ## 9. Rendering and layouts
 
@@ -800,7 +839,7 @@ Manifest:
   - user layouts;
   - project layouts in `_layouts/<name>/` inside the project folder, so they sync with the project.
 - **Design settings**: how a layout renders is a flat object of typed settings in the manifest, `design` (for example `text.font`, `page.margin-left`, `heading.1.size`, `cover.fields`, `cite.style`). Children inherit their parent's settings key by key. The default layout's templates are static and read every setting: when a layout is cached, DocWizard generates `typst/design.typ` (a Typst dictionary, loaded as the pandoc partial `$design()$`), `html/design.css`, `html/cover.html` and `html/options.html` next to the templates. Every value is validated against the schema in `render/design.py` and written as a literal, so settings can't inject template or Typst code. The classic options (`fontsize`, `linestretch`, `papersize`, `section-numbering`, `toc`, `columns`, `titlepage`, `citation-style`) override the matching setting and take their default from it.
-- **Built-in layouts** follow published style guides, each with a README that cites the sections it implements: Chicago/Turabian, Oxford, APS, MLA, APA (student paper), MHRA and IEEE papers; the Vienna philosophy, Würzburg Germanistik and Göttingen value-chain-management guides; Shunn's short story and novel manuscript formats, the German *Normseite* and a book manuscript; and scripts: a screenplay, a German *Drehbuch* and a two-column A/V script. Script layouts name their filters (`screenplay`, `avscript`) in the manifest; the filters turn plain Markdown written after Fountain's rules into script elements, which the default templates set from the `script.*` settings.
+- **Built-in layouts** follow published style guides, each with a README that cites the sections it implements: Chicago/Turabian, Oxford, APS, MLA, APA (student paper), MHRA and IEEE papers; the Vienna philosophy, Würzburg Germanistik and Göttingen value-chain-management guides; a general thesis layout and ACM (sigconf), Springer LNCS and Elsevier (elsarticle) formats for papers; Shunn's short story and novel manuscript formats, the German *Normseite* and a book manuscript; and scripts: a screenplay, a German *Drehbuch* and a two-column A/V script. Script layouts name their filters (`screenplay`, `avscript`) in the manifest; the filters turn plain Markdown written after Fountain's rules into script elements, which the default templates set from the `script.*` settings. In Typst a speech is one `dw-speech` call: a table whose repeating header and footer print the cue with `script.contd` and `script.more` when the speech breaks across a page, so it breaks between lines and is marked as the industry expects; the filter adds `script.contd` to a cue when the same character speaks again after action in a scene, and a cue ending in `^` sets the speech beside the previous one (`dw-dual`). Fountain files are converted on upload and offered as an export for script layouts (`projects/fountain.py`, app-side like `md-source`): the title page maps to front matter (Title, Author(s), Draft date, Contact), notes, boneyard, synopses and sections below level 1 become HTML comments (they don't print in Fountain either), `_underline_` becomes `[…]{.underline}`, `===` becomes `\newpage`, and action lines that Markdown would read as lists, code, citations or math are escaped.
 - **Layout editor** (`/layouts`): anyone with an account can copy a layout and change its design settings in a form built from the same schema, with a live PDF preview of a sample document (rendered from a draft copy of the layout that is deleted afterwards). A custom layout is a manifest in the database (`custom_layouts`) with `extends`, `design` (only what differs from the parent), the options authors get, and whether it is shared with everyone on the instance. Templates, files and filters always come from the parent, so custom layouts can't add code. Owners and admins change or delete them; a layout others are based on can't be deleted.
 - **Fonts**: Typst sees its embedded fonts, the fonts in `/usr/local/share/docwizard/fonts` (installed in the worker image by `deploy/fetch_tools.py`: Noto Serif and Sans, Tinos, Carlito, Cousine) and the layout's `fonts/` folder, never system fonts.
 - **Editing files**: users can also duplicate a layout folder and edit its files, since templates and CSS are just text documents.
@@ -851,7 +890,8 @@ link-citations: true
 | `md-resolved` | pandoc → `markdown` with `--citeproc` | Citations rendered as text, bibliography appended |
 | `md-gfm`, `md-commonmark` | pandoc → `gfm` or `commonmark_x` | For other tools |
 | `tex-source`, `typ-source` | pandoc intermediate files | For hand-off or further editing |
-| `epub` | pandoc | Later |
+| `epub` | pandoc → `epub3` with the layout's HTML CSS, `--mathml`, one file per chapter | E-books and reading on tablets; page breaks become CSS breaks |
+| `fountain` | in the app (`projects/fountain.py`) | Script layouts only; for other screenwriting apps |
 
 ### 9.6 Engine settings
 
@@ -927,6 +967,10 @@ Generated keys are stored in `citation_keys`, so a key never changes once it has
 - The References panel shows the citation at the cursor, what the document cites (unknown keys flagged), the project's references, and each of your Zotero libraries with search and collections. Citing from it adds the key to the citation at the cursor or inserts a new one, with an optional locator in the document's language (`p. 23`, `S. 23`).
 - Find page: an item's PDF opens with PDF.js, which searches its text for the quotation before the citation (hyphenation and ligatures normalized, long quotations matched by their first or last words) and highlights it. The printed page comes from the PDF's page labels, else from the item's page range (an article on pp. 123–145 starts at 123), else from a number the user corrects once per PDF. *Cite this page* sets the citation's locator.
 - Unknown keys are flagged inline. A references panel lists every cited item.
+
+### 10.5 Adding a reference by identifier
+
+The References panel takes a DOI, an ISBN or an arXiv ID (also as a doi.org or arxiv.org link) and cites it at the cursor (`POST /api/projects/{id}/references`, `citations/lookup.py`). DOIs and arXiv IDs (as their DataCite DOIs, `10.48550/arXiv.<id>`) are resolved at doi.org by content negotiation for CSL-JSON, which works for Crossref and DataCite records alike; ISBNs are looked up in Open Library's books API. The requests go through the outbound request policy and send nothing but the identifier. The item keeps the fields citation styles use, gets a key like `lecun2015deep` (first author, year, first significant title word; `a`, `b`, … when taken) and is appended to the document's CSL-JSON bibliography file (`references.json` unless the front matter lists another `.json` file), which is created and added to the front matter when missing. An item with the same DOI or ISBN is reused instead of added twice.
 
 ## 11. Storage
 
@@ -1163,6 +1207,14 @@ The CLI (`python -m docwizard …`) provides `serve`, `migrate`, `create-admin`,
   - everyone else becomes a guest after entering a display name, and the password if one is set.
 - Admins can cap the highest role a link may grant, or turn guest access off.
 
+### 14.1a Review links and the review view
+
+People who review a text often don't write Markdown: supervisors, editors, producers. A share link can open the **review view** (`share_links.review`): the editor page with the document read-only and shown as it reads, set like a page (a serif face, a measure of about 70 characters), with the front matter as a title block and no line ever revealing its Markdown (live preview in reading mode, [§6.3](#63-editor)). Selecting text shows a small toolbar with Comment and Suggest change ([§8.10](#810-suggestions)); the comments panel is open beside the text, and the PDF is one click away.
+
+- The view is still the real document in CodeMirror, so selections are ranges of the source and comments and suggestions anchor exactly as in the editor. Nothing is converted back from HTML.
+- Review links usually grant the commenter role, but any role works. Guests from a review link land in the review view; members who join through one land there once. Anyone can switch with `?view=review` and `?view=source` (the Actions menu has both).
+- The text stays focusable (read-only), so passages can be selected with the keyboard; on touch screens it isn't, so no keyboard pops up.
+
 ### 14.2 Guests
 
 - Guest sessions are limited to one project, expire after 24 hours of inactivity, and can never see other projects or users.
@@ -1188,7 +1240,7 @@ The CLI (`python -m docwizard …`) provides `serve`, `migrate`, `create-admin`,
 | Code execution via documents and layouts (LaTeX, Lua filters, Typst, pandoc bugs) | Every render job is treated as untrusted code, and the job is the isolation boundary. Each job runs as its own Unix user in a `0700` directory, so concurrent jobs can't read, write, signal or trace each other ([§9.2](#92-render-jobs)). The worker runs in its own container: no network, read-only root, tmpfs, `no-new-privileges`, process and memory limits, and only the capabilities needed to switch users. Shared caches are mounted read-only. Each job gets its own `HOME`, `TMPDIR` and `TEXMFVAR`, `resource` limits (CPU, data memory, file size, processes) and a wall-clock timeout. Where bubblewrap can run, each job also gets its own namespaces. LaTeX runs without shell escape and with `openin_any=p` / `openout_any=p`. Lua filters only run from admin-approved layouts (approval by hash), with `LUA_PATH` limited to them, and `defaults.json` is reduced to an allowlist ([§9.3](#93-layouts)). Typst is confined to `--root` |
 | XSS via raw HTML in documents | Previews are served from a separate preview origin through capability URLs, with a CSP that blocks scripts, inside a sandboxed iframe. Published sites live on a separate origin with `script-src 'none'` ([§6.4](#64-preview), [§14.4](#144-publishing)) |
 | Stored XSS via uploaded assets or exported files (HTML, SVG) opened on the app origin | Only PDFs and raster images are served inline. Everything else is sent as an attachment, and every response except PDFs carries `Content-Security-Policy: sandbox`, plus `nosniff` and `Cross-Origin-Resource-Policy: same-origin` ([§7.5](#75-http-api)) |
-| XSS in the app itself | Jinja2 templates with autoescaping always on; DOM built with `textContent` and `<template>`. CSP with a fresh nonce per response: `default-src 'self'; script-src 'self' 'nonce-…'; style-src 'self' 'nonce-…'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; frame-src 'self' <preview origin>; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`. The nonce goes on the inline import map ([§6.1](#61-constraints)), and CodeMirror's injected styles get it via `EditorView.cspNonce`. Style attributes are allowed because editor decorations and Temml's MathML may set them, and style attributes can't run script |
+| XSS in the app itself | Jinja2 templates with autoescaping always on; DOM built with `textContent` and `<template>`. CSP with a fresh nonce per response: `default-src 'self'; script-src 'self' 'nonce-…' 'wasm-unsafe-eval'; style-src 'self' 'nonce-…'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; frame-src 'self' <preview origin>; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`. The nonce goes on the inline import map ([§6.1](#61-constraints)), and CodeMirror's injected styles get it via `EditorView.cspNonce`. Style attributes are allowed because editor decorations and Temml's MathML may set them, and style attributes can't run script |
 | Path traversal, symlinks, zip slip | Normalized relative paths, `O_NOFOLLOW`, resolved paths must stay inside the project, zip imports checked entry by entry |
 | SSRF via user-supplied URLs (WebDAV, Zotero, OIDC discovery) | `netpolicy.py` resolves each host once and refuses private, loopback, link-local and cloud metadata addresses unless an admin allows them (common for a Nextcloud on the LAN). It then connects to the validated IP itself, through a custom `HTTPSConnection` that keeps the original hostname for SNI, certificate verification and the `Host` header. A DNS change between check and connect (DNS rebinding) therefore has no effect. Every redirect goes through the same check, and timeouts and response size limits apply |
 | Account takeover | scrypt, throttling, TOTP, session rotation, `__Host-` cookies, OIDC matched by `(iss, sub)`, no automatic linking by email |
@@ -1577,7 +1629,7 @@ The roadmap is a thin vertical slice first. The **first release gate** is: *I ca
 
 1. **Sharing granularity**: v1 shares whole projects. Is per-document sharing needed?
 2. **Typst as a source format**: should the editor support writing Typst directly, not only as output?
-3. **Suggestion mode**: worth building on top of the operation log after v1?
+3. **Suggestion mode**: suggestions exist as threads with replacement text (§8.10). Is a mode where typing itself becomes suggestions worth it?
 4. **LaTeX live preview**: is latexmk fast enough for long documents, or are draft-mode or partial compiles needed?
 5. **OIDC in the UI**: should providers be editable in the admin area (secrets encrypted in the database) instead of only in the config file?
 6. **Zotero desktop helper**: the server reaches Zotero's local API when it runs on the same network. Is a small helper worth it for hosted servers?

@@ -101,6 +101,15 @@ class CollabConfig:
 
 
 @dataclass
+class GrammarConfig:
+    """Grammar checking in the editor (§6.8)."""
+    harper: bool = True  # Harper runs in the browser, when its files are installed (deploy/fetch_tools.py)
+    languagetool_url: str = ""  # a LanguageTool server, e.g. http://languagetool:8010; empty: none
+    languagetool_api_key: str = ""
+    languagetool_username: str = ""
+
+
+@dataclass
 class OIDCProvider:
     """One [[oidc]] entry (§13.4)."""
     id: str = ""
@@ -127,6 +136,7 @@ class Config:
     collab: CollabConfig = field(default_factory=CollabConfig)
     sync: SyncConfig = field(default_factory=SyncConfig)
     smtp: SMTPConfig = field(default_factory=SMTPConfig)
+    grammar: GrammarConfig = field(default_factory=GrammarConfig)
     oidc: list[OIDCProvider] = field(default_factory=list)
 
     # -- derived values -------------------------------------------------

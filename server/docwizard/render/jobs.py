@@ -26,12 +26,14 @@ OUTPUTS = {
     "pdf-latex": "document.pdf",
     "docx": "document.docx",
     "odt": "document.odt",
+    "epub": "document.epub",
     "md-resolved": "document.md",
     "md-gfm": "document.md",
     "md-commonmark": "document.md",
     "typ-source": "document.typ",
     "tex-source": "document.tex",
     "md-source": "project.zip",
+    "fountain": "document.fountain",
 }
 TARGETS = set(OUTPUTS)
 PREVIEW_TARGETS = {"html", "pdf-typst", "pdf-latex"}
@@ -155,6 +157,7 @@ def metadata(layout: Layout, project_options: dict, inputs: list[str], layout_di
             meta.setdefault(f"dw-run-in-{level}", design[f"heading.{level}.run-in"])
     meta.setdefault("dw-scene-split", design["script.scene-split"])
     meta.setdefault("dw-scene-numbers", design["script.scene-numbers"])
+    meta.setdefault("dw-contd", design["script.contd"])
     meta.setdefault("dw-av-video", design["script.video-label"])
     meta.setdefault("dw-av-audio", design["script.audio-label"])
     meta.setdefault("dw-av-numbers", design["script.row-numbers"])
@@ -267,6 +270,12 @@ def pandoc_steps(layout: Layout, layout_dir: Path, target: str, inputs: list[str
         engine = spec.get("engine") if spec.get("engine") in LATEX_ENGINES else "lualatex"
         return [{"tool": "pandoc", "args": [*args, "-o", tex]},
                 {"tool": "latexmk", "args": [f"-{engine}", *LATEXMK, tex], "log": "latex"}], copies
+    if target == "epub":
+        # E-books use the layout's HTML styles (§9.5); readers set the page themselves.
+        args = [*common, "--to", "epub3", "--mathml", "--split-level", "1"]
+        for css in layout.targets.get("html", {}).get("css", []):
+            args += ["--css", f"{L}/{css}"]
+        return [{"tool": "pandoc", "args": [*args, "-o", out]}], copies
     if target in ("docx", "odt"):
         args = [*common, "--to", target]
         ref = spec.get("reference")

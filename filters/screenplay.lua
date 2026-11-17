@@ -17,8 +17,15 @@ rules follow Fountain (fountain.io), so a script reads naturally as text:
   # ACT ONE                            level 1 headings: act and sequence titles
   ## INT. KITCHEN - DAY                other headings are scene headings too
 
+  BRICK ^                              dual dialogue: a cue ending in ^ speaks at the
+  Screw retirement.                    same time as the speech before, side by side
+
 Explicit blocks also work: ::: dialogue, ::: character, ::: parenthetical,
 ::: transition, ::: scene-heading, ::: action, ::: centered.
+
+A character who speaks again after action in the same scene gets "(CONT'D)" after the
+name (dw-contd; empty turns it off). In Typst, a speech that runs over a page break gets
+"(MORE)" under it and the name with "(CONT'D)" on the next page (the template's dw-speech).
 
 Typst output calls the dw-scene, dw-character, … functions of the default
 template, which read their positions from the layout's script.* settings.
@@ -37,6 +44,10 @@ local STYLES = {
 
 local split, numbered = false, false
 local scene_no = 0
+local contd = "(CONT'D)"
+
+-- Typst string literal
+local function tstr(text) return '"' .. text:gsub("\\", "\\\\"):gsub('"', '\\"') .. '"' end
 
 -- Typst calls wrap the inlines themselves, not their written text, so citations, notes and
 -- quotes inside a script are still processed by the filters and citeproc that run later.
@@ -167,23 +178,32 @@ local function para(p)
   end
   local forced = first:match("^@")
   if forced or (is_upper(first) and not is_scene(first) and not first:match(":$")) then
-    local out = { element("character", forced and strip_lead(lines[1], "^@") or lines[1]) }
+    local cue = forced and strip_lead(lines[1], "^@") or lines[1]
+    local sp = { cue = cue, parts = {} }
+    -- "BRICK ^": dual dialogue with the speech before.
+    local last = cue[#cue]
+    if last and last.t == "Str" and last.text:match("%^$") then
+      last.text = last.text:gsub("%s*%^$", "")
+      if last.text == "" then cue:remove(#cue) end
+      while cue[#cue] and cue[#cue].t == "Space" do cue:remove(#cue) end
+      sp.dual = true
+    end
     local speech = {}
     local function flush()
-      if #speech > 0 then out[#out + 1] = element("dialogue", join(speech)) end
+      if #speech > 0 then sp.parts[#sp.parts + 1] = { kind = "dialogue", inlines = join(speech) } end
       speech = {}
     end
     for i = 2, #lines do
       local text = stringify(lines[i])
       if text:match("^%(.*%)$") then
         flush()
-        out[#out + 1] = element("parenthetical", lines[i])
+        sp.parts[#sp.parts + 1] = { kind = "parenthetical", inlines = lines[i] }
       else
         speech[#speech + 1] = lines[i]
       end
     end
     flush()
-    return out
+    return nil, sp
   end
   if is_scene(first) then
     local out = { scene(lines[1]) }
@@ -227,24 +247,102 @@ local function div(d)
   return nil
 end
 
+-- The name a cue is about: without extensions such as (V.O.) or (CONT'D).
+local function speaker(cue)
+  return pandoc.text.upper(stringify(cue):gsub("%b()", "")):gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+local function speech_args(sp)
+  local out = pandoc.Inlines({ raw("(cue: [") })
+  out:extend(sp.cue)
+  out:insert(raw("], parts: ("))
+  for _, part in ipairs(sp.parts) do
+    out:insert(raw("(kind: " .. tstr(part.kind) .. ", body: ["))
+    out:extend(part.inlines)
+    out:insert(raw("]),"))
+  end
+  out:insert(raw("))"))
+  return out
+end
+
+local function speech_blocks(sp)
+  if TYPST then
+    local out = pandoc.Inlines({ raw("#dw-speech(") })
+    out:extend(speech_args(sp))
+    out:insert(raw(")"))
+    return { pandoc.Plain(out) }
+  end
+  local out = { element("character", sp.cue) }
+  for _, part in ipairs(sp.parts) do out[#out + 1] = element(part.kind, part.inlines) end
+  return out
+end
+
+local function dual_blocks(a, b)
+  if TYPST then
+    local out = pandoc.Inlines({ raw("#dw-dual(") })
+    out:extend(speech_args(a))
+    out:insert(raw(", "))
+    out:extend(speech_args(b))
+    out:insert(raw(")"))
+    return { pandoc.Plain(out) }
+  end
+  local function side(sp)
+    return pandoc.Div(speech_blocks(sp), pandoc.Attr("", { "speech" }))
+  end
+  return { pandoc.Div({ side(a), side(b) }, pandoc.Attr("", { "dual-dialogue" }, { ["custom-style"] = "Dual Dialogue" })) }
+end
+
 function Pandoc(doc)
   local meta = doc.meta
   split = meta["dw-scene-split"] == true or (meta["dw-scene-split"] and stringify(meta["dw-scene-split"]) == "true")
   numbered = meta["dw-scene-numbers"] == true
     or (meta["dw-scene-numbers"] and stringify(meta["dw-scene-numbers"]) == "true")
+  if meta["dw-contd"] ~= nil then contd = stringify(meta["dw-contd"]) end
   local out = pandoc.Blocks({})
+  local last_speaker = nil -- who spoke last in this scene
+  local prev = nil -- {index, speech} when the block before is a speech
   for _, b in ipairs(doc.blocks) do
-    local repl
-    if b.t == "Para" or b.t == "Plain" then repl = para(b)
+    local repl, sp
+    if b.t == "Para" or b.t == "Plain" then repl, sp = para(b)
     elseif b.t == "Header" then
       repl = b.level == 1 and { element("act", b.content) } or { scene(b.content) }
     elseif b.t == "BlockQuote" then repl = block_quote(b)
     elseif b.t == "Div" then repl = div(b)
     end
-    if repl then
-      for _, r in ipairs(repl) do out:insert(r) end
+    if sp then
+      local name = speaker(sp.cue)
+      if sp.dual and prev then
+        for _ = 1, prev[3] do out:remove(#out) end
+        for _, r in ipairs(dual_blocks(prev[2], sp)) do out:insert(r) end
+        prev = nil
+      else
+        if contd ~= "" and name == last_speaker and not stringify(sp.cue):find(contd, 1, true) then
+          sp.cue:insert(pandoc.Space())
+          sp.cue:insert(pandoc.Str(contd))
+        end
+        local blocks = speech_blocks(sp)
+        for _, r in ipairs(blocks) do out:insert(r) end
+        prev = { #out, sp, #blocks }
+      end
+      last_speaker = name
     else
-      out:insert(b)
+      if repl then
+        for _, r in ipairs(repl) do
+          out:insert(r)
+          local cls = r.t == "Div" and r.classes[1] or nil
+          if cls == "scene-heading" or cls == "act" or cls == "transition" then last_speaker = nil end
+          if TYPST and r.t == "Plain" then
+            local head = r.content[1]
+            if head and head.t == "RawInline" and (head.text:match("^#dw%-scene") or head.text:match("^#dw%-transition")
+                or head.text:match("^#dw%-centered")) then
+              last_speaker = nil
+            end
+          end
+        end
+      else
+        out:insert(b)
+      end
+      prev = nil
     end
   end
   doc.blocks = out

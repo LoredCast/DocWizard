@@ -33,6 +33,26 @@
         {% endfor %}
       </select>
     </label>
+    {% if grammar.harper or grammar.languagetool %}
+    <label>{{ _("Check grammar and spelling") }}
+      <select name="grammar">
+        {% set choices = [("auto", "Automatically: Harper for English" + (", LanguageTool for other languages" if grammar.languagetool else "") if grammar.harper else "Automatically")] %}
+        {% if grammar.harper %}{% set choices = choices + [("harper", "With Harper (English, in your browser)")] %}{% endif %}
+        {% if grammar.languagetool %}{% set choices = choices + [("languagetool", "With this server's LanguageTool (many languages)")] %}{% endif %}
+        {% set choices = choices + [("off", "Off")] %}
+        {% for value, label in choices %}
+        <option value="{{ value }}" {% if user.preferences.get("grammar", "auto") == value %}selected{% endif %}>{{ _(label) }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% endif %}
+    <label>{{ _("Email me about comments") }}
+      <select name="notify_email">
+        {% for value, label in [("all", "Mentions and replies"), ("mentions", "Only when someone mentions me"), ("off", "Never")] %}
+        <option value="{{ value }}" {% if user.preferences.get("notify_email", "all") == value %}selected{% endif %}>{{ _(label) }}</option>
+        {% endfor %}
+      </select>
+    </label>
     {% if saved == "profile" %}<p role="status">{{ _("Saved") }}</p>{% endif %}
     <div class="buttons"><button type="submit" class="primary">{{ _("Save") }}</button></div>
   </form>

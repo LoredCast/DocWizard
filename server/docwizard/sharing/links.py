@@ -26,6 +26,7 @@ class Guest:
     project_id: str
     share_link_id: int
     role: str
+    review: bool = False
 
     @property
     def label(self) -> str:
@@ -50,15 +51,16 @@ def cap_role(role: str, max_role: str) -> str:
 
 
 def create(conn: sqlite3.Connection, project_id: str, role: str, created_by: int | None, *,
-           expires_at: float | None = None, password_hash: str | None = None, label: str | None = None) -> tuple[int, str]:
+           expires_at: float | None = None, password_hash: str | None = None, label: str | None = None,
+           review: bool = False) -> tuple[int, str]:
     if role not in LINK_ROLES:
         raise ValueError("Choose editor, commenter or viewer.")
     token = new_token()
     link_id = conn.execute(
-        "INSERT INTO share_links(project_id, token_hash, role, label, expires_at, password_hash, created_by)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO share_links(project_id, token_hash, role, label, expires_at, password_hash, created_by, review)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (project_id, token_hash(token), role, (label or "").strip()[:80] or None, expires_at, password_hash,
-         created_by)).lastrowid
+         created_by, int(review))).lastrowid
     return link_id, token
 
 
@@ -77,7 +79,7 @@ def find(conn: sqlite3.Connection, token: str) -> sqlite3.Row | None:
 
 def list_for_project(conn: sqlite3.Connection, project_id: str) -> list[dict]:
     rows = conn.execute(
-        "SELECT l.id, l.role, l.label, l.expires_at, l.password_hash IS NOT NULL AS has_password, l.created_at,"
+        "SELECT l.id, l.role, l.label, l.expires_at, l.password_hash IS NOT NULL AS has_password, l.created_at, l.review,"
         " u.display_name AS created_by,"
         " (SELECT count(*) FROM guests g WHERE g.share_link_id = l.id) AS guests"
         " FROM share_links l LEFT JOIN users u ON u.id = l.created_by"
@@ -87,6 +89,7 @@ def list_for_project(conn: sqlite3.Connection, project_id: str) -> list[dict]:
     for r in rows:
         item = dict(r)
         item["has_password"] = bool(item["has_password"])
+        item["review"] = bool(item["review"])
         item["expired"] = item["expires_at"] is not None and item["expires_at"] < now
         out.append(item)
     return out
@@ -112,14 +115,14 @@ def create_guest(conn: sqlite3.Connection, link: sqlite3.Row, display_name: str)
 def load_guest(conn: sqlite3.Connection, guest_id: int, max_role: str) -> Guest | None:
     """The guest with their current role, or None once their link is gone."""
     row = conn.execute(
-        "SELECT g.id, g.display_name, g.project_id, g.share_link_id, l.role, l.expires_at"
+        "SELECT g.id, g.display_name, g.project_id, g.share_link_id, l.role, l.expires_at, l.review"
         " FROM guests g JOIN share_links l ON l.id = g.share_link_id"
         " JOIN projects p ON p.id = g.project_id"
         " WHERE g.id = ? AND l.revoked_at IS NULL AND p.deleted_at IS NULL", (guest_id,)).fetchone()
     if row is None or (row["expires_at"] is not None and row["expires_at"] < time.time()):
         return None
     return Guest(row["id"], row["display_name"], row["project_id"], row["share_link_id"],
-                 cap_role(row["role"], max_role))
+                 cap_role(row["role"], max_role), bool(row["review"]))
 
 
 def cleanup(conn: sqlite3.Connection) -> int:

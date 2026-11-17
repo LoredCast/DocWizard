@@ -16,7 +16,7 @@ from tests.integration.test_render import HAS_TYPST, _pandoc_ok, _path, rapp, rc
 
 NEW_LAYOUTS = ("oxford", "uni-wien-philosophie", "aps", "turabian", "mla", "apa-student", "mhra", "ieee", "screenplay",
                "drehbuch", "av-script", "manuscript-story", "manuscript-novel", "normseite", "book-manuscript",
-               "goettingen-vcm", "wuerzburg-germanistik")
+               "goettingen-vcm", "wuerzburg-germanistik", "thesis", "acm", "springer-lncs", "elsevier")
 
 
 # -- designs -------------------------------------------------------------------
@@ -335,3 +335,26 @@ async def test_layout_editor_preview(rapp, rclient):
     assert bad.status == 400
     # Project render URLs can't be fetched through the preview route.
     assert (await rclient.get(data["url"].replace(".pdf", ".html"))).status == 404
+
+
+@pytest.mark.skipif(not _pandoc_ok() or not shutil.which("pdftotext"), reason="needs pandoc and pdftotext")
+async def test_screenplay_speeches_continue_across_pages(rapp, rclient):
+    """A speech that runs over a page break ends with (MORE) and goes on under the cue with (CONT'D)."""
+    if not HAS_TYPST:
+        pytest.skip("needs typst")
+    pid = await new_project(rclient)
+    lines = "\n".join(f"Line {i} of a very long speech that goes on and on." for i in range(1, 80))
+    text = ("---\ntitle: Long\n---\n\nINT. HALL - NIGHT\n\n" + "She paces.\n\n" * 18 +
+            "MARA\n" + lines + "\n\nBRICK\nRight.\n\nSTEEL ^\nWrong.\n")
+    await rclient.post(f"/api/projects/{pid}/documents", json={"path": "film.md", "text": text})
+    project = dict(await rapp.db.fetchone("SELECT * FROM projects WHERE id = ?", (pid,)))
+    res = await rapp.renderer.render(project, "pdf-typst", doc_path="film.md", layout_id="screenplay")
+    assert res.status == "ok", res.diagnostics
+    pdf = rapp.renderer.renders_dir / res.key / res.output
+    pages = subprocess.run(["pdftotext", "-layout", str(pdf), "-"], capture_output=True, text=True,
+                           check=True).stdout.split("\f")
+    first = next(i for i, p in enumerate(pages) if "Line 1 of" in p)
+    assert "(MORE)" in pages[first] and "MARA (CONT'D)" in pages[first + 1], pages[first:first + 2]
+    assert "(MORE)" not in pages[-1] or "Line 79" not in pages[-1]
+    # Dual dialogue: both cues on the same line.
+    assert any(re.search(r"BRICK\s+STEEL", p) for p in pages)

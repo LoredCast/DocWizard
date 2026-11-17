@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .. import notifications
 from ..auth import permissions
 from ..collab.authority import PushError
 from ..http.request import HTTPError, Request, bad_request, not_found
@@ -11,6 +12,7 @@ from ..sharing import links
 from .projects import document_access, project_access
 
 MAX_BODY = 10_000
+MAX_SUGGESTION = 50_000
 
 
 def _int(value) -> int:
@@ -19,8 +21,10 @@ def _int(value) -> int:
     return value
 
 
-def _body(value) -> str:
+def _body(value, optional: bool = False) -> str:
     text = str(value or "").strip()
+    if not text and optional:
+        return ""
     if not text:
         raise bad_request("Write a comment first.")
     if len(text) > MAX_BODY:
@@ -34,8 +38,49 @@ def _author(req: Request) -> tuple[int | None, int | None, str]:
     return None, req.guest.id, req.guest.label
 
 
+def _announce(room, doc_id: str, users: list[int]) -> None:
+    """Tell open editors whose people just got a notification, so their counts update."""
+    if users:
+        room.broadcast({"t": "notifications", "doc": doc_id, "users": [f"u{u}" for u in users]})
+
+
 def register(app) -> None:
     r = app.router
+
+    # -- notifications (§8.9) -------------------------------------------------
+    async def list_notifications(req: Request) -> Response:
+        uid = req.user.id
+        unread_only = req.query.get("unread") == "1"
+
+        def load(c):
+            return notifications.list_for(c, uid, unread_only=unread_only), notifications.unread_count(c, uid)
+
+        items, unread = await app.db.read(load)
+        from ..pages.projects import doc_url
+
+        return json_response({"unread": unread, "items": [
+            {"id": i["id"], "kind": i["kind"], "actor": i["actor"], "excerpt": i["excerpt"],
+             "createdAt": i["created_at"], "read": i["read_at"] is not None, "docId": i["doc_id"],
+             "path": i["path"], "project": i["project"], "threadId": i["thread_id"],
+             "url": f"{doc_url(i['project_id'], i['path'])}#comment-{i['thread_id']}"} for i in items]})
+
+    async def read_notifications(req: Request) -> Response:
+        body = await req.json_object()
+        uid = req.user.id
+        ids = body.get("ids")
+        if ids is not None and (not isinstance(ids, list) or not all(isinstance(i, int) for i in ids)):
+            raise bad_request("ids must be a list of numbers.")
+        doc_id = body.get("doc") if isinstance(body.get("doc"), str) else None
+        thread_id = body.get("thread") if isinstance(body.get("thread"), int) else None
+        if ids is None and doc_id is None and body.get("all") is not True:
+            raise bad_request("Say which notifications to mark as read.")
+        n = await app.db.write(lambda c: notifications.mark_read(c, uid, ids=ids, doc_id=doc_id,
+                                                                  thread_id=thread_id))
+        unread = await app.db.read(lambda c: notifications.unread_count(c, uid))
+        return json_response({"marked": n, "unread": unread})
+
+    r.add("GET", "/api/notifications", list_notifications)
+    r.add("POST", "/api/notifications/read", read_notifications)
 
     # -- comments ------------------------------------------------------------
     async def list_comments(req: Request) -> Response:
@@ -44,9 +89,12 @@ def register(app) -> None:
         version, anchors = await room.call(room.anchor_snapshot)
         rows = await app.db.fetchall(
             "SELECT id, thread_id, author_user_id, author_guest_id, author_name, body, quote, anchor_from, anchor_to,"
-            " orphaned, created_at, updated_at, resolved_at, resolved_by FROM comments WHERE doc_id = ?"
+            " orphaned, created_at, updated_at, resolved_at, resolved_by, suggestion, suggestion_state"
+            " FROM comments WHERE doc_id = ?"
             " ORDER BY thread_id, id", (doc["id"],))
         me_user, me_guest, _ = _author(req)
+        unread = await app.db.read(lambda c: notifications.unread_threads(c, me_user, doc["id"])) \
+            if me_user is not None else set()
         threads: dict[int, dict] = {}
         for row in rows:
             c = dict(row)
@@ -59,6 +107,8 @@ def register(app) -> None:
                 threads[c["id"]] = {
                     "id": c["id"], "quote": c["quote"] or "", "orphaned": bool(c["orphaned"]),
                     "resolved": c["resolved_at"] is not None, "resolvedBy": c["resolved_by"],
+                    "unread": c["id"] in unread,
+                    "suggestion": c["suggestion"], "suggestionState": c["suggestion_state"],
                     "from": anchor[0] if anchor else None, "to": anchor[1] if anchor else None,
                     "comments": [item]}
             elif c["thread_id"] in threads:
@@ -66,12 +116,19 @@ def register(app) -> None:
         ordered = sorted(threads.values(), key=lambda t: (t["from"] is None, t["from"] or 0, t["id"]))
         return json_response({"version": version, "threads": ordered,
                               "canComment": permissions.can(role, "comment"),
-                              "canResolve": permissions.can(role, "resolve_comments")})
+                              "canResolve": permissions.can(role, "resolve_comments"),
+                              "canAccept": permissions.can(role, "edit")})
 
     async def add_comment(req: Request) -> Response:
         doc, project, role = await document_access(app, req, req.param("id"), "comment")
-        body = await req.json_object(64 * 1024)
-        text = _body(body.get("body"))
+        body = await req.json_object(256 * 1024)
+        suggestion = body.get("suggestion")
+        if suggestion is not None:
+            if not isinstance(suggestion, str) or body.get("threadId") is not None:
+                raise bad_request("A suggestion is replacement text for a new thread.")
+            if len(suggestion) > MAX_SUGGESTION:
+                raise bad_request("Suggestions are limited to 50,000 characters.")
+        text = _body(body.get("body"), optional=suggestion is not None)
         uid, gid, name = _author(req)
         room = await app.rooms.get(doc["id"])
         if body.get("threadId") is not None:
@@ -80,26 +137,43 @@ def register(app) -> None:
                                          (thread_id, doc["id"]))
             if root is None:
                 raise not_found("This thread doesn't exist.")
-            cid = await app.db.execute(
-                "INSERT INTO comments(doc_id, thread_id, author_user_id, author_guest_id, author_name, body)"
-                " VALUES (?, ?, ?, ?, ?, ?)", (doc["id"], thread_id, uid, gid, name, text))
+            def reply(c):
+                cid = c.execute(
+                    "INSERT INTO comments(doc_id, thread_id, author_user_id, author_guest_id, author_name, body)"
+                    " VALUES (?, ?, ?, ?, ?, ?)", (doc["id"], thread_id, uid, gid, name, text)).lastrowid
+                return cid, notifications.record(c, project_id=project["id"], doc_id=doc["id"], comment_id=cid,
+                                                 thread_id=thread_id, actor_user_id=uid, actor=name, body=text)
+
+            cid, notified = await app.db.write(reply)
             room.broadcast({"t": "comments", "doc": doc["id"]})
+            _announce(room, doc["id"], notified)
             return json_response({"id": cid}, 201)
 
         version, frm, to = _int(body.get("version")), _int(body.get("from")), _int(body.get("to"))
 
         def insert(c, a, b, v, quote):
+            if suggestion is not None:
+                if suggestion == quote:
+                    raise PushError("unchanged", "The suggestion is the same as the text.")
+                if len(quote) > MAX_SUGGESTION:
+                    raise PushError("too_large", "Suggest changes to at most 50,000 characters at a time.")
+            else:
+                quote = quote[:500]
             cid = c.execute(
                 "INSERT INTO comments(doc_id, author_user_id, author_guest_id, author_name, body, quote, anchor_from,"
-                " anchor_to, anchor_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (doc["id"], uid, gid, name, text, quote, a, b, v)).lastrowid
+                " anchor_to, anchor_version, suggestion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (doc["id"], uid, gid, name, text, quote, a, b, v, suggestion)).lastrowid
             c.execute("UPDATE comments SET thread_id = id WHERE id = ?", (cid,))
+            notified.extend(notifications.record(c, project_id=project["id"], doc_id=doc["id"], comment_id=cid,
+                                                 thread_id=cid, actor_user_id=uid, actor=name, body=text))
             return cid
 
+        notified: list[int] = []
         try:
             result = await room.call(lambda: room.add_thread(version, frm, to, insert))
         except PushError as exc:
             raise HTTPError(409, exc.code, exc.message) from None
+        _announce(room, doc["id"], notified)
         return json_response(result, 201)
 
     async def patch_comment(req: Request) -> Response:
@@ -145,6 +219,55 @@ def register(app) -> None:
             (await app.rooms.get(doc["id"])).broadcast({"t": "comments", "doc": doc["id"]})
             return json_response({"ok": True})
         raise bad_request("Nothing to change.")
+
+    async def decide_suggestion(req: Request) -> Response:
+        """Accept (apply) or reject a suggestion; either way its thread is resolved (§8.10)."""
+        doc, project, role = await document_access(app, req, req.param("id"), "comment")
+        cid = req.param("cid")
+        row = await app.db.fetchone("SELECT * FROM comments WHERE id = ? AND doc_id = ? AND thread_id = id",
+                                    (int(cid) if cid.isdigit() else -1, doc["id"]))
+        if row is None or row["suggestion"] is None:
+            raise not_found("This suggestion doesn't exist.")
+        if row["suggestion_state"] is not None:
+            raise HTTPError(409, "decided", "This suggestion was already decided.")
+        body = await req.json_object()
+        decision = body.get("decision")
+        if decision not in ("accept", "reject"):
+            raise bad_request("Accept or reject the suggestion.")
+        permissions.require(role, "edit" if decision == "accept" else "resolve_comments")
+        uid, _, name = _author(req)
+        state = "accepted" if decision == "accept" else "rejected"
+        notified: list[int] = []
+
+        def update(c, anchor, version):
+            if anchor:
+                c.execute("UPDATE comments SET anchor_from = ?, anchor_to = ?, anchor_version = ? WHERE id = ?",
+                          (anchor[0], anchor[1], version, row["id"]))
+            c.execute("UPDATE comments SET suggestion_state = ?, resolved_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),"
+                      " resolved_by = ? WHERE id = ?", (state, name, row["id"]))
+            what = "Accepted" if state == "accepted" else "Rejected"
+            notified.extend(notifications.record(
+                c, project_id=project["id"], doc_id=doc["id"], comment_id=row["id"], thread_id=row["id"],
+                actor_user_id=uid, actor=name, body=f"{what}: “{row['suggestion']}”", kind="suggestion-decided"))
+
+        room = await app.rooms.get(doc["id"])
+        if decision == "accept":
+            if row["orphaned"]:
+                raise HTTPError(409, "gone", "The suggested passage is no longer in the document.")
+            expected = None if body.get("force") is True else row["quote"]
+            try:
+                await room.call(lambda: room.accept_suggestion(row["id"], row["suggestion"], expected, uid, update))
+            except PushError as exc:
+                raise HTTPError(409, exc.code, exc.message) from None
+        elif not row["orphaned"]:
+            await room.call(lambda: room.set_resolved("comment", row["id"], True,
+                                                      lambda c, anchor: update(c, anchor[0] if anchor else None,
+                                                                               anchor[1] if anchor else 0)))
+        else:
+            await app.db.write(lambda c: update(c, None, 0))
+            room.broadcast({"t": "comments", "doc": doc["id"]})
+        _announce(room, doc["id"], notified)
+        return json_response({"ok": True, "state": state})
 
     async def delete_comment(req: Request) -> Response:
         doc, project, role = await document_access(app, req, req.param("id"), "comment")
@@ -229,6 +352,7 @@ def register(app) -> None:
     r.add("POST", "/api/documents/{id}/comments", add_comment, guest=True)
     r.add("PATCH", "/api/documents/{id}/comments/{cid}", patch_comment, guest=True)
     r.add("DELETE", "/api/documents/{id}/comments/{cid}", delete_comment, guest=True)
+    r.add("POST", "/api/documents/{id}/comments/{cid}/suggestion", decide_suggestion, guest=True)
     r.add("GET", "/api/documents/{id}/conflicts", conflicts, guest=True)
     r.add("PATCH", "/api/documents/{id}/conflicts/{cid}", resolve_conflict, guest=True)
     r.add("GET", "/api/projects/{id}/shares", list_shares)

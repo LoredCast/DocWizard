@@ -3,6 +3,7 @@
 {% block content %}
 <section class="narrow">
   <p>{{ _("You were invited to {project} as {role}.", project=link.project_name, role=_("an editor") if link.role == "editor" else _("a commenter") if link.role == "commenter" else _("a viewer")) }}</p>
+  {% if link.review %}<p class="muted">{{ _("The document opens as it reads, without Markdown. Select text to comment on it or to suggest a change.") }}</p>{% endif %}
   {% if guests %}
   <form method="post" action="/s/{{ token }}" class="form">
     <input type="hidden" name="_csrf" value="{{ csrf }}">

@@ -2,7 +2,8 @@
 // never in the text; their anchors are kept current by the authority and, in this
 // editor, by the anchors field.
 import { EditorSelection } from "codemirror";
-import { api, el, t as tr, toast } from "../ui/dom.js";
+import { api, confirmDialog, el, t as tr, toast } from "../ui/dom.js";
+import { diffNodes } from "../ui/worddiff.js";
 import { AnchorLoader, anchorsField, setActiveThread, setAnchors } from "./anchors.js";
 
 const when = new Intl.DateTimeFormat(document.documentElement.lang || undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -17,16 +18,71 @@ function relative(iso) {
   return when.format(date);
 }
 
+// @mentions (§8.9): typing @ and a few letters suggests project members.
+const MENTION_AT = /(?:^|[^\w@.])@([\w.-]*)$/u;
+
+export function attachMentions(textarea, members) {
+  if (!members?.length) return;
+  const list = el("ul", { class: "mention-list", role: "listbox", hidden: true });
+  textarea.after(list);
+  let matches = [];
+  let active = 0;
+  const close = () => { list.hidden = true; matches = []; };
+  const pick = (m) => {
+    const before = textarea.value.slice(0, textarea.selectionStart);
+    const after = textarea.value.slice(textarea.selectionStart);
+    const start = before.lastIndexOf("@");
+    textarea.value = `${before.slice(0, start)}@${m.username} ${after}`;
+    const pos = start + m.username.length + 2;
+    textarea.setSelectionRange(pos, pos);
+    textarea.focus();
+    close();
+  };
+  const show = () => {
+    list.replaceChildren(...matches.map((m, i) => el("li", {
+      role: "option", class: i === active ? "active" : "", "aria-selected": String(i === active),
+      onmousedown: (e) => { e.preventDefault(); pick(m); },
+    }, el("strong", {}, m.name), " ", el("span", { class: "muted" }, `@${m.username}`))));
+    list.hidden = !matches.length;
+  };
+  textarea.addEventListener("input", () => {
+    const m = MENTION_AT.exec(textarea.value.slice(0, textarea.selectionStart));
+    if (!m) { close(); return; }
+    const q = m[1].toLowerCase();
+    matches = members.filter((x) => x.username.toLowerCase().startsWith(q) || x.name.toLowerCase().includes(q)).slice(0, 6);
+    active = 0;
+    show();
+  });
+  textarea.addEventListener("keydown", (e) => {
+    if (list.hidden) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      active = (active + (e.key === "ArrowDown" ? 1 : matches.length - 1)) % matches.length;
+      show();
+    } else if (e.key === "Enter" || e.key === "Tab") {
+      e.preventDefault();
+      pick(matches[active]);
+    } else if (e.key === "Escape") {
+      e.stopPropagation();
+      close();
+    }
+  });
+  textarea.addEventListener("blur", () => setTimeout(close, 150));
+}
+
 export class CommentsPanel {
-  constructor({ session, docId, panel, list, onCount }) {
+  constructor({ session, docId, panel, list, onCount, members = [], isUser = false }) {
     this.session = session;
     this.docId = docId;
     this.panel = panel;
     this.list = list;
+    this.members = members;
+    this.isUser = isUser;
     this.onCount = onCount ?? (() => {});
     this.threads = [];
     this.canComment = false;
     this.canResolve = false;
+    this.canAccept = false;
     this.showResolved = false;
     this.draft = null; // {quote}; its range lives in the anchors field, mapped through edits
     this.loader = new AnchorLoader(session, "comment", async () => {
@@ -34,8 +90,10 @@ export class CommentsPanel {
       this.threads = data.threads;
       this.canComment = data.canComment;
       this.canResolve = data.canResolve;
+      this.canAccept = data.canAccept;
       this.render();
-      return { version: data.version, items: data.threads.filter((t) => !t.resolved && !t.orphaned) };
+      return { version: data.version, items: data.threads.filter((t) => !t.resolved && !t.orphaned)
+        .map((t) => ({ id: t.id, from: t.from, to: t.to, ...(t.suggestion !== null ? { suggestion: t.suggestion } : {}) })) };
     });
   }
 
@@ -48,10 +106,19 @@ export class CommentsPanel {
     this.panel.hidden = false;
     this.panel.dispatchEvent(new Event("toggle"));
     this.render();
+    this.markRead();
+  }
+
+  // Seeing the threads counts as reading their notifications.
+  async markRead() {
+    if (!this.isUser || !this.threads.some((t) => t.unread)) return;
+    try {
+      await api("POST", "/api/notifications/read", { doc: this.docId });
+    } catch { /* offline: try again next time */ }
   }
 
   setDraft(range) {
-    this.draft = range ? { quote: range.quote } : null;
+    this.draft = range ? { quote: range.quote, text: range.text, suggest: Boolean(range.suggest) } : null;
     this.session.view?.dispatch({ effects: setAnchors.of({ kind: "draft",
       items: range ? [{ id: 0, from: range.from, to: range.to }] : [] }) });
   }
@@ -73,17 +140,20 @@ export class CommentsPanel {
     this.session.view?.dispatch({ effects: setActiveThread.of(null) });
   }
 
-  // Start a thread on the current selection.
-  compose() {
+  // Start a thread on the current selection; with suggest, one that proposes new text for it (§8.10).
+  compose(suggest = false) {
     const view = this.session.view;
     const range = view.state.selection.main;
     if (range.empty) {
-      toast(tr("Select the text you want to comment on."));
+      toast(suggest ? tr("Select the text you want to change.") : tr("Select the text you want to comment on."));
       return;
     }
-    this.setDraft({ from: range.from, to: range.to, quote: view.state.sliceDoc(range.from, range.to).slice(0, 200) });
+    const text = view.state.sliceDoc(range.from, range.to);
+    this.setDraft({ from: range.from, to: range.to, quote: text.slice(0, 200), text, suggest });
     this.show();
-    this.list.querySelector("textarea")?.focus();
+    const box = this.list.querySelector("textarea");
+    box?.focus();
+    if (suggest) box?.select();
   }
 
   // Show the thread whose mark was clicked.
@@ -120,29 +190,43 @@ export class CommentsPanel {
 
   render() {
     const open = this.threads.filter((t) => !t.resolved);
-    this.onCount(open.length);
+    this.onCount(open.length, this.threads.filter((t) => t.unread).length);
     if (!this.open) return;
     const items = [];
     if (this.draft) {
-      const form = el("form", { class: "thread draft" },
+      const suggest = this.draft.suggest;
+      const form = el("form", { class: suggest ? "thread draft suggestion" : "thread draft" },
         el("blockquote", {}, this.draft.quote),
-        el("textarea", { name: "body", rows: 3, required: true, "aria-label": tr("Comment"), maxlength: 10000 }),
+        suggest ? el("label", {}, tr("Replace with"),
+          el("textarea", { name: "suggestion", rows: 4, "aria-label": tr("Suggested text"), maxlength: 50000 },
+            this.draft.text)) : null,
+        el("textarea", { name: "body", rows: suggest ? 2 : 3, required: !suggest,
+                         "aria-label": suggest ? tr("Why (optional)") : tr("Comment"), maxlength: 10000,
+                         placeholder: suggest ? tr("Why (optional)")
+                           : (this.members.length ? tr("Comment, or @mention someone") : "") }),
         el("div", { class: "buttons" },
           el("button", { type: "button", onclick: () => { this.setDraft(null); this.render(); } }, tr("Cancel")),
-          el("button", { type: "submit", class: "primary" }, tr("Comment"))));
+          el("button", { type: "submit", class: "primary" }, suggest ? tr("Suggest") : tr("Comment"))));
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
         const body = form.elements.body.value.trim();
-        if (!body) return;
+        const suggestion = suggest ? form.elements.suggestion.value : null;
+        if (!suggest && !body) return;
+        if (suggest && suggestion === this.draft.text) {
+          toast(tr("Change the text first."));
+          return;
+        }
         const anchor = await this.draftAnchor();
         if (!anchor) {
           toast(tr("The commented text is gone. Select it again."), { error: true });
           return;
         }
         this.setDraft(null);
-        await this.send("POST", `/api/documents/${this.docId}/comments`, { body, ...anchor });
+        await this.send("POST", `/api/documents/${this.docId}/comments`,
+                        { body, ...anchor, ...(suggest ? { suggestion } : {}) });
       });
       items.push(form);
+      attachMentions(form.elements.body, this.members);
     }
     const shown = this.threads.filter((t) => this.showResolved || !t.resolved);
     for (const t of shown) items.push(this.renderThread(t));
@@ -159,10 +243,28 @@ export class CommentsPanel {
   }
 
   renderThread(t) {
-    const node = el("article", { class: t.resolved ? "thread resolved" : "thread", "data-thread": String(t.id) },
-      el("blockquote", { onclick: () => this.select(t.id) },
-        t.orphaned ? el("span", { class: "muted" }, tr("The commented text was deleted.")) : t.quote));
+    const node = el("article", { class: `thread${t.resolved ? " resolved" : ""}${t.unread ? " unread" : ""}`,
+                                 "data-thread": String(t.id), id: `comment-${t.id}` },
+      el("blockquote", { onclick: () => this.select(t.id), class: t.suggestion !== null ? "suggested" : "" },
+        t.orphaned ? el("span", { class: "muted" }, tr("The commented text was deleted."))
+          : (t.suggestion !== null ? diffNodes(t.quote, t.suggestion, el) : t.quote)));
+    if (t.suggestion !== null) {
+      const state = { accepted: tr("Accepted"), rejected: tr("Rejected") }[t.suggestionState];
+      node.append(el("p", { class: "muted" }, state ? (t.resolvedBy ? tr("{state} by {name}", { state, name: t.resolvedBy }) : state)
+        : tr("Suggested by {name}", { name: t.comments[0]?.author ?? "" })));
+      if (!t.suggestionState && !t.orphaned) {
+        const decide = el("div", { class: "buttons" });
+        if (this.canResolve) {
+          decide.append(el("button", { type: "button", onclick: () => this.decide(t, "reject") }, tr("Reject")));
+        }
+        if (this.canAccept) {
+          decide.append(el("button", { type: "button", class: "primary", onclick: () => this.decide(t, "accept") }, tr("Accept")));
+        }
+        if (decide.childElementCount) node.append(decide);
+      }
+    }
     for (const c of t.comments) {
+      if (!c.body) continue;
       node.append(el("div", { class: "comment" },
         el("p", { class: "meta" }, el("strong", {}, c.author), " ",
           el("span", { class: "muted", title: c.createdAt }, relative(c.createdAt)),
@@ -175,7 +277,7 @@ export class CommentsPanel {
             tr("Delete"))) : null));
     }
     const actions = el("div", { class: "buttons" });
-    if (this.canResolve) {
+    if (this.canResolve && (t.suggestion === null || t.suggestionState || t.orphaned)) {
       actions.append(el("button", { type: "button", onclick: () => this.send("PATCH",
         `/api/documents/${this.docId}/comments/${t.id}`, { resolved: !t.resolved }) },
         t.resolved ? tr("Reopen") : tr("Resolve")));
@@ -192,9 +294,25 @@ export class CommentsPanel {
         if (body) await this.send("POST", `/api/documents/${this.docId}/comments`, { body, threadId: t.id });
       });
       node.append(reply);
+      attachMentions(reply.elements.body, this.members);
     }
     if (actions.childElementCount) node.append(actions);
     return node;
+  }
+
+  async decide(thread, decision, force = false) {
+    try {
+      await api("POST", `/api/documents/${this.docId}/comments/${thread.id}/suggestion`, { decision, force });
+      await this.load();
+    } catch (err) {
+      if (err.code === "changed" && !force) {
+        if (await confirmDialog(tr("The passage changed since this suggestion was made. Replace it with the suggestion anyway?"), tr("Replace"))) {
+          await this.decide(thread, decision, true);
+        }
+        return;
+      }
+      toast(err.message, { error: true });
+    }
   }
 
   edit(node, comment) {

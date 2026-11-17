@@ -156,6 +156,66 @@ $design()$
 #let dw-dialogue(body) = block(above: dw-script-gap(), below: dw-script-blank(), width: 100%, breakable: false,
   pad(left: dw.at("script-dialogue-indent"),
     block(width: dw.at("script-dialogue-width"), par(first-line-indent: 0pt, justify: false, body))))
+// A whole speech: the cue, then parentheticals and dialogue. When it runs over a page break,
+// "(MORE)" goes under the part on the first page and the cue with "(CONT'D)" above the rest
+// (script.more, script.contd). A repeated table header and footer do that; their context
+// compares the page they are on with where the speech starts and ends.
+#let dw-cue(body) = if dw.at("script-character-align") == "center" {
+    align(center, par(first-line-indent: 0pt, justify: false, upper(body)))
+  } else {
+    pad(left: dw.at("script-character-indent"), par(first-line-indent: 0pt, justify: false, upper(body)))
+  }
+#let dw-speech-part(part) = if part.kind == "parenthetical" {
+    pad(left: dw.at("script-parenthetical-indent"), block(width: dw.at("script-parenthetical-width"),
+      par(first-line-indent: 0pt, justify: false, hanging-indent: 0.6em, part.body)))
+  } else {
+    pad(left: dw.at("script-dialogue-indent"), block(width: dw.at("script-dialogue-width"),
+      par(first-line-indent: 0pt, justify: false, part.body)))
+  }
+#let dw-speech-count = counter("dw-speech")
+#let dw-speech(sp) = {
+  let gap = dw-script-gap()
+  let more = dw.at("script-more", default: "")
+  if more == "" or sp.parts.len() == 0 {
+    return block(above: dw-script-blank(), below: dw-script-blank(), width: 100%, breakable: false,
+      stack(spacing: gap, dw-cue(sp.cue), ..sp.parts.map(dw-speech-part)))
+  }
+  dw-speech-count.step()
+  context {
+    let id = str(dw-speech-count.get().first())
+    let start = label("dw-speech-" + id + "-start")
+    let end = label("dw-speech-" + id + "-end")
+    let n = sp.parts.len()
+    block(above: dw-script-blank(), below: dw-script-blank(), width: 100%,
+      table(columns: 1fr, stroke: none, inset: 0pt, row-gutter: gap,
+        table.header(repeat: true, context {
+          let first = query(start)
+          let cont = first.len() > 0 and here().page() > first.first().location().page()
+          dw-cue(if cont { [#sp.cue #dw.at("script-contd", default: "")] } else { sp.cue })
+        }),
+        ..sp.parts.enumerate().map(((i, part)) => table.cell(breakable: part.kind != "parenthetical", {
+          if i == 0 [#metadata(none)#start]
+          dw-speech-part(part)
+          if i == n - 1 [#metadata(none)#end]
+        })),
+        table.footer(repeat: true, context {
+          let last = query(end)
+          if last.len() > 0 and here().page() < last.first().location().page() { dw-cue(more) }
+        }),
+      ))
+  }
+}
+// Dual dialogue: two speeches side by side, each in half the dialogue column and more.
+#let dw-dual(a, b) = {
+  let side(sp) = {
+    set par(first-line-indent: 0pt, justify: false)
+    stack(spacing: dw-script-gap(), align(center, upper(sp.cue)),
+      ..sp.parts.map(part => if part.kind == "parenthetical" { pad(left: 1em, part.body) } else { part.body }))
+  }
+  block(above: dw-script-blank(), below: dw-script-blank(), width: 100%, breakable: false,
+    pad(left: dw.at("script-dialogue-indent") / 2,
+      grid(columns: (1fr, 1fr), column-gutter: 0.4in, side(a), side(b))))
+}
 #let dw-transition(body) = block(width: 100%, sticky: false,
   align(right, par(first-line-indent: 0pt, justify: false, upper(body))))
 #let dw-centered(body) = block(width: 100%, align(center, par(first-line-indent: 0pt, justify: false, body)))
@@ -320,7 +380,8 @@ $design()$
   let by-chapter = dw.at("caption-by-chapter")
   show heading: it => {
     let p = dw-level(it.level)
-    if it.level == 1 and dw.at("heading-chapter-break") {
+    // Not for the titles of the contents and lists (not outlined): they sit on their own page or in a block.
+    if it.level == 1 and dw.at("heading-chapter-break") and it.outlined {
       pagebreak(weak: true)
       if dw.at("heading-chapter-drop") != 0pt { v(dw.at("heading-chapter-drop")) }
     }

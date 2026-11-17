@@ -16,7 +16,11 @@ import {
 } from "./commands.js";
 import { CommentsPanel } from "./comments.js";
 import { FieldsPanel, LayoutFields, fieldsExtension } from "./fields.js";
+import { GrammarChecker, grammarExtension, showMatches } from "./grammar.js";
+import { documentLanguage } from "../workers/grammar-text.js";
 import { ReferencesPanel } from "./references.js";
+import { SelectionBubble, reviewFrontMatter } from "./review.js";
+import { characterCompletion, openOutline } from "./script.js";
 import { baseExtensions } from "./setup.js";
 
 wireCommon();
@@ -49,6 +53,11 @@ const projectId = snap.project.id;
 const kind = snap.doc.kind;
 const readOnly = !snap.can.edit;
 const isMarkdown = kind === "markdown";
+// The review view (§14.1): the text as it reads, read-only, for commenting and suggesting.
+const review = Boolean(snap.review) && isMarkdown;
+// Screenplay layouts: scenes in the outline, character names to complete, a page estimate.
+const isScript = isMarkdown && Boolean(snap.layout?.script);
+let characters = [];
 
 const split = $("#split");
 
@@ -66,7 +75,22 @@ const store = (key, value) => {
 
 // -- Editor and collaboration ---------------------------------------------
 const socket = new Socket();
-const base = baseExtensions({ kind, readOnly });
+// The review view keeps the text focusable (read-only), so keyboard users can select passages too;
+// on touch screens that would bring up the keyboard, so there it isn't.
+const base = baseExtensions({ kind, readOnly: readOnly || review, reading: review,
+                              editable: review ? !window.matchMedia("(pointer: coarse)").matches : !readOnly });
+let bubble = null; // the review view's selection toolbar
+
+// Grammar and spelling (§6.8): only while writing Markdown, and not on a metered connection
+// (Harper is a 20 MB download the first time).
+const grammar = isMarkdown && !readOnly && !review && !navigator.connection?.saveData
+  && snap.grammar && snap.grammar.choice !== "off" && (snap.grammar.harper || snap.grammar.languagetool)
+  ? new GrammarChecker({
+    grammar: snap.grammar,
+    docKey: docId,
+    onError: (message) => toast(t("Grammar checking stopped: {message}", { message })),
+  })
+  : null;
 let library = new Map();
 let references = null; // the references panel, created below
 let fieldsPanel = null; // the fields panel, created below
@@ -90,7 +114,11 @@ const session = new DocSession({
   socket, docId, clientID: snap.clientID, text: snap.text, version: snap.version,
   makeState: (text, version) => EditorState.create({ doc: text, extensions: [
     base, peersField, anchorsField, conflictGutter((id) => openConflicts(id)), markClicks,
-    layoutFields ? fieldsExtension(layoutFields) : [], session.extension(version)] }),
+    review ? reviewFrontMatter : [],
+    layoutFields ? fieldsExtension(layoutFields) : [], isScript ? characterCompletion(() => characters) : [],
+    grammar ? grammarExtension({ ignore: (m, w) => { grammar.ignore(m, w); checkGrammar(); },
+                                 addWord: (w) => { grammar.addWord(w); checkGrammar(); } }) : [],
+    session.extension(version)] }),
   onStatus: showStatus,
   onEvent: handleEvent,
   onUpdates: () => { presence.flush(); comments.flush(); conflictLoader.flush(); },
@@ -109,6 +137,7 @@ const view = new EditorView({
       updateFormatBar();
     }
     if (trs.some((tr) => tr.selection)) cursorMoved();
+    if (bubble && trs.some((tr) => tr.selection || tr.docChanged)) bubble.update();
     if (trs.some((tr) => tr.selection || tr.docChanged)) references?.cursorMoved();
     if (trs.some((tr) => tr.docChanged)) fieldsPanel?.docChanged();
   },
@@ -129,13 +158,13 @@ const FORMAT_CMDS = {
   refs: () => references?.toggle(),
 };
 if (formatBar) {
-  formatBar.hidden = readOnly || !isMarkdown;
+  formatBar.hidden = readOnly || !isMarkdown || review;
   formatBar.addEventListener("mousedown", (event) => {
     if (event.target.closest("[data-cmd]")) event.preventDefault();
   });
   formatBar.addEventListener("click", (event) => {
     const btn = event.target.closest("[data-cmd]");
-    if (!btn || readOnly || !isMarkdown) return;
+    if (!btn || readOnly || !isMarkdown || review) return;
     const cmd = FORMAT_CMDS[btn.dataset.cmd];
     if (cmd) {
       cmd(view);
@@ -226,7 +255,8 @@ function handleEvent(msg) {
   switch (msg.t) {
     case "opened":
       presence.replaceAll(msg.version, msg.peers ?? []);
-      comments.load();
+      if (location.hash.startsWith("#comment-")) openLinkedThread();
+      else comments.load();
       loadConflicts();
       presenceSender.reset();
       presenceSender.send(true);
@@ -251,6 +281,9 @@ function handleEvent(msg) {
       break;
     case "comments":
       comments.load();
+      break;
+    case "notifications":
+      if (msg.users?.includes(snap.user?.id)) comments.load();
       break;
     case "rendered":
       showRendered(msg);
@@ -277,18 +310,49 @@ stats.onmessage = (event) => {
   const n = event.data.words.toLocaleString(locale);
   const notes = event.data.notes && isMarkdown ? t(" · {n} in notes", { n: event.data.notes.toLocaleString(locale) }) : "";
   $("#word-count").textContent = t("{n} words", { n }) + notes;
+  const sp = event.data.script;
+  if (sp) {
+    characters = sp.characters;
+    // About a page a minute on screen (§9.3).
+    const pages = sp.pages.toLocaleString(locale, { maximumFractionDigits: 1 });
+    const minutes = Math.max(1, Math.round(sp.pages));
+    $("#script-stats").textContent = !sp.pages ? ""
+      : sp.pages === 1 ? t("about 1 page · 1 min") : t("about {pages} pages · {minutes} min", { pages, minutes });
+    $("#script-stats").title = t("{n} scenes. Estimated at 55 lines a page; the PDF has the exact count.",
+                                 { n: sp.scenes });
+  }
 };
 function countWords() {
   statsId += 1;
-  stats.postMessage({ id: statsId, text: view.state.doc.toString() });
+  stats.postMessage({ id: statsId, text: view.state.doc.toString(), script: isScript });
 }
 countWords();
+
+let grammarTimer = null;
+async function checkGrammar() {
+  if (!grammar) return;
+  const doc = view.state.doc;
+  const text = doc.toString();
+  const matches = await grammar.check(text, documentLanguage(text, snap.project.lang));
+  // A check that an edit overtook is dropped; the edit schedules a new one.
+  if (matches && view.state.doc === doc) showMatches(view, matches);
+}
+if (grammar) grammarTimer = setTimeout(checkGrammar, 1500);
 
 function docChanged() {
   clearTimeout(statsTimer);
   statsTimer = setTimeout(countWords, 400);
+  if (grammar) {
+    clearTimeout(grammarTimer);
+    grammarTimer = setTimeout(checkGrammar, 800);
+  }
   requestPreview();
 }
+
+function showOutline() {
+  openOutline(view, outline, { script: isScript });
+}
+$("#open-outline")?.addEventListener("click", showOutline);
 
 // -- Citations ---------------------------------------------------------
 let citationsEtag = "";
@@ -344,7 +408,7 @@ const narrow = window.matchMedia("(max-width: 900px)");
 const isLatex = kind === "latex";
 const pdfTarget = isLatex ? "pdf-latex" : (snap.layout.defaultPdf === "pdf-latex" ? "pdf-latex" : "pdf-typst");
 let target = isLatex || stored("dw.previewTarget", "html") === "pdf" ? pdfTarget : "html";
-let previewOn = stored("dw.preview", "on") === "on";
+let previewOn = stored(review ? "dw.reviewPreview" : "dw.preview", review ? "off" : "on") === "on";
 let previewTimer = null;
 let shown = { html: -1, "pdf-typst": -1, "pdf-latex": -1 };
 const previewFailed = { html: false, pdf: false };
@@ -451,7 +515,7 @@ $("#toggle-preview").addEventListener("click", () => {
     return;
   }
   previewOn = !previewOn;
-  store("dw.preview", previewOn ? "on" : "off");
+  store(review ? "dw.reviewPreview" : "dw.preview", previewOn ? "on" : "off");
   applyPreviewLayout();
   requestPreview(0);
   if (previewVisible()) cursorMoved();
@@ -520,6 +584,7 @@ function cursorMoved() {
   const line = view.state.doc.lineAt(view.state.selection.main.head).number;
   let current = null;
   for (const h of outline) {
+    if (h.scene) continue; // scene headings aren't headings in the HTML preview
     if (h.line > line) break;
     current = h;
   }
@@ -619,28 +684,74 @@ $("#options-form").addEventListener("submit", async (event) => {
   }
 });
 
-// -- Versions -------------------------------------------------------------
+// -- Versions and history (§8.5) ---------------------------------------------
 const versionsDialog = $("#versions-dialog");
 const fmt = new Intl.DateTimeFormat(document.documentElement.lang || undefined, { dateStyle: "medium", timeStyle: "short" });
+const parseDate = (iso) => new Date(iso.endsWith("Z") ? iso : `${iso}Z`);
+const versionsList = $("#versions-list");
+const compareView = $("#versions-compare");
+
+function versionRow(v, title, detail) {
+  return el("li", { class: "row" },
+    el("span", { class: "spacer" }, el("strong", {}, title), " ", el("span", { class: "muted" }, detail)),
+    el("button", { type: "button", onclick: () => compareVersion(v, title) }, t("Compare")),
+    readOnly ? null : el("button", { type: "button", onclick: () => restoreVersion(v, title) }, t("Restore")));
+}
+
 async function loadVersions() {
-  const list = $("#versions-list");
-  list.replaceChildren(el("li", { class: "muted" }, t("Loading…")));
+  compareView.hidden = true;
+  versionsList.hidden = false;
+  $("#version-form").hidden = readOnly;
+  versionsList.replaceChildren(el("li", { class: "muted" }, t("Loading…")));
   try {
-    const { versions } = await api("GET", `/api/documents/${docId}/versions`);
-    list.replaceChildren(...versions.map((v) => el("li", { class: "row" },
-      el("span", { class: "spacer" }, el("strong", {}, v.label), " ",
-        el("span", { class: "muted" }, `${fmt.format(new Date(v.created_at))}${v.author ? ` · ${v.author}` : ""}`)),
-      readOnly ? null : el("button", { type: "button", onclick: () => restoreVersion(v) }, t("Restore")))));
-    if (!versions.length) list.append(el("li", { class: "muted" }, t("No named versions yet.")));
+    const { versions, history = [] } = await api("GET", `/api/documents/${docId}/versions`);
+    const items = [el("li", { class: "list-head" }, t("Named versions"))];
+    items.push(...versions.map((v) => versionRow(v, v.label,
+      `${fmt.format(parseDate(v.created_at))}${v.author ? ` · ${v.author}` : ""}`)));
+    if (!versions.length) items.push(el("li", { class: "muted" }, t("No named versions yet.")));
+    items.push(el("li", { class: "list-head" }, t("History")));
+    items.push(...history.map((v, i) => versionRow(v, i === 0 ? t("Latest autosave") : fmt.format(parseDate(v.created_at)),
+      v.authors.length ? t("Edited by {names}", { names: v.authors.join(", ") }) : "")));
+    if (!history.length) items.push(el("li", { class: "muted" }, t("The history starts with the next edits.")));
+    versionsList.replaceChildren(...items);
   } catch (err) {
-    list.replaceChildren(el("li", { class: "error" }, err.message));
+    versionsList.replaceChildren(el("li", { class: "error" }, err.message));
   }
 }
-async function restoreVersion(v) {
-  if (!await confirmDialog(t("Restore “{label}”? The current text is kept as a version first.", { label: v.label }), t("Restore"))) return;
+
+async function compareVersion(v, title) {
+  versionsList.hidden = true;
+  $("#version-form").hidden = true;
+  compareView.hidden = false;
+  const body = el("div", { class: "diff", role: "region", "aria-label": t("Changes") }, el("p", { class: "muted" }, t("Loading…")));
+  compareView.replaceChildren(
+    el("p", {}, t("Changes from “{title}” to the current text", { title })),
+    el("p", { class: "muted", id: "diff-stats" }),
+    body,
+    el("div", { class: "buttons" },
+      el("button", { type: "button", onclick: loadVersions }, t("Back")),
+      readOnly ? null : el("button", { type: "button", onclick: () => restoreVersion(v, title) }, t("Restore this version"))));
+  try {
+    const diff = await api("GET", `/api/documents/${docId}/versions/${v.id}/compare`);
+    $("#diff-stats").textContent = diff.added || diff.removed
+      ? t("Since then: {added} words added, {removed} removed", { added: diff.added, removed: diff.removed })
+      : t("No changes since then.");
+    body.replaceChildren(...diff.segments.map((s) => {
+      if (s.op === "skip") return el("span", { class: "diff-skip" }, s.lines === 1 ? t("… 1 unchanged line …") : t("… {n} unchanged lines …", { n: s.lines }));
+      if (s.op === "ins") return el("ins", {}, s.text);
+      if (s.op === "del") return el("del", {}, s.text);
+      return el("span", {}, s.text);
+    }));
+  } catch (err) {
+    body.replaceChildren(el("p", { class: "error" }, err.message));
+  }
+}
+
+async function restoreVersion(v, title) {
+  if (!await confirmDialog(t("Restore “{label}”? The current text is kept as a version first.", { label: title }), t("Restore"))) return;
   try {
     await api("POST", `/api/documents/${docId}/versions/${v.id}/restore`);
-    toast(t("Restored “{label}”.", { label: v.label }));
+    toast(t("Restored “{label}”.", { label: title }));
     loadVersions();
   } catch (err) {
     toast(err.message, { error: true });
@@ -650,7 +761,6 @@ $("#open-versions").addEventListener("click", () => {
   versionsDialog.showModal();
   loadVersions();
 });
-if (readOnly) $("#version-form").hidden = true;
 $("#version-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const label = event.target.elements.label.value.trim();
@@ -668,8 +778,22 @@ $("#version-form").addEventListener("submit", async (event) => {
 const sidePanel = $("#side-panel");
 const comments = new CommentsPanel({
   session, docId, panel: sidePanel, list: $("#comments-list"),
-  onCount: (n) => { $("#open-comments").textContent = n ? t("Comments ({n})", { n }) : t("Comments"); },
+  members: snap.members ?? [], isUser: !snap.user?.guest && !offlineRecord,
+  onCount: (n, unread) => {
+    const button = $("#open-comments");
+    button.textContent = n ? t("Comments ({n})", { n }) : t("Comments");
+    button.classList.toggle("has-unread", unread > 0);
+    button.title = unread ? (unread === 1 ? t("1 thread with news for you") : t("{n} threads with news for you", { n: unread })) : "";
+    if (unread && comments?.open) comments.markRead();
+  },
 });
+// A link to a comment (from a notification) opens its thread.
+async function openLinkedThread() {
+  const m = /^#comment-(\d+)$/.exec(location.hash);
+  if (!m) return;
+  await comments.load();
+  comments.focusThread(Number(m[1]));
+}
 sidePanel.addEventListener("toggle", () => {
   split.classList.toggle("with-panel", !sidePanel.hidden || Boolean(references?.open) || Boolean(fieldsPanel?.open));
   $("#open-comments").setAttribute("aria-pressed", String(!sidePanel.hidden));
@@ -683,11 +807,19 @@ $("#open-comments").addEventListener("click", () => {
 $("#close-panel").addEventListener("click", () => comments.hide());
 $("#new-comment").hidden = !snap.can.comment;
 $("#new-comment").addEventListener("click", () => comments.compose());
+$("#new-suggestion").hidden = !snap.can.comment;
+$("#new-suggestion").addEventListener("click", () => comments.compose(true));
+if (review) {
+  if (snap.can.comment) {
+    bubble = new SelectionBubble(view, { onComment: () => comments.compose(), onSuggest: () => comments.compose(true) });
+  }
+  if (!narrow.matches) comments.show();
+}
 
 // -- References (§10.4) ------------------------------------------------------
 const refsPanel = $("#refs-panel");
 references = isMarkdown && refsPanel ? new ReferencesPanel({
-  view, panel: refsPanel, readOnly, canBrowse,
+  view, panel: refsPanel, readOnly, canBrowse, projectId: offlineRecord ? null : projectId,
   onToggle: (open) => {
     if (open && comments.open) comments.hide();
     if (open && fieldsPanel?.open) fieldsPanel.hide();
@@ -810,7 +942,7 @@ if (shareButton) {
       roleSelect.replaceChildren(...data.roles.map((r) => el("option", { value: r }, r[0].toUpperCase() + r.slice(1))));
       list.replaceChildren(...data.links.map((l) => el("li", {},
         el("span", { class: "spacer" }, l.label || t("Link"), " ",
-          el("span", { class: "muted" }, `(${[l.role, l.has_password && "password", l.expired ? "expired" : l.expires_at && "expires",
+          el("span", { class: "muted" }, `(${[l.role, l.review && t("review view"), l.has_password && "password", l.expired ? "expired" : l.expires_at && "expires",
                                                l.guests && `${l.guests} ${l.guests === 1 ? "guest" : "guests"}`].filter(Boolean).join(", ")})`)),
         el("button", { type: "button", class: "link", onclick: async () => {
           await api("DELETE", `/api/projects/${projectId}/shares/${l.id}`);
@@ -832,7 +964,8 @@ if (shareButton) {
     const f = event.target.elements;
     try {
       const { url } = await api("POST", `/api/projects/${projectId}/shares`, {
-        role: f.role.value, expires_days: f.expires_days.value, password: f.password.value, label: f.label.value });
+        role: f.role.value, expires_days: f.expires_days.value, password: f.password.value, label: f.label.value,
+        review: f.review.checked });
       const input = el("input", { readonly: true, value: url, "aria-label": t("Share link"), "data-select-on-focus": true });
       $("#share-result").replaceChildren(input,
         el("button", { type: "button", onclick: () => { navigator.clipboard?.writeText(url); toast(t("Link copied.")); } }, t("Copy link")));
@@ -934,6 +1067,12 @@ document.addEventListener("keydown", (event) => {
   } else if (mod && event.altKey && (event.key === "m" || event.code === "KeyM")) {
     event.preventDefault();
     if (snap.can.comment) comments.compose();
+  } else if (mod && event.altKey && (event.key === "g" || event.code === "KeyG")) {
+    event.preventDefault();
+    if (snap.can.comment) comments.compose(true);
+  } else if (mod && event.altKey && event.code === "KeyO" && isMarkdown) {
+    event.preventDefault();
+    showOutline();
   }
 });
 

@@ -86,7 +86,7 @@ function cspNonce() {
 }
 
 // Everything except collaboration, which the session adds per version.
-export function baseExtensions({ kind, readOnly, live = true, lang = "" }) {
+export function baseExtensions({ kind, readOnly, live = true, lang = "", reading = false, editable = !readOnly }) {
   return [
     EditorView.cspNonce.of(cspNonce()),
     highlightSpecialChars(),
@@ -101,11 +101,11 @@ export function baseExtensions({ kind, readOnly, live = true, lang = "" }) {
     autocompletion({ activateOnTyping: true, icons: false }),
     EditorView.lineWrapping,
     EditorState.readOnly.of(readOnly),
-    EditorView.editable.of(!readOnly),
+    EditorView.editable.of(editable),
     EditorView.contentAttributes.of({ spellcheck: "true", autocorrect: "on", autocapitalize: "sentences",
                                       ...(lang ? { lang } : {}) }),
     languageFor(kind),
-    kind === "markdown" && live ? livePreview() : [],
+    kind === "markdown" && live ? livePreview({ reading }) : [],
     keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap,
                ...completionKeymap]),
   ];

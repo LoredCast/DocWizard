@@ -119,7 +119,9 @@ def user_content(path: Path, name: str, *, cache: str = "private, no-cache") -> 
 def app_csp(nonce: str, preview_origin: str) -> str:
     return (
         "default-src 'self'; "
-        f"script-src 'self' 'nonce-{nonce}'; "
+        # wasm-unsafe-eval: the Harper grammar checker is WebAssembly (§6.8); it allows compiling
+        # WebAssembly only, not eval.
+        f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval'; "
         f"style-src 'self' 'nonce-{nonce}'; "
         "style-src-attr 'unsafe-inline'; "
         "img-src 'self' data: blob:; "

@@ -9,7 +9,9 @@ Ein deutsches Drehbuch nach den Formatvorgaben des Landesmedienzentrums Baden-W�
   letzten Gedankenstrich folgt rechtsbündig: `.VERHÖRZIMMER – INNEN / TAG` (der Punkt am Anfang macht die Zeile
   zum Szenenkopf) oder `## Verhörzimmer – innen / Tag`.
 - **Figuren**: mittig und in Versalien über ihrem Text.
-- **Dialog**: eingerückt und linksbündig; Regieanweisungen in Klammern (selten) etwas weiter eingerückt.
+- **Dialog**: eingerückt und linksbündig; Regieanweisungen in Klammern (selten) etwas weiter eingerückt. Geht
+  ein Text über das Seitenende, steht „(WEITER)“ darunter und die Figur mit „(FORTS.)“ oben auf der nächsten
+  Seite; spricht eine Figur nach einer Handlung in derselben Szene weiter, steht „(FORTS.)“ hinter dem Namen.
 - **Titelseite**: Titel, Genre (`genre`), „von“ und Autor; Fassung (`draft`) und Kontaktdaten unten links.
 - **Ende**: „ENDE“ nach der letzten Szene.
 

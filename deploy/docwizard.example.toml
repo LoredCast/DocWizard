@@ -50,6 +50,15 @@ default_layout = "default"
 max_document_bytes = 5000000
 max_upload_bytes = 50000000
 
+# Grammar checking (§6.8). Harper is built in and runs in each browser, for English. A LanguageTool
+# server checks other languages too; the app passes the text on to it. With the public
+# api.languagetoolplus.com, texts leave your server: run your own (e.g. the erikvl87/languagetool image).
+# [grammar]
+# harper = true
+# languagetool_url = "http://languagetool:8010"
+# languagetool_api_key = ""          # only for LanguageTool Premium
+# languagetool_username = ""
+
 # Mail for password resets and invitations (§13.2). Without it, admins hand out
 # the links from the admin area.
 # [smtp]
