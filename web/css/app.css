@@ -179,6 +179,10 @@
     .split.with-panel, .split.no-preview.with-panel { grid-template-columns: 1fr; position: relative; }
     .side-panel { position: absolute; inset: 0; border-left: 0; z-index: 2; }
     .actions > .status, .presence .name { display: none; }
+    .menu-status { display: block; padding: 4px 8px; font-size: 12px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+  }
+  /* The editor's actions fold into a menu before they run out of room. */
+  @media (max-width: 1460px) {
     .editor-more { display: block; position: relative; }
     #more-actions { display: inline-flex; align-items: center; }
     .toolbar-buttons { display: none; }
@@ -188,8 +192,7 @@
       border: 1px solid var(--line); border-radius: var(--radius); padding: 8px;
       display: grid; gap: 4px;
     }
-    .editor-more.open .toolbar-buttons button { justify-content: flex-start; text-align: left; }
-    .menu-status { display: block; padding: 4px 8px; font-size: 12px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+    .editor-more.open .toolbar-buttons button, .editor-more.open .toolbar-buttons .button { justify-content: flex-start; text-align: left; }
   }
   @media (max-width: 640px) {
     .page:not(.editor-page) .toolbar { flex-wrap: wrap; gap: 8px; padding: 6px 16px; }

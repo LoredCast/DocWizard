@@ -19,7 +19,6 @@
     <button type="button" id="new-comment" title="{{ _('Comment on the selection (Ctrl+Alt+M)') }}">{{ _("Comment") }}</button>
     <button type="button" id="new-suggestion" title="{{ _('Suggest new text for the selection (Ctrl+Alt+G)') }}">{{ _("Suggest") }}</button>
     <button type="button" id="open-comments" aria-pressed="false">{{ _("Comments") }}</button>
-    {% if doc.kind == "markdown" %}<button type="button" id="open-outline" title="{{ _('Outline (Ctrl+Alt+O)') }}">{{ _("Outline") }}</button>{% endif %}
     {% if doc.kind == "markdown" %}<button type="button" id="open-refs" aria-pressed="false" title="{{ _('References (Ctrl+Alt+R)') }}">{{ _("References") }}</button>{% endif %}
     {% if doc.kind == "markdown" %}<button type="button" id="open-fields" aria-pressed="false" title="{{ _('Front matter fields this layout prints') }}">{{ _("Fields") }}</button>{% endif %}
     {% if doc.kind == "markdown" %}<a class="button" id="switch-view" href="?view={{ 'source' if review else 'review' }}">{{ _("Edit the source") if review else _("Review view") }}</a>{% endif %}
@@ -193,6 +192,7 @@
 <footer class="statusbar" id="statusbar">
   <span id="word-count"></span>
   <span id="script-stats"></span>
+  {% if doc.kind == "markdown" %}<button type="button" class="link" id="open-outline" title="{{ _('Outline (Ctrl+Alt+O)') }}">{{ _("Outline") }}</button>{% endif %}
   <span id="doc-kind">{{ "Markdown" if doc.kind == "markdown" else doc.kind|capitalize }}</span>
   <span data-layout-name>{{ layout.name }}</span>
   <span id="conflict-count"></span>
