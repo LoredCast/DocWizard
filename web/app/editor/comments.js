@@ -17,12 +17,66 @@ function relative(iso) {
   return when.format(date);
 }
 
+// @mentions (§8.9): typing @ and a few letters suggests project members.
+const MENTION_AT = /(?:^|[^\w@.])@([\w.-]*)$/u;
+
+export function attachMentions(textarea, members) {
+  if (!members?.length) return;
+  const list = el("ul", { class: "mention-list", role: "listbox", hidden: true });
+  textarea.after(list);
+  let matches = [];
+  let active = 0;
+  const close = () => { list.hidden = true; matches = []; };
+  const pick = (m) => {
+    const before = textarea.value.slice(0, textarea.selectionStart);
+    const after = textarea.value.slice(textarea.selectionStart);
+    const start = before.lastIndexOf("@");
+    textarea.value = `${before.slice(0, start)}@${m.username} ${after}`;
+    const pos = start + m.username.length + 2;
+    textarea.setSelectionRange(pos, pos);
+    textarea.focus();
+    close();
+  };
+  const show = () => {
+    list.replaceChildren(...matches.map((m, i) => el("li", {
+      role: "option", class: i === active ? "active" : "", "aria-selected": String(i === active),
+      onmousedown: (e) => { e.preventDefault(); pick(m); },
+    }, el("strong", {}, m.name), " ", el("span", { class: "muted" }, `@${m.username}`))));
+    list.hidden = !matches.length;
+  };
+  textarea.addEventListener("input", () => {
+    const m = MENTION_AT.exec(textarea.value.slice(0, textarea.selectionStart));
+    if (!m) { close(); return; }
+    const q = m[1].toLowerCase();
+    matches = members.filter((x) => x.username.toLowerCase().startsWith(q) || x.name.toLowerCase().includes(q)).slice(0, 6);
+    active = 0;
+    show();
+  });
+  textarea.addEventListener("keydown", (e) => {
+    if (list.hidden) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      active = (active + (e.key === "ArrowDown" ? 1 : matches.length - 1)) % matches.length;
+      show();
+    } else if (e.key === "Enter" || e.key === "Tab") {
+      e.preventDefault();
+      pick(matches[active]);
+    } else if (e.key === "Escape") {
+      e.stopPropagation();
+      close();
+    }
+  });
+  textarea.addEventListener("blur", () => setTimeout(close, 150));
+}
+
 export class CommentsPanel {
-  constructor({ session, docId, panel, list, onCount }) {
+  constructor({ session, docId, panel, list, onCount, members = [], isUser = false }) {
     this.session = session;
     this.docId = docId;
     this.panel = panel;
     this.list = list;
+    this.members = members;
+    this.isUser = isUser;
     this.onCount = onCount ?? (() => {});
     this.threads = [];
     this.canComment = false;
@@ -48,6 +102,15 @@ export class CommentsPanel {
     this.panel.hidden = false;
     this.panel.dispatchEvent(new Event("toggle"));
     this.render();
+    this.markRead();
+  }
+
+  // Seeing the threads counts as reading their notifications.
+  async markRead() {
+    if (!this.isUser || !this.threads.some((t) => t.unread)) return;
+    try {
+      await api("POST", "/api/notifications/read", { doc: this.docId });
+    } catch { /* offline: try again next time */ }
   }
 
   setDraft(range) {
@@ -120,13 +183,14 @@ export class CommentsPanel {
 
   render() {
     const open = this.threads.filter((t) => !t.resolved);
-    this.onCount(open.length);
+    this.onCount(open.length, this.threads.filter((t) => t.unread).length);
     if (!this.open) return;
     const items = [];
     if (this.draft) {
       const form = el("form", { class: "thread draft" },
         el("blockquote", {}, this.draft.quote),
-        el("textarea", { name: "body", rows: 3, required: true, "aria-label": tr("Comment"), maxlength: 10000 }),
+        el("textarea", { name: "body", rows: 3, required: true, "aria-label": tr("Comment"), maxlength: 10000,
+                         placeholder: this.members.length ? tr("Comment, or @mention someone") : "" }),
         el("div", { class: "buttons" },
           el("button", { type: "button", onclick: () => { this.setDraft(null); this.render(); } }, tr("Cancel")),
           el("button", { type: "submit", class: "primary" }, tr("Comment"))));
@@ -143,6 +207,7 @@ export class CommentsPanel {
         await this.send("POST", `/api/documents/${this.docId}/comments`, { body, ...anchor });
       });
       items.push(form);
+      attachMentions(form.elements.body, this.members);
     }
     const shown = this.threads.filter((t) => this.showResolved || !t.resolved);
     for (const t of shown) items.push(this.renderThread(t));
@@ -159,7 +224,8 @@ export class CommentsPanel {
   }
 
   renderThread(t) {
-    const node = el("article", { class: t.resolved ? "thread resolved" : "thread", "data-thread": String(t.id) },
+    const node = el("article", { class: `thread${t.resolved ? " resolved" : ""}${t.unread ? " unread" : ""}`,
+                                 "data-thread": String(t.id), id: `comment-${t.id}` },
       el("blockquote", { onclick: () => this.select(t.id) },
         t.orphaned ? el("span", { class: "muted" }, tr("The commented text was deleted.")) : t.quote));
     for (const c of t.comments) {
@@ -192,6 +258,7 @@ export class CommentsPanel {
         if (body) await this.send("POST", `/api/documents/${this.docId}/comments`, { body, threadId: t.id });
       });
       node.append(reply);
+      attachMentions(reply.elements.body, this.members);
     }
     if (actions.childElementCount) node.append(actions);
     return node;

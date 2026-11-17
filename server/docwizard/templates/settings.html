@@ -33,6 +33,13 @@
         {% endfor %}
       </select>
     </label>
+    <label>{{ _("Email me about comments") }}
+      <select name="notify_email">
+        {% for value, label in [("all", "Mentions and replies"), ("mentions", "Only when someone mentions me"), ("off", "Never")] %}
+        <option value="{{ value }}" {% if user.preferences.get("notify_email", "all") == value %}selected{% endif %}>{{ _(label) }}</option>
+        {% endfor %}
+      </select>
+    </label>
     {% if saved == "profile" %}<p role="status">{{ _("Saved") }}</p>{% endif %}
     <div class="buttons"><button type="submit" class="primary">{{ _("Save") }}</button></div>
   </form>

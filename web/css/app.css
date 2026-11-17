@@ -276,6 +276,13 @@
   .thread .body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
   .thread .row { margin: 0; }
   .thread textarea { width: 100%; resize: vertical; }
+  .thread.unread { border-left: 2px solid var(--accent); padding-left: 8px; }
+  .has-unread::after { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-left: 6px; vertical-align: middle; }
+  .mention-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--edge); background: var(--bg); max-height: 12rem; overflow: auto; }
+  .mention-list li { padding: 4px 8px; cursor: pointer; }
+  .mention-list li.active, .mention-list li:hover { background: var(--hover); }
+  .inbox li { flex-wrap: wrap; }
+  .inbox li.unread a { font-weight: 600; }
   .reply { display: flex; gap: 8px; align-items: flex-start; }
   .reply textarea { flex: 1; }
   dialog.wide { width: min(56rem, calc(100vw - 32px)); }

@@ -226,7 +226,8 @@ function handleEvent(msg) {
   switch (msg.t) {
     case "opened":
       presence.replaceAll(msg.version, msg.peers ?? []);
-      comments.load();
+      if (location.hash.startsWith("#comment-")) openLinkedThread();
+      else comments.load();
       loadConflicts();
       presenceSender.reset();
       presenceSender.send(true);
@@ -251,6 +252,9 @@ function handleEvent(msg) {
       break;
     case "comments":
       comments.load();
+      break;
+    case "notifications":
+      if (msg.users?.includes(snap.user?.id)) comments.load();
       break;
     case "rendered":
       showRendered(msg);
@@ -713,8 +717,22 @@ $("#version-form").addEventListener("submit", async (event) => {
 const sidePanel = $("#side-panel");
 const comments = new CommentsPanel({
   session, docId, panel: sidePanel, list: $("#comments-list"),
-  onCount: (n) => { $("#open-comments").textContent = n ? t("Comments ({n})", { n }) : t("Comments"); },
+  members: snap.members ?? [], isUser: !snap.user?.guest && !offlineRecord,
+  onCount: (n, unread) => {
+    const button = $("#open-comments");
+    button.textContent = n ? t("Comments ({n})", { n }) : t("Comments");
+    button.classList.toggle("has-unread", unread > 0);
+    button.title = unread ? (unread === 1 ? t("1 thread with news for you") : t("{n} threads with news for you", { n: unread })) : "";
+    if (unread && comments?.open) comments.markRead();
+  },
 });
+// A link to a comment (from a notification) opens its thread.
+async function openLinkedThread() {
+  const m = /^#comment-(\d+)$/.exec(location.hash);
+  if (!m) return;
+  await comments.load();
+  comments.focusThread(Number(m[1]));
+}
 sidePanel.addEventListener("toggle", () => {
   split.classList.toggle("with-panel", !sidePanel.hidden || Boolean(references?.open) || Boolean(fieldsPanel?.open));
   $("#open-comments").setAttribute("aria-pressed", String(!sidePanel.hidden));

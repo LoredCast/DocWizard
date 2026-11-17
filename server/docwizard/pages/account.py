@@ -151,6 +151,10 @@ def register(app) -> None:
 
         if form.get("language") in LANGUAGES:
             prefs["language"] = form["language"]
+        from ..notifications import EMAIL_CHOICES
+
+        if form.get("notify_email") in EMAIL_CHOICES:
+            prefs["notify_email"] = form["notify_email"]
         if form.get("editor_size", "").isdigit() and 15 <= int(form["editor_size"]) <= 20:
             prefs["editor_size"] = int(form["editor_size"])
         name = form.get("display_name", "").strip()[:80] or user.display_name

@@ -3,6 +3,15 @@
 <button type="button" class="primary" data-open-dialog="new-project">{{ _("New project") }}</button>{% endblock %}
 {% block content %}
 {% if error %}<p class="error pad" role="alert">{{ _(error) }}</p>{% endif %}
+{% if inbox %}
+<h2 class="pad">{{ _("For you") }} <a class="muted" href="/notifications">{{ _("All notifications") }}</a></h2>
+<ul class="plain pad inbox">
+  {% for n in inbox %}
+  <li><a href="{{ doc_url(n.project_id, n.path) }}#comment-{{ n.thread_id }}"><strong>{{ n.actor }}</strong> {{ _("mentioned you") if n.kind == "mention" else (_("replied") if n.kind == "reply" else _("decided on a suggestion")) }} · {{ n.path }}</a>
+    <span class="spacer muted">“{{ n.excerpt }}”</span><span class="muted" title="{{ n.created_at }}">{{ n.created_at|reltime }}</span></li>
+  {% endfor %}
+</ul>
+{% endif %}
 <h2 class="pad">{{ _("Recent") }}</h2>
 <script type="application/json" id="recent-data">{{ recent_json|safe }}</script>
 {% if recent %}

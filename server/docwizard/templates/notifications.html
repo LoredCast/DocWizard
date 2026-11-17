@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Notifications") }} · DocWizard{% endblock %}
+{% block crumbs %}<a class="wordmark" href="/">DocWizard</a><span>/</span><span>{{ _("Notifications") }}</span>{% endblock %}
+{% block actions %}{% if unread %}<form method="post" action="/notifications" class="inline"><input type="hidden" name="_csrf" value="{{ csrf }}"><button type="submit">{{ _("Mark all as read") }}</button></form>{% endif %}{% endblock %}
+{% block content %}
+<section class="narrow">
+  <h2>{{ _("Notifications") }}</h2>
+  <p class="muted">{{ _("Mentions of you in comments, replies in threads you wrote in, and decisions on your suggestions.") }}{% if mail %} {{ _("Unread ones are also sent by email; choose which in your settings.") }}{% endif %}</p>
+  {% if items %}
+  <ul class="plain inbox">
+    {% for n in items %}
+    <li class="{{ 'unread' if not n.read_at else '' }}"><a href="{{ doc_url(n.project_id, n.path) }}#comment-{{ n.thread_id }}"><strong>{{ n.actor }}</strong> {{ _("mentioned you") if n.kind == "mention" else (_("replied") if n.kind == "reply" else _("decided on a suggestion")) }} · {{ n.project }} / {{ n.path }}</a>
+      <span class="spacer muted">“{{ n.excerpt }}”</span><span class="muted" title="{{ n.created_at }}">{{ n.created_at|reltime }}</span></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">{{ _("Nothing yet. When someone writes @your-username in a comment, it shows up here.") }}</p>
+  {% endif %}
+</section>
+{% endblock %}

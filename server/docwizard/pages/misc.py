@@ -26,6 +26,26 @@ def register(app) -> None:
         return json_response({"results": await app.search.query(req.user.id, q) if q else [],
                               "available": app.search.available})
 
+    async def notifications_page(req: Request) -> Response:
+        from .. import notifications
+        from .projects import doc_url
+
+        uid = req.user.id
+        if req.method == "POST":
+            await app.db.write(lambda c: notifications.mark_read(c, uid))
+            from ..http.response import redirect
+
+            return redirect("/notifications")
+
+        def load(c):
+            return notifications.list_for(c, uid, limit=200), notifications.unread_count(c, uid)
+
+        items, unread = await app.db.read(load)
+        return app.page(req, "notifications.html", items=items, unread=unread, doc_url=doc_url,
+                        mail=app.mail.enabled)
+
+    app.router.add("GET", "/notifications", notifications_page)
+    app.router.add("POST", "/notifications", notifications_page)
     app.router.add("GET", "/search", search_page)
     app.router.add("GET", "/api/search", search_api)
     app.router.add("GET", "/source", source, auth=False)

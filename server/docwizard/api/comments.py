@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .. import notifications
 from ..auth import permissions
 from ..collab.authority import PushError
 from ..http.request import HTTPError, Request, bad_request, not_found
@@ -34,8 +35,49 @@ def _author(req: Request) -> tuple[int | None, int | None, str]:
     return None, req.guest.id, req.guest.label
 
 
+def _announce(room, doc_id: str, users: list[int]) -> None:
+    """Tell open editors whose people just got a notification, so their counts update."""
+    if users:
+        room.broadcast({"t": "notifications", "doc": doc_id, "users": [f"u{u}" for u in users]})
+
+
 def register(app) -> None:
     r = app.router
+
+    # -- notifications (§8.9) -------------------------------------------------
+    async def list_notifications(req: Request) -> Response:
+        uid = req.user.id
+        unread_only = req.query.get("unread") == "1"
+
+        def load(c):
+            return notifications.list_for(c, uid, unread_only=unread_only), notifications.unread_count(c, uid)
+
+        items, unread = await app.db.read(load)
+        from ..pages.projects import doc_url
+
+        return json_response({"unread": unread, "items": [
+            {"id": i["id"], "kind": i["kind"], "actor": i["actor"], "excerpt": i["excerpt"],
+             "createdAt": i["created_at"], "read": i["read_at"] is not None, "docId": i["doc_id"],
+             "path": i["path"], "project": i["project"], "threadId": i["thread_id"],
+             "url": f"{doc_url(i['project_id'], i['path'])}#comment-{i['thread_id']}"} for i in items]})
+
+    async def read_notifications(req: Request) -> Response:
+        body = await req.json_object()
+        uid = req.user.id
+        ids = body.get("ids")
+        if ids is not None and (not isinstance(ids, list) or not all(isinstance(i, int) for i in ids)):
+            raise bad_request("ids must be a list of numbers.")
+        doc_id = body.get("doc") if isinstance(body.get("doc"), str) else None
+        thread_id = body.get("thread") if isinstance(body.get("thread"), int) else None
+        if ids is None and doc_id is None and body.get("all") is not True:
+            raise bad_request("Say which notifications to mark as read.")
+        n = await app.db.write(lambda c: notifications.mark_read(c, uid, ids=ids, doc_id=doc_id,
+                                                                  thread_id=thread_id))
+        unread = await app.db.read(lambda c: notifications.unread_count(c, uid))
+        return json_response({"marked": n, "unread": unread})
+
+    r.add("GET", "/api/notifications", list_notifications)
+    r.add("POST", "/api/notifications/read", read_notifications)
 
     # -- comments ------------------------------------------------------------
     async def list_comments(req: Request) -> Response:
@@ -47,6 +89,8 @@ def register(app) -> None:
             " orphaned, created_at, updated_at, resolved_at, resolved_by FROM comments WHERE doc_id = ?"
             " ORDER BY thread_id, id", (doc["id"],))
         me_user, me_guest, _ = _author(req)
+        unread = await app.db.read(lambda c: notifications.unread_threads(c, me_user, doc["id"])) \
+            if me_user is not None else set()
         threads: dict[int, dict] = {}
         for row in rows:
             c = dict(row)
@@ -59,6 +103,7 @@ def register(app) -> None:
                 threads[c["id"]] = {
                     "id": c["id"], "quote": c["quote"] or "", "orphaned": bool(c["orphaned"]),
                     "resolved": c["resolved_at"] is not None, "resolvedBy": c["resolved_by"],
+                    "unread": c["id"] in unread,
                     "from": anchor[0] if anchor else None, "to": anchor[1] if anchor else None,
                     "comments": [item]}
             elif c["thread_id"] in threads:
@@ -80,10 +125,16 @@ def register(app) -> None:
                                          (thread_id, doc["id"]))
             if root is None:
                 raise not_found("This thread doesn't exist.")
-            cid = await app.db.execute(
-                "INSERT INTO comments(doc_id, thread_id, author_user_id, author_guest_id, author_name, body)"
-                " VALUES (?, ?, ?, ?, ?, ?)", (doc["id"], thread_id, uid, gid, name, text))
+            def reply(c):
+                cid = c.execute(
+                    "INSERT INTO comments(doc_id, thread_id, author_user_id, author_guest_id, author_name, body)"
+                    " VALUES (?, ?, ?, ?, ?, ?)", (doc["id"], thread_id, uid, gid, name, text)).lastrowid
+                return cid, notifications.record(c, project_id=project["id"], doc_id=doc["id"], comment_id=cid,
+                                                 thread_id=thread_id, actor_user_id=uid, actor=name, body=text)
+
+            cid, notified = await app.db.write(reply)
             room.broadcast({"t": "comments", "doc": doc["id"]})
+            _announce(room, doc["id"], notified)
             return json_response({"id": cid}, 201)
 
         version, frm, to = _int(body.get("version")), _int(body.get("from")), _int(body.get("to"))
@@ -94,12 +145,16 @@ def register(app) -> None:
                 " anchor_to, anchor_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (doc["id"], uid, gid, name, text, quote, a, b, v)).lastrowid
             c.execute("UPDATE comments SET thread_id = id WHERE id = ?", (cid,))
+            notified.extend(notifications.record(c, project_id=project["id"], doc_id=doc["id"], comment_id=cid,
+                                                 thread_id=cid, actor_user_id=uid, actor=name, body=text))
             return cid
 
+        notified: list[int] = []
         try:
             result = await room.call(lambda: room.add_thread(version, frm, to, insert))
         except PushError as exc:
             raise HTTPError(409, exc.code, exc.message) from None
+        _announce(room, doc["id"], notified)
         return json_response(result, 201)
 
     async def patch_comment(req: Request) -> Response:

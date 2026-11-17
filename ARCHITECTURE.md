@@ -680,6 +680,13 @@ Each peer gets a stable color index and a display name, which for guests is the 
 - Commenters can create threads and reply. Editors and owners can also resolve them.
 - Comments live in SQLite, never in the document text.
 
+### 8.9 Mentions and notifications
+
+- Writing `@username` in a comment or reply notifies that person if they are a member of the project (any role). A reply notifies everyone with an account who wrote in the thread; deciding on a suggestion notifies its author ([§8.10](#810-suggestions)). Nobody is notified about their own comments.
+- Notifications live in `notifications` (user, document, thread, kind, actor, excerpt, read and mailed times). The home page lists unread ones, `/notifications` all of them, and the editor marks threads with news; opening the comments panel marks the document's notifications read. Open editors get a `notifications` message naming the people concerned, so their counts update at once.
+- Mail: every minute, unread notifications older than two minutes that were never mailed go out, several per message, if mail is set up. People choose mentions and replies, only mentions, or nothing in their settings. Each notification is mailed at most once; after 90 days they are deleted.
+- The editor suggests project members after `@` in comment boxes. Guests don't get the member list.
+
 ## 9. Rendering and layouts
 
 ### 9.1 Pipeline

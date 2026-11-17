@@ -28,6 +28,7 @@
     <details class="menu account-menu">
       <summary>{{ user.display_name }}</summary>
       <div class="menu-body actions-list">
+        <a class="menu-item" href="/notifications">{{ _("Notifications") }}</a>
         {% if user.is_admin %}<a class="menu-item" href="/admin">{{ _("Admin") }}</a>{% endif %}
         <a class="menu-item" href="/layouts">{{ _("Layouts") }}</a>
         <a class="menu-item" href="/settings">{{ _("Settings") }}</a>

@@ -38,6 +38,7 @@ class Maintenance:
 
     async def run_once(self) -> dict:
         report = {**await self.purge_trash(), **await self.prune_rows()}
+        report["notifications"] = await self.app.notifier.prune()
         report["blobs"] = await self.collect_blobs()
         log.info("maintenance", extra=fields(**report))
         return report

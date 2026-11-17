@@ -110,6 +110,9 @@ class App:
         from .search import Search
 
         self.mail = Mailer(self)
+        from .notifications import Notifier
+
+        self.notifier = Notifier(self)
         self.search = Search(self)
         from .maintenance import Maintenance
 
@@ -215,6 +218,7 @@ class App:
         self.spawn(self._render_cache_eviction(), "render-cache")
         self.spawn(self._session_cleanup(), "session-cleanup")
         self.spawn(self.search.catch_up(), "search-catch-up")
+        self.spawn(self.notifier.run_forever(), "notifications")
         if self.cfg.sync.enabled:
             self.spawn(self.sync.run_forever(), "sync")
             self.spawn(self.zotero.run_forever(), "zotero")

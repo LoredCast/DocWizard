@@ -977,5 +977,21 @@
  "No changes since then.": "Seitdem keine Änderungen.",
  "… 1 unchanged line …": "… 1 unveränderte Zeile …",
  "… {n} unchanged lines …": "… {n} unveränderte Zeilen …",
- "DocWizard keeps the history of this document: every autosave of the last hour, then one per hour for two days, one per day for two months and one per week after that. Name a version to keep it exactly.": "DocWizard bewahrt den Verlauf dieses Dokuments auf: jede automatische Sicherung der letzten Stunde, dann eine pro Stunde für zwei Tage, eine pro Tag für zwei Monate und danach eine pro Woche. Benenne eine Version, um sie genau so zu behalten."
+ "DocWizard keeps the history of this document: every autosave of the last hour, then one per hour for two days, one per day for two months and one per week after that. Name a version to keep it exactly.": "DocWizard bewahrt den Verlauf dieses Dokuments auf: jede automatische Sicherung der letzten Stunde, dann eine pro Stunde für zwei Tage, eine pro Tag für zwei Monate und danach eine pro Woche. Benenne eine Version, um sie genau so zu behalten.",
+ "Notifications": "Benachrichtigungen",
+ "Mark all as read": "Alle als gelesen markieren",
+ "Mentions of you in comments, replies in threads you wrote in, and decisions on your suggestions.": "Erwähnungen in Kommentaren, Antworten in Diskussionen, in denen du geschrieben hast, und Entscheidungen über deine Vorschläge.",
+ "Unread ones are also sent by email; choose which in your settings.": "Ungelesene kommen auch per E-Mail; welche, legst du in deinen Einstellungen fest.",
+ "Nothing yet. When someone writes @your-username in a comment, it shows up here.": "Noch nichts. Wenn jemand @dein-benutzername in einen Kommentar schreibt, erscheint es hier.",
+ "mentioned you": "hat dich erwähnt",
+ "replied": "hat geantwortet",
+ "decided on a suggestion": "hat über einen Vorschlag entschieden",
+ "For you": "Für dich",
+ "All notifications": "Alle Benachrichtigungen",
+ "Email me about comments": "E-Mails zu Kommentaren",
+ "Mentions and replies": "Erwähnungen und Antworten",
+ "Only when someone mentions me": "Nur, wenn mich jemand erwähnt",
+ "Comment, or @mention someone": "Kommentieren oder jemanden @erwähnen",
+ "1 thread with news for you": "1 Diskussion mit Neuem für dich",
+ "{n} threads with news for you": "{n} Diskussionen mit Neuem für dich"
 }

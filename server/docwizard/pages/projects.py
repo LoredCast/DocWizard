@@ -60,14 +60,18 @@ def register(app) -> None:
     async def home(req: Request) -> Response:
         uid = req.user.id
 
-        def load(c):
-            return svc.list_recent(c, uid), svc.list_projects(c, uid)
+        from .. import notifications
 
-        recent, projects = await app.db.read(load)
+        def load(c):
+            return (svc.list_recent(c, uid), svc.list_projects(c, uid),
+                    notifications.list_for(c, uid, limit=10, unread_only=True), notifications.unread_count(c, uid))
+
+        recent, projects, inbox, unread = await app.db.read(load)
         # Mirrored into IndexedDB so the offline home page can list them (§6.5).
         mirror = [{"docId": d["id"], "url": doc_url(d["project_id"], d["path"]), "path": d["path"],
                    "project": d["project"], "openedAt": d["opened_at"], "pinned": bool(d["pinned"])} for d in recent]
         return app.page(req, "home.html", recent=recent, projects=projects, layouts=app.layouts.visible(uid),
+                        inbox=inbox, unread=unread,
                         recent_json=script_json(mirror),
                         default_layout=app.policy("default_layout"), doc_url=doc_url, error=req.query.get("error"))
 
@@ -211,6 +215,10 @@ def register(app) -> None:
         room = await app.rooms.get(doc["id"])
         text, version = await room.call(lambda: _text_version(room))
         tree = await app.db.read(lambda c: svc.tree(c, pid))
+        # People who can be mentioned in comments (§8.9); guests don't get the member list.
+        mentionable = [] if guest is not None else [
+            {"username": m["username"], "name": m["display_name"]}
+            for m in await app.db.read(lambda c: svc.list_members(c, pid)) if m["id"] != user.id]
         layout = app.layouts.get(project["layout_id"]) if app.layouts.exists(project["layout_id"]) \
             else app.layouts.get(app.policy("default_layout"))
         try:
@@ -232,6 +240,7 @@ def register(app) -> None:
             "layoutOptions": options,
             "fields": fields.for_layout(layout),
             "files": [{"path": e["path"], "type": e["type"]} for e in tree],
+            "members": mentionable,
             "prefs": {"font": user.preferences.get("editor_font", "sans") if user else "sans",
                       "size": user.preferences.get("editor_size", 17) if user else 17},
             "previewOrigin": app.cfg.preview_origin,
