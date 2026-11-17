@@ -514,6 +514,10 @@
   #editor .cm-md-meta { color: var(--muted); }
   #editor .cm-md-quote { color: var(--muted); }
   #editor .cm-md-math { font-family: var(--mono); font-size: 0.9em; }
+  #editor .cm-image-upload {
+    border: 1px dashed var(--edge); border-radius: var(--radius); padding: 0 6px; margin: 0 2px;
+    color: var(--muted); font-size: 0.9em; white-space: nowrap;
+  }
   #editor .cm-cite-chip {
     border: 1px solid var(--edge); border-radius: var(--radius); padding: 0 4px;
     font-size: 0.9em; white-space: nowrap; cursor: text;

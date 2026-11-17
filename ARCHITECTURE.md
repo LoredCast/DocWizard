@@ -367,6 +367,7 @@ The line with the cursor always shows raw source. A toggle switches to plain sou
 - Word count of body text, excluding front matter, citation keys, code and comments. Footnotes and bibliography are counted separately.
 - Diagnostics from renders (Typst and LaTeX errors) shown in the gutter.
 - Grammar and spelling underlines ([§6.8](#68-grammar-and-spelling)); without them, the browser's native spellcheck in the document's `lang`.
+- Images pasted or dropped into the text, or picked with the toolbar's Image button (`editor/images.js`), are uploaded to `figures/` (`PUT …/assets/figures/<name>?unique=1`, which never replaces a file: `figure.png`, `figure-2.png`, …) and become a figure where they were placed: `![Caption](figures/map.png){#fig:map}` with the caption selected to type over, or a `figure` environment with `\includegraphics` and `\label{fig:map}` in LaTeX. A placeholder holds the spot during the upload and moves with edits around it. Pasted text wins over a pasted picture, because word processors put both on the clipboard. LaTeX documents take PNG, JPEG and PDF; Markdown also GIF, WebP and SVG.
 - Keyboard first: command palette on `Ctrl/Cmd+K`, and every action reachable from the keyboard.
 
 ### 6.4 Preview

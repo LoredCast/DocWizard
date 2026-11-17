@@ -123,6 +123,18 @@ def path_taken(conn: sqlite3.Connection, project_id: str, path: str) -> bool:
         (project_id, path, project_id, path)).fetchone())
 
 
+def free_path(conn: sqlite3.Connection, project_id: str, path: str) -> str:
+    """*path*, or the first of path-2, path-3, … (before the extension) that no file has."""
+    stem, dot, ext = path.rpartition(".")
+    if not dot or "/" in ext:
+        stem, dot, ext = path, "", ""
+    candidate, n = path, 1
+    while path_taken(conn, project_id, candidate):
+        n += 1
+        candidate = f"{stem}-{n}{dot}{ext}"
+    return candidate
+
+
 def create_document(conn: sqlite3.Connection, project_id: str, path: str, text: str = "",
                     line_ending: str = "lf") -> str:
     path = files.normalize(path)

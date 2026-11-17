@@ -1051,5 +1051,12 @@
  "Send at most 200,000 characters at a time.": "Sende höchstens 200.000 Zeichen auf einmal.",
  "Unknown language.": "Unbekannte Sprache.",
  "Checking too often. Wait a moment.": "Zu häufig geprüft. Warte einen Moment.",
- "LanguageTool sent something unexpected.": "LanguageTool hat etwas Unerwartetes geschickt."
+ "LanguageTool sent something unexpected.": "LanguageTool hat etwas Unerwartetes geschickt.",
+ "Image": "Bild",
+ "Image (or paste or drop one into the text)": "Bild (oder eines in den Text einfügen oder ziehen)",
+ "Uploading {name}…": "{name} wird hochgeladen …",
+ "Caption": "Bildunterschrift",
+ "image": "Bild",
+ "Images can be added while online.": "Bilder lassen sich nur online hinzufügen.",
+ "The image couldn't be uploaded: {message}": "Das Bild konnte nicht hochgeladen werden: {message}"
 }

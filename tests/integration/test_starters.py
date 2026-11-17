@@ -117,3 +117,20 @@ def test_every_kind_has_both_languages(kind):
         assert (f"lang: {'de-DE' if lang == 'de' else 'en-US'}") in front
         if plan.build:
             assert plan.build[0] == plan.main and all(p in dict(plan.files) for p in plan.build)
+
+
+async def test_pasted_images_never_replace_a_file(app, client):
+    made = await create(client, "term-paper")
+    pid = made["id"]
+    url = f"/api/projects/{pid}/assets/figures/figure.png?unique=1"
+    first = await client.request("PUT", url, body=b"\x89PNG one")
+    second = await client.request("PUT", url, body=b"\x89PNG two")
+    assert first.status == second.status == 201, second.text
+    assert first.json()["path"] == "figures/figure.png" and second.json()["path"] == "figures/figure-2.png"
+    assert (await client.get(f"/api/projects/{pid}/assets/figures/figure.png")).body == b"\x89PNG one"
+    # Without ?unique=1 an upload replaces the file, as before.
+    again = await client.request("PUT", f"/api/projects/{pid}/assets/figures/figure.png", body=b"\x89PNG three")
+    assert again.json()["path"] == "figures/figure.png"
+    # The editor knows whether this person may upload.
+    snap = await open_editor(client, pid, "paper.md")
+    assert snap["can"]["upload"] is True

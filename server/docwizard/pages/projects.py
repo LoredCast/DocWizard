@@ -242,7 +242,7 @@ def register(app) -> None:
             "user": {"id": req.actor_key, "name": req.actor_name, "guest": guest is not None},
             "can": {cap: permissions.can(role, cap, project) and not (guest and cap in GUEST_FORBIDDEN)
                     for cap in ("edit", "comment", "resolve_comments", "versions", "share", "publish",
-                                "change_layout")},
+                                "change_layout", "upload")},
             "layout": layout.public(),
             "layoutOptions": options,
             "fields": fields.for_layout(layout),

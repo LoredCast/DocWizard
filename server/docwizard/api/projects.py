@@ -252,6 +252,9 @@ def register(app) -> None:
             await room.call(room.materialize)
             return json_response({"id": doc_id, "type": "document"}, 201)
         root = app.rooms.project_dir(project["id"])
+        if req.query.get("unique") == "1":
+            # Pasted and dropped images never replace a file: figures/figure.png becomes figure-2.png.
+            path = await app.db.read(lambda c: svc.free_path(c, project["id"], path))
 
         def store():
             digest = files.put_blob(app.cfg.data_dir, data)

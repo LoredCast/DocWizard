@@ -17,6 +17,7 @@ import {
 import { CommentsPanel } from "./comments.js";
 import { FieldsPanel, LayoutFields, fieldsExtension } from "./fields.js";
 import { GrammarChecker, grammarExtension, showMatches } from "./grammar.js";
+import { ImageInserter } from "./images.js";
 import { documentLanguage } from "../workers/grammar-text.js";
 import { ReferencesPanel } from "./references.js";
 import { SelectionBubble, reviewFrontMatter } from "./review.js";
@@ -102,6 +103,10 @@ const markClicks = EditorView.domEventHandlers({
     return false;
   },
 });
+// Pasted and dropped images go to figures/ and become figures in the text.
+const images = !readOnly && !review && !offlineRecord && (isMarkdown || kind === "latex") && snap.can.upload !== false
+  ? new ImageInserter({ projectId, kind })
+  : null;
 let layoutOptions = { ...snap.layoutOptions };
 // The front matter fields the layout prints (§9.4): autocomplete and hover help in the
 // front matter, and the Fields panel below.
@@ -114,7 +119,7 @@ const session = new DocSession({
   socket, docId, clientID: snap.clientID, text: snap.text, version: snap.version,
   makeState: (text, version) => EditorState.create({ doc: text, extensions: [
     base, peersField, anchorsField, conflictGutter((id) => openConflicts(id)), markClicks,
-    review ? reviewFrontMatter : [],
+    review ? reviewFrontMatter : [], images ? images.extension() : [],
     layoutFields ? fieldsExtension(layoutFields) : [], isScript ? characterCompletion(() => characters) : [],
     grammar ? grammarExtension({ ignore: (m, w) => { grammar.ignore(m, w); checkGrammar(); },
                                  addWord: (w) => { grammar.addWord(w); checkGrammar(); } }) : [],
@@ -156,6 +161,7 @@ const FORMAT_CMDS = {
   ordered: toggleOrderedList, task: toggleTaskList,
   link: insertLink, math: toggleInlineMath, cite: insertCitation, footnote: insertFootnote,
   refs: () => references?.toggle(),
+  image: (v) => images?.pick(v),
 };
 if (formatBar) {
   formatBar.hidden = readOnly || !isMarkdown || review;
