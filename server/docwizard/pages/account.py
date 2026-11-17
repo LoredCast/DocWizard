@@ -120,6 +120,9 @@ def register(app) -> None:
                               if r["provider"] in app.oidc.by_id else r["provider"]} for r in ids]
         ctx["linkable"] = [p for p in app.oidc.list() if p.id not in linked]
         ctx.setdefault("zotero_error", None)
+        from ..api.grammar import available as grammar_available
+
+        ctx["grammar"] = grammar_available(app)
         ctx.setdefault("link_error", None)
         ctx.setdefault("zotero_values", {})
         ctx.setdefault("totp_setup", None)
@@ -155,6 +158,10 @@ def register(app) -> None:
 
         if form.get("notify_email") in EMAIL_CHOICES:
             prefs["notify_email"] = form["notify_email"]
+        from ..api.grammar import CHOICES as GRAMMAR_CHOICES
+
+        if form.get("grammar") in GRAMMAR_CHOICES:
+            prefs["grammar"] = form["grammar"]
         if form.get("editor_size", "").isdigit() and 15 <= int(form["editor_size"]) <= 20:
             prefs["editor_size"] = int(form["editor_size"])
         name = form.get("display_name", "").strip()[:80] or user.display_name

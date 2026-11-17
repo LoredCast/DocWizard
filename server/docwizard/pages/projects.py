@@ -8,6 +8,7 @@ import secrets
 import time
 from urllib.parse import quote
 
+from ..api import grammar
 from ..api.projects import GUEST_FORBIDDEN, create_project_with_starter, project_access
 from ..auth import passwords, permissions
 from ..http.request import HTTPError, Request, not_found
@@ -233,7 +234,7 @@ def register(app) -> None:
             options = {}
         snapshot = {
             "doc": {"id": doc["id"], "path": doc["path"], "kind": doc["kind"], "pinned": pinned},
-            "project": {"id": pid, "name": project["name"]},
+            "project": {"id": pid, "name": project["name"], "lang": project["lang"]},
             "version": version,
             "text": text,
             "clientID": client_id,
@@ -251,6 +252,8 @@ def register(app) -> None:
                       "size": user.preferences.get("editor_size", 17) if user else 17},
             "previewOrigin": app.cfg.preview_origin,
             "review": review,
+            # Grammar checking (§6.8): what the server offers and what the person chose.
+            "grammar": {**grammar.available(app), "choice": grammar.choice_of(user.preferences if user else None)},
         }
         return app.page(req, "editor.html", project=project, doc=doc, role=role, snapshot=script_json(snapshot),
                         layout=layout, can=permissions.can, review=review)

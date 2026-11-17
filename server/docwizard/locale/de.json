@@ -1034,5 +1034,22 @@
  "Add a reference by DOI, ISBN or arXiv ID": "Quelle per DOI, ISBN oder arXiv-ID hinzufügen",
  "Looking up…": "Wird gesucht…",
  "Added @{key} to {file} and cited it.": "@{key} zu {file} hinzugefügt und zitiert.",
- "@{key} was already in {file}; cited it.": "@{key} war schon in {file}; zitiert."
+ "@{key} was already in {file}; cited it.": "@{key} war schon in {file}; zitiert.",
+ "Check grammar and spelling": "Grammatik und Rechtschreibung prüfen",
+ "Automatically: Harper for English, LanguageTool for other languages": "Automatisch: Harper für Englisch, LanguageTool für andere Sprachen",
+ "Automatically: Harper for English": "Automatisch: Harper für Englisch",
+ "Automatically": "Automatisch",
+ "With Harper (English, in your browser)": "Mit Harper (Englisch, in deinem Browser)",
+ "With this server's LanguageTool (many languages)": "Mit dem LanguageTool dieses Servers (viele Sprachen)",
+ "Remove “{text}”": "„{text}“ entfernen",
+ "(nothing)": "(nichts)",
+ "Grammar": "Grammatik",
+ "Ignore": "Ignorieren",
+ "Add to dictionary": "Zum Wörterbuch hinzufügen",
+ "Grammar checking stopped: {message}": "Die Grammatikprüfung wurde beendet: {message}",
+ "This server has no LanguageTool.": "Dieser Server hat kein LanguageTool.",
+ "Send at most 200,000 characters at a time.": "Sende höchstens 200.000 Zeichen auf einmal.",
+ "Unknown language.": "Unbekannte Sprache.",
+ "Checking too often. Wait a moment.": "Zu häufig geprüft. Warte einen Moment.",
+ "LanguageTool sent something unexpected.": "LanguageTool hat etwas Unerwartetes geschickt."
 }

@@ -246,6 +246,7 @@ docwizard/
 │   │   │   ├── citations.js         autocomplete, chips, insert dialog
 │   │   │   ├── math.js              Temml widgets (lazy)
 │   │   │   ├── latex-mode.js        StreamLanguage tokenizer for LaTeX
+│   │   │   ├── grammar.js           grammar underlines and fixes (§6.8)
 │   │   │   └── diagnostics.js
 │   │   ├── collab/
 │   │   │   ├── socket.js            reconnecting, multiplexed WebSocket
@@ -258,6 +259,8 @@ docwizard/
 │   │   ├── ui/                      DOM helpers, dialogs, command palette, panels
 │   │   └── workers/
 │   │       ├── citations.js
+│   │       ├── grammar.js           Harper (§6.8)
+│   │       ├── grammar-text.js      what isn't checked, which checker
 │   │       └── stats.js
 │   ├── css/app.css                  the only stylesheet (§25.13)
 │   ├── icons.svg                    icon sprite (§25.9)
@@ -363,7 +366,7 @@ The line with the cursor always shows raw source. A toggle switches to plain sou
 - Outline panel and folding by heading.
 - Word count of body text, excluding front matter, citation keys, code and comments. Footnotes and bibliography are counted separately.
 - Diagnostics from renders (Typst and LaTeX errors) shown in the gutter.
-- The browser's native spellcheck in the document's `lang`.
+- Grammar and spelling underlines ([§6.8](#68-grammar-and-spelling)); without them, the browser's native spellcheck in the document's `lang`.
 - Keyboard first: command palette on `Ctrl/Cmd+K`, and every action reachable from the keyboard.
 
 ### 6.4 Preview
@@ -394,6 +397,7 @@ The line with the cursor always shows raw source. A toggle switches to plain sou
 ### 6.6 Web workers
 
 - `workers/citations.js` holds the citation library, does fuzzy search and formats chip labels.
+- `workers/grammar.js` runs the Harper grammar checker ([§6.8](#68-grammar-and-spelling)).
 - `workers/stats.js` computes word and character counts and the outline for long documents. With a script layout (one that names the `screenplay` filter; the layout's public data says `script: true`) it follows the filter's rules to add scene headings to the outline, list the characters for cue autocomplete, and estimate pages by counting lines as the PDF sets them (61 characters for action, 35 for dialogue, 55 lines to a page); the status bar shows that as pages and minutes.
 
 The main thread runs only the editor and the UI.
@@ -405,6 +409,18 @@ The main thread runs only the editor and the UI.
 - Small DOM helpers in `web/app/ui/`, `<template>` elements for repeated markup, event delegation.
 - i18n: JSON catalogs per language in `web/i18n/`, shared by server pages and JS. English and German first.
 - Accessibility: full keyboard operation, visible focus, ARIA labels on icon-only buttons, `prefers-reduced-motion` respected.
+
+### 6.8 Grammar and spelling
+
+Two checkers underline mistakes as people write Markdown: blue for grammar and style, red for spelling.
+
+- **Harper** ([harper.js](https://writewithharper.com), Apache-2.0) is built in. It checks English in the browser, as WebAssembly in `workers/grammar.js`, so the text never leaves the reader's machine. `deploy/fetch_tools.py --harper DIR` downloads the npm package at a pinned version, checks it against its SHA-256 and copies the four files it needs; both images run it (the proxy image serves them under `/static/<release>/vendor/harper/`, the app image keeps a copy so it knows Harper is there). The checker follows the document's dialect: `en-GB`, `en-AU`, `en-CA` and `en-IN` have their own spellings, other English is American.
+- **LanguageTool** is optional, for other languages. The admin sets `[grammar] languagetool_url` to a LanguageTool server (their own container, or LanguageTool's API with `languagetool_api_key`). The editor sends the text to `POST /api/grammar/check`, which passes it on through a request policy that allows only that host, rate-limits each person (a burst of 30, then one check every two seconds) and answers with the matches in the editor's offsets. The browser never talks to LanguageTool, so the page's CSP keeps `connect-src 'self'`.
+- **Which one**: each person chooses in their settings: automatically (Harper for English and documents without a language, LanguageTool for other languages when there is one), always Harper, always LanguageTool, or off. The document's language is its front matter `lang:`, else the project's. Grammar checking is off in the review view, for read-only documents, for LaTeX, and on connections that ask to save data, since Harper is a 20 MB download the first time.
+- **What isn't checked**: front matter, citations, math, raw LaTeX, comments, attributes and div fences are blanked out with spaces before checking, keeping every offset, and a finding that touches a blanked range is dropped.
+- **Timing**: a check runs 800 ms after typing stops. Underlines move with edits; an edit inside one removes it until the next check, and a result for text that has changed since is dropped.
+- **Fixing**: clicking an underline, or `Ctrl/Cmd+.` at the cursor, opens a card with the explanation and up to five fixes. **Ignore** hides that finding for that word in this document; **Add to dictionary** teaches Harper the word. Both are kept in the browser's `localStorage`.
+- **Security**: compiling WebAssembly needs `'wasm-unsafe-eval'` in the app's `script-src`. It allows WebAssembly only, not `eval`. Harper's files are not precached by the service worker. They are cached the first time the checker loads them.
 
 ## 7. Backend
 
@@ -1224,7 +1240,7 @@ People who review a text often don't write Markdown: supervisors, editors, produ
 | Code execution via documents and layouts (LaTeX, Lua filters, Typst, pandoc bugs) | Every render job is treated as untrusted code, and the job is the isolation boundary. Each job runs as its own Unix user in a `0700` directory, so concurrent jobs can't read, write, signal or trace each other ([§9.2](#92-render-jobs)). The worker runs in its own container: no network, read-only root, tmpfs, `no-new-privileges`, process and memory limits, and only the capabilities needed to switch users. Shared caches are mounted read-only. Each job gets its own `HOME`, `TMPDIR` and `TEXMFVAR`, `resource` limits (CPU, data memory, file size, processes) and a wall-clock timeout. Where bubblewrap can run, each job also gets its own namespaces. LaTeX runs without shell escape and with `openin_any=p` / `openout_any=p`. Lua filters only run from admin-approved layouts (approval by hash), with `LUA_PATH` limited to them, and `defaults.json` is reduced to an allowlist ([§9.3](#93-layouts)). Typst is confined to `--root` |
 | XSS via raw HTML in documents | Previews are served from a separate preview origin through capability URLs, with a CSP that blocks scripts, inside a sandboxed iframe. Published sites live on a separate origin with `script-src 'none'` ([§6.4](#64-preview), [§14.4](#144-publishing)) |
 | Stored XSS via uploaded assets or exported files (HTML, SVG) opened on the app origin | Only PDFs and raster images are served inline. Everything else is sent as an attachment, and every response except PDFs carries `Content-Security-Policy: sandbox`, plus `nosniff` and `Cross-Origin-Resource-Policy: same-origin` ([§7.5](#75-http-api)) |
-| XSS in the app itself | Jinja2 templates with autoescaping always on; DOM built with `textContent` and `<template>`. CSP with a fresh nonce per response: `default-src 'self'; script-src 'self' 'nonce-…'; style-src 'self' 'nonce-…'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; frame-src 'self' <preview origin>; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`. The nonce goes on the inline import map ([§6.1](#61-constraints)), and CodeMirror's injected styles get it via `EditorView.cspNonce`. Style attributes are allowed because editor decorations and Temml's MathML may set them, and style attributes can't run script |
+| XSS in the app itself | Jinja2 templates with autoescaping always on; DOM built with `textContent` and `<template>`. CSP with a fresh nonce per response: `default-src 'self'; script-src 'self' 'nonce-…' 'wasm-unsafe-eval'; style-src 'self' 'nonce-…'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; frame-src 'self' <preview origin>; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`. The nonce goes on the inline import map ([§6.1](#61-constraints)), and CodeMirror's injected styles get it via `EditorView.cspNonce`. Style attributes are allowed because editor decorations and Temml's MathML may set them, and style attributes can't run script |
 | Path traversal, symlinks, zip slip | Normalized relative paths, `O_NOFOLLOW`, resolved paths must stay inside the project, zip imports checked entry by entry |
 | SSRF via user-supplied URLs (WebDAV, Zotero, OIDC discovery) | `netpolicy.py` resolves each host once and refuses private, loopback, link-local and cloud metadata addresses unless an admin allows them (common for a Nextcloud on the LAN). It then connects to the validated IP itself, through a custom `HTTPSConnection` that keeps the original hostname for SNI, certificate verification and the `Host` header. A DNS change between check and connect (DNS rebinding) therefore has no effect. Every redirect goes through the same check, and timeouts and response size limits apply |
 | Account takeover | scrypt, throttling, TOTP, session rotation, `__Host-` cookies, OIDC matched by `(iss, sub)`, no automatic linking by email |

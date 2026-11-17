@@ -15,6 +15,7 @@ A self-hostable editor for structured writing: term papers, theses, articles and
 - **Editing**: CodeMirror with pandoc Markdown (front matter, citations, math, footnotes, attributes, fenced divs), live preview of headings, emphasis, links, task lists, citation chips and MathML, citation autocomplete, heading folding and a word count. A LaTeX mode for `.tex` files.
 - **Saving that survives crashes**: every edit is committed to SQLite (`synchronous=FULL`) before it is acknowledged, then written to plain files in the project folder. On startup, the files are reconstructed from the database. Edits made to those files outside DocWizard are detected and reconciled, with real conflicts kept visible instead of blended.
 - **Versions and history**: named versions plus an automatic history (every autosave of the last hour, then hourly for two days, daily for two months and weekly after that), each with who edited. Compare any of them with the current text word by word, and restore (the current text is kept as a version first).
+- **Grammar and spelling**: [Harper](https://writewithharper.com) checks English as you type, in the browser, so the text stays on your machine; click an underline for the fix. An admin can add a LanguageTool server for other languages. Each person can switch checking off in their settings.
 - **Search**: full-text search across every document you can open, with SQLite FTS5.
 
 ### Working together
@@ -77,6 +78,7 @@ Every setting can come from `docwizard.toml` (see [deploy/docwizard.example.toml
 Some features need configuration:
 
 - **Mail** for password resets and invitations: an `[smtp]` section. Without it, admins copy the links from the admin area and pass them on.
+- **Grammar checking**: `python3 -I deploy/fetch_tools.py --harper web/vendor/harper` installs Harper for English (the container images include it). For other languages, point `[grammar] languagetool_url` at a LanguageTool server.
 - **Login providers**: one `[[oidc]]` block per provider. Register `<public_url>/login/oidc/<id>/callback` as the redirect URI.
 - **The secret key** that encrypts stored credentials is created at `<data_dir>/secret.key` on first start, or read from `security.secret_key_file`. Back it up separately from the data: without it, stored passwords and keys can't be read.
 - **Sync servers in your own network** (such as `nextcloud.lan`) need to be listed in `security.allow_private_outbound` or in the admin settings.

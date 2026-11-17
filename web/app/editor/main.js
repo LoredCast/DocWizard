@@ -16,6 +16,8 @@ import {
 } from "./commands.js";
 import { CommentsPanel } from "./comments.js";
 import { FieldsPanel, LayoutFields, fieldsExtension } from "./fields.js";
+import { GrammarChecker, grammarExtension, showMatches } from "./grammar.js";
+import { documentLanguage } from "../workers/grammar-text.js";
 import { ReferencesPanel } from "./references.js";
 import { SelectionBubble, reviewFrontMatter } from "./review.js";
 import { characterCompletion, openOutline } from "./script.js";
@@ -78,6 +80,17 @@ const socket = new Socket();
 const base = baseExtensions({ kind, readOnly: readOnly || review, reading: review,
                               editable: review ? !window.matchMedia("(pointer: coarse)").matches : !readOnly });
 let bubble = null; // the review view's selection toolbar
+
+// Grammar and spelling (§6.8): only while writing Markdown, and not on a metered connection
+// (Harper is a 20 MB download the first time).
+const grammar = isMarkdown && !readOnly && !review && !navigator.connection?.saveData
+  && snap.grammar && snap.grammar.choice !== "off" && (snap.grammar.harper || snap.grammar.languagetool)
+  ? new GrammarChecker({
+    grammar: snap.grammar,
+    docKey: docId,
+    onError: (message) => toast(t("Grammar checking stopped: {message}", { message })),
+  })
+  : null;
 let library = new Map();
 let references = null; // the references panel, created below
 let fieldsPanel = null; // the fields panel, created below
@@ -103,6 +116,8 @@ const session = new DocSession({
     base, peersField, anchorsField, conflictGutter((id) => openConflicts(id)), markClicks,
     review ? reviewFrontMatter : [],
     layoutFields ? fieldsExtension(layoutFields) : [], isScript ? characterCompletion(() => characters) : [],
+    grammar ? grammarExtension({ ignore: (m, w) => { grammar.ignore(m, w); checkGrammar(); },
+                                 addWord: (w) => { grammar.addWord(w); checkGrammar(); } }) : [],
     session.extension(version)] }),
   onStatus: showStatus,
   onEvent: handleEvent,
@@ -313,9 +328,24 @@ function countWords() {
 }
 countWords();
 
+let grammarTimer = null;
+async function checkGrammar() {
+  if (!grammar) return;
+  const doc = view.state.doc;
+  const text = doc.toString();
+  const matches = await grammar.check(text, documentLanguage(text, snap.project.lang));
+  // A check that an edit overtook is dropped; the edit schedules a new one.
+  if (matches && view.state.doc === doc) showMatches(view, matches);
+}
+if (grammar) grammarTimer = setTimeout(checkGrammar, 1500);
+
 function docChanged() {
   clearTimeout(statsTimer);
   statsTimer = setTimeout(countWords, 400);
+  if (grammar) {
+    clearTimeout(grammarTimer);
+    grammarTimer = setTimeout(checkGrammar, 800);
+  }
   requestPreview();
 }
 

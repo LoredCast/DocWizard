@@ -527,6 +527,16 @@
   #editor .cm-remote-cursor { position: relative; border-left: 2px solid var(--peer); margin-left: -1px; margin-right: -1px; }
   #editor .cm-remote-sel { border-bottom: 2px solid var(--peer); }
   #editor .cm-comment-mark { text-decoration: underline 2px dotted var(--accent); text-underline-offset: 3px; cursor: pointer; }
+  /* Grammar and spelling (§6.8): blue for grammar, red for spelling, like word processors */
+  #editor .cm-grammar { text-decoration: underline wavy var(--accent) 1px; text-underline-offset: 3px; text-decoration-skip-ink: none; cursor: pointer; }
+  #editor .cm-grammar-spelling { text-decoration-color: var(--danger); }
+  #editor .cm-tooltip:has(.grammar-card) { border-radius: var(--radius); box-shadow: 0 2px 8px rgb(0 0 0 / .25); }
+  .grammar-card { max-width: min(24rem, 90vw); padding: 8px 10px; font-family: var(--font); font-size: 0.9rem; line-height: 1.4; }
+  .grammar-card p { margin: 0 0 6px; }
+  .grammar-title { font-weight: 600; font-size: 0.8rem; color: var(--muted); }
+  .grammar-fixes { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+  .grammar-fix { font-weight: 600; }
+  .grammar-actions { display: flex; gap: 12px; font-size: 0.85rem; }
   /* The review view (§14.1): the text as it reads */
   .review-mode #editor .cm-content { font-family: Charter, "Bitstream Charter", "Noto Serif", Georgia, serif; font-size: calc(var(--editor-size) + 1px); line-height: 1.7; max-width: 42rem; margin: 0 auto; padding: 24px 16px 96px; }
   .review-mode #editor .cm-gutters { display: none; }

@@ -6,6 +6,7 @@ Update versions and checksums together.
     python3 -I deploy/fetch_tools.py               # pandoc and Typst into /usr/local/bin, fonts too
     python3 -I deploy/fetch_tools.py --fonts-only  # only the fonts
     python3 -I deploy/fetch_tools.py --fonts DIR   # fonts into DIR instead of the default
+    python3 -I deploy/fetch_tools.py --harper DIR  # only the Harper grammar checker, into DIR
 
 Typst runs with --ignore-system-fonts; the render jobs add the fonts folder below to its font
 path (server/docwizard/render/design.py), so every layout can use these fonts.
@@ -23,6 +24,11 @@ from pathlib import Path
 
 PANDOC = "3.9"
 TYPST = "0.14.2"
+# Harper (writewithharper.com), the grammar checker the editor runs in the browser (ARCHITECTURE.md §6.8).
+# Its files go to web/vendor/harper/, which the app or the proxy serves as static files.
+HARPER = ("3.2.0", "https://registry.npmjs.org/harper.js/-/harper.js-3.2.0.tgz",
+          "99bbcbb4cbd630d2e802fd693a826926b1726ca1ac40ef109127a215d9fa2da6")
+HARPER_FILES = ("dist/index.js", "dist/binary.js", "dist/harper_wasm_bg.wasm", "LICENSE")
 
 TOOLS = {
     "x86_64": [
@@ -133,8 +139,31 @@ def install(name: str, url: str, digest: str, dest: Path) -> None:
     print(f"installed {name} from {url}")
 
 
+def install_harper(dest: Path) -> None:
+    version, url, digest = HARPER
+    dest.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        archive = Path(tmp) / "harper.tgz"
+        _download(url, archive, digest)
+        with tarfile.open(archive) as tar:
+            for member in tar.getmembers():
+                rel = member.name.removeprefix("package/")
+                # The entry points and the module they share (its name carries a content hash).
+                if member.isfile() and (rel in HARPER_FILES or (rel.startswith("dist/BinaryModule-")
+                                                                and rel.endswith(".js"))):
+                    target = dest / Path(rel).name
+                    with tar.extractfile(member) as src, target.open("wb") as out:
+                        shutil.copyfileobj(src, out)
+                    target.chmod(0o644)
+    (dest / "VERSION").write_text(version + "\n")
+    print(f"installed Harper {version} into {dest}")
+
+
 def main() -> None:
     args = sys.argv[1:]
+    if "--harper" in args:
+        install_harper(Path(args[args.index("--harper") + 1]))
+        return
     fonts = FONTS_DIR
     if "--fonts" in args:
         fonts = Path(args[args.index("--fonts") + 1])

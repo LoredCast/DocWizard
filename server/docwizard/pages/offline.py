@@ -27,6 +27,10 @@ def static_assets(app) -> list[str]:
             continue
         if path.suffix in ("", ".md") or path.name in ("MANIFEST", "LICENSE"):
             continue
+        # Harper's 20 MB of WebAssembly is cached when the grammar checker first loads it, not
+        # with every release (§6.8).
+        if rel.parts[:2] == ("vendor", "harper"):
+            continue
         out.append(f"{app.static_prefix}/{rel.as_posix()}")
     return out
 
