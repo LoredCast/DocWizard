@@ -16,7 +16,7 @@ from tests.integration.test_render import HAS_TYPST, _pandoc_ok, _path, rapp, rc
 
 NEW_LAYOUTS = ("oxford", "uni-wien-philosophie", "aps", "turabian", "mla", "apa-student", "mhra", "ieee", "screenplay",
                "drehbuch", "av-script", "manuscript-story", "manuscript-novel", "normseite", "book-manuscript",
-               "goettingen-vcm", "wuerzburg-germanistik")
+               "goettingen-vcm", "wuerzburg-germanistik", "thesis", "acm", "springer-lncs", "elsevier")
 
 
 # -- designs -------------------------------------------------------------------

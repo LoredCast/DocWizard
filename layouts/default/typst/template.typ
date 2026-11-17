@@ -380,7 +380,8 @@ $design()$
   let by-chapter = dw.at("caption-by-chapter")
   show heading: it => {
     let p = dw-level(it.level)
-    if it.level == 1 and dw.at("heading-chapter-break") {
+    // Not for the titles of the contents and lists (not outlined): they sit on their own page or in a block.
+    if it.level == 1 and dw.at("heading-chapter-break") and it.outlined {
       pagebreak(weak: true)
       if dw.at("heading-chapter-drop") != 0pt { v(dw.at("heading-chapter-drop")) }
     }
