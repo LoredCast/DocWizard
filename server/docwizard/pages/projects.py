@@ -104,14 +104,16 @@ def register(app) -> None:
 
         tree, members, shares = await app.db.read(load)
         may_sync = permissions.can(role, "sync", project) and not guest
-        sync = None
+        sync = sync_options = None
         if may_sync:
             from ..api.sync import _public as public_target
+            from ..api.sync import options as sync_kinds
 
             sync = public_target(await app.db.fetchone("SELECT * FROM sync_targets WHERE project_id = ?",
                                                        (project["id"],)))
+            sync_options = sync_kinds(app)
         return app.page(req, "project.html", project=project, role=role, tree=tree, members=members,
-                        may_sync=may_sync, sync=sync,
+                        may_sync=may_sync, sync=sync, sync_options=sync_options,
                         shares=shares, may_share=may_share, link_roles=_link_roles(app, role),
                         new_link=req.query.get("link"), layouts=_layout_choices(app, req, project), doc_url=doc_url,
                         languages=languages.choices(),
@@ -198,63 +200,14 @@ def register(app) -> None:
             if asset is not None:
                 return redirect(f"/api/projects/{pid}/assets/{quote(path)}")
             raise not_found("This document doesn't exist.")
-        client_id = "c_" + secrets.token_hex(16)
-        user, guest = req.user, req.guest
         # The review view (§14.1): the text as it reads, with comments and suggestions. Review links
         # open it; anyone can switch with ?view=review or back with ?view=source.
         view = req.query.get("view")
+        guest = req.guest
         review = doc["kind"] == "markdown" and (view == "review" or (view != "source" and guest is not None
                                                                       and guest.review))
-        now = time.time()
-
-        def work(c):
-            c.execute("INSERT INTO collab_clients(client_id, doc_id, user_id, guest_id, created_at, last_seen_at)"
-                      " VALUES (?, ?, ?, ?, ?, ?)", (client_id, doc["id"], user.id if user else None,
-                                                     guest.id if guest else None, now, now))
-            if user is not None:
-                svc.touch_recent(c, user.id, doc["id"])
-                row = c.execute("SELECT pinned FROM recent WHERE user_id = ? AND doc_id = ?",
-                                (user.id, doc["id"])).fetchone()
-                return bool(row and row["pinned"])
-            return False
-
-        pinned = await app.db.write(work)
-        room = await app.rooms.get(doc["id"])
-        text, version = await room.call(lambda: _text_version(room))
-        tree = await app.db.read(lambda c: svc.tree(c, pid))
-        # People who can be mentioned in comments (§8.9); guests don't get the member list.
-        mentionable = [] if guest is not None else [
-            {"username": m["username"], "name": m["display_name"]}
-            for m in await app.db.read(lambda c: svc.list_members(c, pid)) if m["id"] != user.id]
-        layout = app.layouts.get(project["layout_id"]) if app.layouts.exists(project["layout_id"]) \
-            else app.layouts.get(app.policy("default_layout"))
-        try:
-            options = json.loads(project["layout_options"] or "{}")
-        except ValueError:
-            options = {}
-        snapshot = {
-            "doc": {"id": doc["id"], "path": doc["path"], "kind": doc["kind"], "pinned": pinned},
-            "project": {"id": pid, "name": project["name"], "lang": project["lang"]},
-            "version": version,
-            "text": text,
-            "clientID": client_id,
-            "role": role,
-            "user": {"id": req.actor_key, "name": req.actor_name, "guest": guest is not None},
-            "can": {cap: permissions.can(role, cap, project) and not (guest and cap in GUEST_FORBIDDEN)
-                    for cap in ("edit", "comment", "resolve_comments", "versions", "share", "publish",
-                                "change_layout")},
-            "layout": layout.public(),
-            "layoutOptions": options,
-            "fields": fields.for_layout(layout),
-            "files": [{"path": e["path"], "type": e["type"]} for e in tree],
-            "members": mentionable,
-            "prefs": {"font": user.preferences.get("editor_font", "sans") if user else "sans",
-                      "size": user.preferences.get("editor_size", 17) if user else 17},
-            "previewOrigin": app.cfg.preview_origin,
-            "review": review,
-            # Grammar checking (§6.8): what the server offers and what the person chose.
-            "grammar": {**grammar.available(app), "choice": grammar.choice_of(user.preferences if user else None)},
-        }
+        snapshot = await editor_snapshot(app, req, project, role, doc, review=review)
+        layout = app.layouts.get(snapshot["layout"]["id"])
         return app.page(req, "editor.html", project=project, doc=doc, role=role, snapshot=script_json(snapshot),
                         layout=layout, can=permissions.can, review=review)
 
@@ -264,6 +217,68 @@ def register(app) -> None:
     app.router.add("POST", "/p/{project}", project_form, guest=True)
     app.router.add("POST", "/d/{doc}/pin", pin)
     app.router.add("GET", "/p/{project}/{path:path}", editor, guest=True)
+
+
+async def editor_snapshot(app, req: Request, project, role: str, doc, *, review: bool = False,
+                          recent: bool = True) -> dict:
+    """What the editor needs to open a document: its text and version, a new client ID, the
+    layout and the person's settings. Embedded in the editor page, and kept in the browser for
+    projects that are available offline (§6.5)."""
+    pid = project["id"]
+    client_id = "c_" + secrets.token_hex(16)
+    user, guest = req.user, req.guest
+    now = time.time()
+
+    def work(c):
+        c.execute("INSERT INTO collab_clients(client_id, doc_id, user_id, guest_id, created_at, last_seen_at)"
+                  " VALUES (?, ?, ?, ?, ?, ?)", (client_id, doc["id"], user.id if user else None,
+                                                 guest.id if guest else None, now, now))
+        if user is not None:
+            if recent:
+                svc.touch_recent(c, user.id, doc["id"])
+            row = c.execute("SELECT pinned FROM recent WHERE user_id = ? AND doc_id = ?",
+                            (user.id, doc["id"])).fetchone()
+            return bool(row and row["pinned"])
+        return False
+
+    pinned = await app.db.write(work)
+    room = await app.rooms.get(doc["id"])
+    text, version = await room.call(lambda: _text_version(room))
+    tree = await app.db.read(lambda c: svc.tree(c, pid))
+    # People who can be mentioned in comments (§8.9); guests don't get the member list.
+    mentionable = [] if guest is not None else [
+        {"username": m["username"], "name": m["display_name"]}
+        for m in await app.db.read(lambda c: svc.list_members(c, pid)) if m["id"] != user.id]
+    layout = app.layouts.get(project["layout_id"]) if app.layouts.exists(project["layout_id"]) \
+        else app.layouts.get(app.policy("default_layout"))
+    try:
+        options = json.loads(project["layout_options"] or "{}")
+    except ValueError:
+        options = {}
+    snapshot = {
+        "doc": {"id": doc["id"], "path": doc["path"], "kind": doc["kind"], "pinned": pinned},
+        "project": {"id": pid, "name": project["name"], "lang": project["lang"]},
+        "version": version,
+        "text": text,
+        "clientID": client_id,
+        "role": role,
+        "user": {"id": req.actor_key, "name": req.actor_name, "guest": guest is not None},
+        "can": {cap: permissions.can(role, cap, project) and not (guest and cap in GUEST_FORBIDDEN)
+                for cap in ("edit", "comment", "resolve_comments", "versions", "share", "publish",
+                            "change_layout")},
+        "layout": layout.public(),
+        "layoutOptions": options,
+        "fields": fields.for_layout(layout),
+        "files": [{"path": e["path"], "type": e["type"]} for e in tree],
+        "members": mentionable,
+        "prefs": {"font": user.preferences.get("editor_font", "sans") if user else "sans",
+                  "size": user.preferences.get("editor_size", 17) if user else 17},
+        "previewOrigin": app.cfg.preview_origin,
+        "review": review,
+        # Grammar checking (§6.8): what the server offers and what the person chose.
+        "grammar": {**grammar.available(app), "choice": grammar.choice_of(user.preferences if user else None)},
+    }
+    return snapshot
 
 
 async def _text_version(room):

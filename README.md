@@ -41,7 +41,8 @@ A self-hostable editor for structured writing: term papers, theses, articles and
 
 ### Integrations
 
-- **Sync**: projects sync both ways with Nextcloud, Seafile or any WebDAV server, with the same reconciliation and conflicts as outside edits.
+- **Sync**: projects sync both ways with Nextcloud, Seafile or any WebDAV server, a git repository over HTTPS (DocWizard commits and pulls) or a folder on the server, with the same reconciliation and conflicts as outside edits. A project also downloads as a zip of plain files.
+- **Offline**: a whole project can be kept in the browser and edited without a connection; edits are merged when it's back, even for documents that aren't open. DocWizard installs as an app.
 - **Zotero**: add a personal or group library from zotero.org with an API key, or Zotero desktop's local API. A References panel in the editor searches your libraries and browses their collections; citing an item adds its library to the document's front matter. PDF attachments open from Zotero's file storage or from the WebDAV folder Zotero syncs to, and the page finder searches a PDF for the quoted passage and puts the printed page into the citation's locator.
 - **Login providers**: any OpenID Connect provider, such as Keycloak or a university login, with allowed groups, admin groups and linking to existing accounts.
 - Stored credentials (WebDAV passwords, Zotero keys, authenticator secrets) are encrypted with the server's secret key. `python -m docwizard rotate-key` adds a new key and re-encrypts them. Outbound requests to private networks are refused unless an admin lists the host.
@@ -81,7 +82,8 @@ Some features need configuration:
 - **Grammar checking**: `python3 -I deploy/fetch_tools.py --harper web/vendor/harper` installs Harper for English (the container images include it). For other languages, point `[grammar] languagetool_url` at a LanguageTool server.
 - **Login providers**: one `[[oidc]]` block per provider. Register `<public_url>/login/oidc/<id>/callback` as the redirect URI.
 - **The secret key** that encrypts stored credentials is created at `<data_dir>/secret.key` on first start, or read from `security.secret_key_file`. Back it up separately from the data: without it, stored passwords and keys can't be read.
-- **Sync servers in your own network** (such as `nextcloud.lan`) need to be listed in `security.allow_private_outbound` or in the admin settings.
+- **Sync servers in your own network** (such as `nextcloud.lan` or `git.lan`) need to be listed in `security.allow_private_outbound` or in the admin settings.
+- **Folder sync**: list the folders projects may use in `[sync] folder_roots`, for example one that Syncthing also shares. Git sync needs `git` on the `PATH`.
 
 ## Deploy
 
