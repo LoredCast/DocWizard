@@ -22,6 +22,7 @@ A self-hostable editor for structured writing: term papers, theses, articles and
 - **Collaboration**: several tabs or people edit the same document (OT with a central authority, compatible with `@codemirror/collab`), with live cursors, selections and a list of who is here. The protocol is tested against injected failures.
 - **Sharing**: project roles (owner, editor, commenter, viewer), share links with a role and an expiry, and guests who join through a link without an account (admins decide whether guests are allowed and their highest role).
 - **Comments**: threads anchored to text that stay in place while people edit, with replies and resolving. Recent documents and pins on the home page.
+- **Suggestions**: select text and suggest new wording; the editor shows it struck through with the new text beside it, and editors accept it (it becomes an edit) or reject it. Commenters can suggest too, which makes review links useful without edit rights.
 - **Mentions and notifications**: `@username` in a comment notifies that member; replies notify everyone who wrote in the thread. Notifications appear on the home page and in the editor, and unread ones are mailed (mentions and replies, only mentions, or never, per person).
 - **Offline**: a service worker keeps the app and the documents this browser has stored available offline. Edits made offline are kept in IndexedDB and come back as a merge, with overlapping changes shown as conflicts in their own panel, never blended.
 

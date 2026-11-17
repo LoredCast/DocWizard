@@ -993,5 +993,20 @@
  "Only when someone mentions me": "Nur, wenn mich jemand erwähnt",
  "Comment, or @mention someone": "Kommentieren oder jemanden @erwähnen",
  "1 thread with news for you": "1 Diskussion mit Neuem für dich",
- "{n} threads with news for you": "{n} Diskussionen mit Neuem für dich"
+ "{n} threads with news for you": "{n} Diskussionen mit Neuem für dich",
+ "Suggest": "Vorschlagen",
+ "Suggest new text for the selection (Ctrl+Alt+G)": "Neuen Text für die Auswahl vorschlagen (Strg+Alt+G)",
+ "Select the text you want to change.": "Wähle den Text aus, den du ändern möchtest.",
+ "Replace with": "Ersetzen durch",
+ "Suggested text": "Vorgeschlagener Text",
+ "Why (optional)": "Warum (optional)",
+ "Change the text first.": "Ändere zuerst den Text.",
+ "Accepted": "Angenommen",
+ "Rejected": "Abgelehnt",
+ "{state} by {name}": "{state} von {name}",
+ "Suggested change": "Vorgeschlagene Änderung",
+ "Reject": "Ablehnen",
+ "Accept": "Annehmen",
+ "The passage changed since this suggestion was made. Replace it with the suggestion anyway?": "Die Stelle hat sich geändert, seit der Vorschlag gemacht wurde. Trotzdem durch den Vorschlag ersetzen?",
+ "Replace": "Ersetzen"
 }

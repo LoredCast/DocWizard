@@ -17,6 +17,7 @@
   <div class="toolbar-buttons" id="toolbar-buttons">
     <span class="status menu-status" id="menu-save-state" aria-hidden="true">{{ _("Saved") }}</span>
     <button type="button" id="new-comment" title="{{ _('Comment on the selection (Ctrl+Alt+M)') }}">{{ _("Comment") }}</button>
+    <button type="button" id="new-suggestion" title="{{ _('Suggest new text for the selection (Ctrl+Alt+G)') }}">{{ _("Suggest") }}</button>
     <button type="button" id="open-comments" aria-pressed="false">{{ _("Comments") }}</button>
     {% if doc.kind == "markdown" %}<button type="button" id="open-refs" aria-pressed="false" title="{{ _('References (Ctrl+Alt+R)') }}">{{ _("References") }}</button>{% endif %}
     {% if doc.kind == "markdown" %}<button type="button" id="open-fields" aria-pressed="false" title="{{ _('Front matter fields this layout prints') }}">{{ _("Fields") }}</button>{% endif %}

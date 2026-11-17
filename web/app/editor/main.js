@@ -746,6 +746,8 @@ $("#open-comments").addEventListener("click", () => {
 $("#close-panel").addEventListener("click", () => comments.hide());
 $("#new-comment").hidden = !snap.can.comment;
 $("#new-comment").addEventListener("click", () => comments.compose());
+$("#new-suggestion").hidden = !snap.can.comment;
+$("#new-suggestion").addEventListener("click", () => comments.compose(true));
 
 // -- References (§10.4) ------------------------------------------------------
 const refsPanel = $("#refs-panel");
@@ -997,6 +999,9 @@ document.addEventListener("keydown", (event) => {
   } else if (mod && event.altKey && (event.key === "m" || event.code === "KeyM")) {
     event.preventDefault();
     if (snap.can.comment) comments.compose();
+  } else if (mod && event.altKey && (event.key === "g" || event.code === "KeyG")) {
+    event.preventDefault();
+    if (snap.can.comment) comments.compose(true);
   }
 });
 

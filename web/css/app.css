@@ -276,6 +276,11 @@
   .thread .body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
   .thread .row { margin: 0; }
   .thread textarea { width: 100%; resize: vertical; }
+  .thread blockquote.suggested { white-space: pre-wrap; color: var(--fg); }
+  .thread del, .cm-suggest-del { color: var(--danger); text-decoration: line-through; }
+  .thread ins { color: var(--ok); text-decoration: underline; }
+  .cm-suggest-ins { color: var(--ok); text-decoration: underline; cursor: pointer; }
+  .thread.draft.suggestion label { display: flex; flex-direction: column; gap: 4px; }
   .thread.unread { border-left: 2px solid var(--accent); padding-left: 8px; }
   .has-unread::after { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-left: 6px; vertical-align: middle; }
   .mention-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--edge); background: var(--bg); max-height: 12rem; overflow: auto; }
@@ -507,6 +512,8 @@
   #editor .cm-remote-cursor { position: relative; border-left: 2px solid var(--peer); margin-left: -1px; margin-right: -1px; }
   #editor .cm-remote-sel { border-bottom: 2px solid var(--peer); }
   #editor .cm-comment-mark { text-decoration: underline 2px dotted var(--accent); text-underline-offset: 3px; cursor: pointer; }
+  #editor .cm-comment-mark.cm-suggest-del { text-decoration: line-through 1px; color: var(--danger); }
+  #editor .cm-suggest-ins { margin-left: 2px; }
   #editor .cm-comment-active { background: var(--sel); }
   #editor .cm-conflict-gutter { width: 4px; }
   #editor .cm-conflict-gutter .cm-gutterElement { padding: 0; }

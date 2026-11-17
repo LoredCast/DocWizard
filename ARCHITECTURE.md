@@ -74,7 +74,7 @@ DocWizard should:
 ### Non-goals (v1)
 
 - WYSIWYG or direct manipulation of page layout.
-- Track changes / suggestion mode. Comments and named versions cover review in v1.
+- Track changes. Comments, suggestions ([§8.10](#810-suggestions)), named versions and the history cover review.
 - Peer-to-peer collaboration or long-lived offline branches.
 - More than one app process per instance (no horizontal scaling).
 - Spreadsheets, slides, drawings.
@@ -686,6 +686,14 @@ Each peer gets a stable color index and a display name, which for guests is the 
 - Notifications live in `notifications` (user, document, thread, kind, actor, excerpt, read and mailed times). The home page lists unread ones, `/notifications` all of them, and the editor marks threads with news; opening the comments panel marks the document's notifications read. Open editors get a `notifications` message naming the people concerned, so their counts update at once.
 - Mail: every minute, unread notifications older than two minutes that were never mailed go out, several per message, if mail is set up. People choose mentions and replies, only mentions, or nothing in their settings. Each notification is mailed at most once; after 90 days they are deleted.
 - The editor suggests project members after `@` in comment boxes. Guests don't get the member list.
+
+### 8.10 Suggestions
+
+Track changes stays a non-goal ([§2](#2-goals-and-non-goals)); suggestions cover what reviewers need from it.
+
+- A suggestion is a comment thread whose first comment carries replacement text (`comments.suggestion`) for the anchored passage; its note is optional. Commenters and editors can suggest. The thread keeps the whole passage as written when it was suggested (other threads keep 500 characters).
+- The editor shows open suggestions in place: the passage struck through, the new text right after it. The panel shows a word-level diff.
+- **Accept** (editors) replaces the anchored passage with the suggestion as an ordinary update from the authority (`system:suggestion`, authored by whoever accepted). If the passage no longer reads as when it was suggested, the server answers `409 changed` and the editor asks before replacing it anyway. **Reject** (editors) leaves the text alone. Either way the thread is resolved with `suggestion_state`, and the people in the thread are notified ([§8.9](#89-mentions-and-notifications)).
 
 ## 9. Rendering and layouts
 
@@ -1585,7 +1593,7 @@ The roadmap is a thin vertical slice first. The **first release gate** is: *I ca
 
 1. **Sharing granularity**: v1 shares whole projects. Is per-document sharing needed?
 2. **Typst as a source format**: should the editor support writing Typst directly, not only as output?
-3. **Suggestion mode**: worth building on top of the operation log after v1?
+3. **Suggestion mode**: suggestions exist as threads with replacement text (§8.10). Is a mode where typing itself becomes suggestions worth it?
 4. **LaTeX live preview**: is latexmk fast enough for long documents, or are draft-mode or partial compiles needed?
 5. **OIDC in the UI**: should providers be editable in the admin area (secrets encrypted in the database) instead of only in the config file?
 6. **Zotero desktop helper**: the server reaches Zotero's local API when it runs on the same network. Is a small helper worth it for hosted servers?

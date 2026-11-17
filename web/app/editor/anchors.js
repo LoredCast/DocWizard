@@ -1,7 +1,21 @@
 // Comment and conflict anchors in the editor (ARCHITECTURE.md §8.8, §12.3, §25.8).
 // The server sends ranges at a version; once mapped to the current document they
 // live in this field, which maps them through every transaction.
-import { Decoration, EditorView, GutterMarker, RangeSet, StateEffect, StateField, gutter } from "codemirror";
+import { Decoration, EditorView, GutterMarker, RangeSet, StateEffect, StateField, WidgetType, gutter } from "codemirror";
+
+// The text a suggestion would put in place of its passage, shown right after it (§8.10).
+class SuggestionWidget extends WidgetType {
+  constructor(text, id) { super(); this.text = text; this.id = id; }
+  eq(other) { return other.text === this.text && other.id === this.id; }
+  toDOM() {
+    const span = document.createElement("span");
+    span.className = "cm-suggest-ins";
+    span.dataset.thread = String(this.id);
+    span.textContent = this.text || "\u2009";
+    return span;
+  }
+  ignoreEvent() { return false; }
+}
 
 // {kind: "comment" | "conflict", items: [{id, from, to}]} replaces every anchor of that kind.
 export const setAnchors = StateEffect.define();
@@ -23,7 +37,8 @@ export const anchorsField = StateField.define({
         const len = tr.state.doc.length;
         const items = e.value.items.map((a) => {
           const from = Math.min(Math.max(0, a.from), len);
-          return { id: a.id, from, to: Math.min(Math.max(from, a.to), len) };
+          return { id: a.id, from, to: Math.min(Math.max(from, a.to), len),
+                   ...(typeof a.suggestion === "string" ? { suggestion: a.suggestion } : {}) };
         });
         next = { ...next, [e.value.kind]: items };
       } else if (e.is(setActiveThread)) {
@@ -35,9 +50,16 @@ export const anchorsField = StateField.define({
   provide: (field) => EditorView.decorations.from(field, (value) => {
     const ranges = [];
     for (const a of value.comment) {
-      if (a.to <= a.from) continue;
-      const cls = a.id === value.active ? "cm-comment-mark cm-comment-active" : "cm-comment-mark";
-      ranges.push(Decoration.mark({ class: cls, attributes: { "data-thread": String(a.id) } }).range(a.from, a.to));
+      const suggesting = typeof a.suggestion === "string";
+      if (a.to <= a.from && !suggesting) continue;
+      let cls = a.id === value.active ? "cm-comment-mark cm-comment-active" : "cm-comment-mark";
+      if (suggesting) cls += " cm-suggest-del";
+      if (a.to > a.from) {
+        ranges.push(Decoration.mark({ class: cls, attributes: { "data-thread": String(a.id) } }).range(a.from, a.to));
+      }
+      if (suggesting) {
+        ranges.push(Decoration.widget({ widget: new SuggestionWidget(a.suggestion, a.id), side: 1 }).range(a.to));
+      }
     }
     for (const a of value.draft) {
       if (a.to > a.from) ranges.push(Decoration.mark({ class: "cm-comment-mark cm-comment-active" }).range(a.from, a.to));
@@ -117,6 +139,6 @@ export class AnchorLoader {
     }
     this.pending = null;
     this.session.view.dispatch({ effects: setAnchors.of({
-      kind: this.kind, items: placed.map((a, i) => ({ id: a.id, from: mapped[i][0], to: mapped[i][1] })) }) });
+      kind: this.kind, items: placed.map((a, i) => ({ ...a, from: mapped[i][0], to: mapped[i][1] })) }) });
   }
 }

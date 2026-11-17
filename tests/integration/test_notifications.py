@@ -108,3 +108,69 @@ async def test_notifications_follow_access(client, app):
     cora_id = (await app.db.fetchone("SELECT id FROM users WHERE username = 'cora'"))["id"]
     await app.db.write(lambda c: svc.remove_member(c, pid, cora_id))
     assert (await cora.get("/api/notifications")).json() == {"unread": 0, "items": []}
+
+
+async def test_suggestions_are_accepted_or_rejected(client, app):
+    """A commenter suggests new text; an editor accepts one and rejects another (§8.10)."""
+    from tests.integration.test_collab import connect
+
+    pid = await new_project(client)
+    snap = await open_editor(client, pid)
+    doc = snap["doc"]["id"]
+    cora = await make_user(app, "cora")
+    await client.post(f"/api/projects/{pid}/members", json={"username": "cora", "role": "commenter"})
+    start = snap["text"].index("Write here.")
+    r = await cora.post(f"/api/documents/{doc}/comments", json={
+        "body": "", "suggestion": "Start writing here.", "from": start, "to": start + 11, "version": snap["version"]})
+    assert r.status == 201, r.text
+    first = r.json()["id"]
+    # Same text, or a suggestion on a reply, is refused.
+    same = await cora.post(f"/api/documents/{doc}/comments", json={
+        "suggestion": "Write here.", "from": start, "to": start + 11, "version": snap["version"]})
+    assert same.status == 409
+    assert (await cora.post(f"/api/documents/{doc}/comments",
+                            json={"body": "x", "suggestion": "y", "threadId": first})).status == 400
+    t = (await client.get(f"/api/documents/{doc}/comments")).json()
+    thread = t["threads"][0]
+    assert thread["suggestion"] == "Start writing here." and thread["quote"] == "Write here."
+    assert t["canAccept"] and thread["suggestionState"] is None
+    # The commenter can't accept her own suggestion.
+    assert (await cora.post(f"/api/documents/{doc}/comments/{first}/suggestion",
+                            json={"decision": "accept"})).status == 403
+
+    ws = await connect(app, client, snap)
+    r = await client.post(f"/api/documents/{doc}/comments/{first}/suggestion", json={"decision": "accept"})
+    assert r.status == 200, r.text
+    up = await ws.recv_until("updates")
+    assert up["updates"][0]["clientID"] == "system:suggestion"
+    room = app.rooms.loaded(doc)
+    assert "Start writing here." in room.text() and "\nWrite here." not in room.text()
+    thread = (await client.get(f"/api/documents/{doc}/comments")).json()["threads"][0]
+    assert thread["resolved"] and thread["suggestionState"] == "accepted" and thread["resolvedBy"] == "Jane Doe"
+    # Cora hears about the decision.
+    item = (await cora.get("/api/notifications")).json()["items"][0]
+    assert item["kind"] == "suggestion" and item["excerpt"].startswith("Accepted:")
+    assert (await client.post(f"/api/documents/{doc}/comments/{first}/suggestion",
+                              json={"decision": "reject"})).status == 409
+
+    # A second suggestion; the passage changes before anyone decides.
+    text = room.text()
+    pos = text.index("Start writing")
+    r = await cora.post(f"/api/documents/{doc}/comments", json={
+        "suggestion": "Begin", "from": pos, "to": pos + 5, "version": room.version})
+    second = r.json()["id"]
+    from docwizard.collab.changeset import ChangeSet, u16len
+    from tests.integration.test_collab import insert_at_end  # noqa: F401
+
+    n = u16len(text)
+    await ws.send({"t": "push", "doc": doc, "version": room.version, "updates": [
+        {"clientID": snap["clientID"], "changes": ChangeSet.of([(pos, pos + 5, "START")], n).to_json()}]})
+    await ws.recv_until("updates")
+    r = await client.post(f"/api/documents/{doc}/comments/{second}/suggestion", json={"decision": "accept"})
+    assert r.status == 409 and r.json()["error"]["code"] == "changed"
+    r = await client.post(f"/api/documents/{doc}/comments/{second}/suggestion", json={"decision": "reject"})
+    assert r.status == 200
+    assert "START writing" in room.text()
+    threads = {t["id"]: t for t in (await client.get(f"/api/documents/{doc}/comments")).json()["threads"]}
+    assert threads[second]["suggestionState"] == "rejected" and threads[second]["resolved"]
+    await ws.close()

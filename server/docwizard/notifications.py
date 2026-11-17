@@ -47,7 +47,7 @@ def record(conn: sqlite3.Connection, *, project_id: str, doc_id: str, comment_id
            actor_user_id: int | None, actor: str, body: str, kind: str = "comment") -> list[int]:
     """Create the notifications for a new comment, reply or suggestion. Returns the users notified."""
     notified: dict[int, str] = {}
-    for name in mentioned(body):
+    for name in (mentioned(body) if kind == "comment" else []):
         row = conn.execute(
             "SELECT u.id FROM users u JOIN project_members m ON m.user_id = u.id AND m.project_id = ?"
             " WHERE u.username = ? COLLATE NOCASE AND u.active = 1", (project_id, name)).fetchone()
