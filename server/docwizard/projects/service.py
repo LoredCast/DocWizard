@@ -16,61 +16,6 @@ from dataclasses import dataclass
 from ..collab.changeset import ChangeSet
 from . import files
 
-STARTER = """---
-title: "Untitled"
-author: "{author}"
-date: {date}
-lang: en-US
-bibliography: references.json
----
-
-# Introduction
-
-Write here. Cite sources like this [@doe2020, p. 4], and add them to
-`references.json` or a `.bib` file in this project.
-
-# References
-"""
-
-STARTER_DE = """---
-title: "Ohne Titel"
-author: "{author}"
-date: {date}
-lang: de-DE
-bibliography: references.json
----
-
-# Einleitung
-
-Schreib hier. Quellen zitierst du so [@doe2020, S. 4]; trag sie in
-`references.json` oder eine `.bib`-Datei in diesem Projekt ein.
-
-# Literatur
-"""
-
-
-def starter(lang: str, author: str, date: str, fields: list[str] | tuple = ()) -> str:
-    """The first paper of a new project, in the interface language. *fields* are front matter
-    lines for what the layout prints besides title, author and date (render/fields.py)."""
-    text = (STARTER_DE if lang == "de" else STARTER).format(author=author, date=date)
-    if fields:
-        line = f"date: {date}\n"
-        text = text.replace(line, line + "".join(f"{f}\n" for f in fields), 1)
-    return text
-
-STARTER_REFS = """[
-  {
-    "id": "doe2020",
-    "type": "book",
-    "title": "An Example Book",
-    "author": [{"family": "Doe", "given": "Jane"}],
-    "issued": {"date-parts": [[2020]]},
-    "publisher": "Example Press",
-    "publisher-place": "Berlin"
-  }
-]
-"""
-
 
 def new_id(prefix: str) -> str:
     return f"{prefix}_{secrets.token_hex(8)}"

@@ -3,6 +3,7 @@
   "name": "Thesis",
   "version": "1.0.0",
   "extends": "default",
+  "starter": "thesis",
   "description": "A bachelor's, master's or doctoral thesis: A4, 12 pt, 1.5 line spacing, 3 cm binding margin, title page with university, degree and supervisor, declaration, abstract, table of contents with lists of figures and tables, chapters on new pages, roman page numbers for the front matter.",
   "design": {
     "text.size": 12,

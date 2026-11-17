@@ -83,12 +83,12 @@ def register(app) -> None:
         if not app.layouts.exists(layout):
             layout = app.policy("default_layout")
         try:
-            pid, main = await create_project_with_starter(app, req.user, form.get("name", ""), layout,
-                                                          form.get("starter", "1") == "1", app.lang_of(req))
+            pid, main, main_path = await create_project_with_starter(
+                app, req.user, form.get("name", ""), layout, form.get("starter", "1") == "1", app.lang_of(req))
         except ValueError as exc:
             return redirect("/?error=" + quote(str(exc)))
         if main:
-            return redirect(doc_url(pid, "paper.md"))
+            return redirect(doc_url(pid, main_path))
         return redirect(f"/p/{pid}")
 
     async def project_page(req: Request) -> Response:

@@ -3,6 +3,7 @@
   "name": "Book manuscript (Chicago)",
   "version": "1.0.0",
   "extends": "default",
+  "starter": "book",
   "description": "A nonfiction book manuscript for the University of Chicago Press: US Letter, one-inch margins, 12 pt Tinos, double-spaced, ragged right; headings at 18, 16 and 14 pt bold as the Press suggests, left-indented extracts, chapters on new pages, figures and tables numbered by chapter, Chicago notes and bibliography.",
   "design": {
     "page.paper": "us-letter",

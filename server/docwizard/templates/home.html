@@ -70,7 +70,7 @@
         {% for lay in layouts %}<option value="{{ lay.id }}" {% if lay.id == default_layout %}selected{% endif %}>{{ lay.name }}</option>{% endfor %}
       </select>
     </label>
-    <label class="choice"><input type="checkbox" name="starter" value="1" checked> {{ _("Start with a paper and a references file") }}</label>
+    <label class="choice"><input type="checkbox" name="starter" value="1" checked> {{ _("Start with sample files for the layout") }}</label>
     <div class="buttons">
       <button type="button" data-close-dialog>{{ _("Cancel") }}</button>
       <button type="submit" class="primary">{{ _("Create") }}</button>
