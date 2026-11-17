@@ -1028,5 +1028,6 @@
  "about {pages} pages · {minutes} min": "etwa {pages} Seiten · {minutes} Min.",
  "{n} scenes. Estimated at 55 lines a page; the PDF has the exact count.": "{n} Szenen. Geschätzt mit 55 Zeilen pro Seite; das PDF hat die genaue Zahl.",
  "Fountain screenplay": "Fountain-Drehbuch",
- "Fountain screenplays (.fountain) become Markdown documents; pick the Screenplay or Drehbuch layout for them.": "Fountain-Drehbücher (.fountain) werden zu Markdown-Dokumenten; wählen Sie dafür das Layout Screenplay oder Drehbuch."
+ "Fountain screenplays (.fountain) become Markdown documents; pick the Screenplay or Drehbuch layout for them.": "Fountain-Drehbücher (.fountain) werden zu Markdown-Dokumenten; wählen Sie dafür das Layout Screenplay oder Drehbuch.",
+ "E-book (EPUB)": "E-Book (EPUB)"
 }

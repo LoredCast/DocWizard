@@ -26,6 +26,7 @@ OUTPUTS = {
     "pdf-latex": "document.pdf",
     "docx": "document.docx",
     "odt": "document.odt",
+    "epub": "document.epub",
     "md-resolved": "document.md",
     "md-gfm": "document.md",
     "md-commonmark": "document.md",
@@ -269,6 +270,12 @@ def pandoc_steps(layout: Layout, layout_dir: Path, target: str, inputs: list[str
         engine = spec.get("engine") if spec.get("engine") in LATEX_ENGINES else "lualatex"
         return [{"tool": "pandoc", "args": [*args, "-o", tex]},
                 {"tool": "latexmk", "args": [f"-{engine}", *LATEXMK, tex], "log": "latex"}], copies
+    if target == "epub":
+        # E-books use the layout's HTML styles (§9.5); readers set the page themselves.
+        args = [*common, "--to", "epub3", "--mathml", "--split-level", "1"]
+        for css in layout.targets.get("html", {}).get("css", []):
+            args += ["--css", f"{L}/{css}"]
+        return [{"tool": "pandoc", "args": [*args, "-o", out]}], copies
     if target in ("docx", "odt"):
         args = [*common, "--to", target]
         ref = spec.get("reference")

@@ -867,7 +867,8 @@ link-citations: true
 | `md-resolved` | pandoc → `markdown` with `--citeproc` | Citations rendered as text, bibliography appended |
 | `md-gfm`, `md-commonmark` | pandoc → `gfm` or `commonmark_x` | For other tools |
 | `tex-source`, `typ-source` | pandoc intermediate files | For hand-off or further editing |
-| `epub` | pandoc | Later |
+| `epub` | pandoc → `epub3` with the layout's HTML CSS, `--mathml`, one file per chapter | E-books and reading on tablets; page breaks become CSS breaks |
+| `fountain` | in the app (`projects/fountain.py`) | Script layouts only; for other screenwriting apps |
 
 ### 9.6 Engine settings
 
