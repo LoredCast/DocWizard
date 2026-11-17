@@ -619,28 +619,74 @@ $("#options-form").addEventListener("submit", async (event) => {
   }
 });
 
-// -- Versions -------------------------------------------------------------
+// -- Versions and history (§8.5) ---------------------------------------------
 const versionsDialog = $("#versions-dialog");
 const fmt = new Intl.DateTimeFormat(document.documentElement.lang || undefined, { dateStyle: "medium", timeStyle: "short" });
+const parseDate = (iso) => new Date(iso.endsWith("Z") ? iso : `${iso}Z`);
+const versionsList = $("#versions-list");
+const compareView = $("#versions-compare");
+
+function versionRow(v, title, detail) {
+  return el("li", { class: "row" },
+    el("span", { class: "spacer" }, el("strong", {}, title), " ", el("span", { class: "muted" }, detail)),
+    el("button", { type: "button", onclick: () => compareVersion(v, title) }, t("Compare")),
+    readOnly ? null : el("button", { type: "button", onclick: () => restoreVersion(v, title) }, t("Restore")));
+}
+
 async function loadVersions() {
-  const list = $("#versions-list");
-  list.replaceChildren(el("li", { class: "muted" }, t("Loading…")));
+  compareView.hidden = true;
+  versionsList.hidden = false;
+  $("#version-form").hidden = readOnly;
+  versionsList.replaceChildren(el("li", { class: "muted" }, t("Loading…")));
   try {
-    const { versions } = await api("GET", `/api/documents/${docId}/versions`);
-    list.replaceChildren(...versions.map((v) => el("li", { class: "row" },
-      el("span", { class: "spacer" }, el("strong", {}, v.label), " ",
-        el("span", { class: "muted" }, `${fmt.format(new Date(v.created_at))}${v.author ? ` · ${v.author}` : ""}`)),
-      readOnly ? null : el("button", { type: "button", onclick: () => restoreVersion(v) }, t("Restore")))));
-    if (!versions.length) list.append(el("li", { class: "muted" }, t("No named versions yet.")));
+    const { versions, history = [] } = await api("GET", `/api/documents/${docId}/versions`);
+    const items = [el("li", { class: "list-head" }, t("Named versions"))];
+    items.push(...versions.map((v) => versionRow(v, v.label,
+      `${fmt.format(parseDate(v.created_at))}${v.author ? ` · ${v.author}` : ""}`)));
+    if (!versions.length) items.push(el("li", { class: "muted" }, t("No named versions yet.")));
+    items.push(el("li", { class: "list-head" }, t("History")));
+    items.push(...history.map((v, i) => versionRow(v, i === 0 ? t("Latest autosave") : fmt.format(parseDate(v.created_at)),
+      v.authors.length ? t("Edited by {names}", { names: v.authors.join(", ") }) : "")));
+    if (!history.length) items.push(el("li", { class: "muted" }, t("The history starts with the next edits.")));
+    versionsList.replaceChildren(...items);
   } catch (err) {
-    list.replaceChildren(el("li", { class: "error" }, err.message));
+    versionsList.replaceChildren(el("li", { class: "error" }, err.message));
   }
 }
-async function restoreVersion(v) {
-  if (!await confirmDialog(t("Restore “{label}”? The current text is kept as a version first.", { label: v.label }), t("Restore"))) return;
+
+async function compareVersion(v, title) {
+  versionsList.hidden = true;
+  $("#version-form").hidden = true;
+  compareView.hidden = false;
+  const body = el("div", { class: "diff", role: "region", "aria-label": t("Changes") }, el("p", { class: "muted" }, t("Loading…")));
+  compareView.replaceChildren(
+    el("p", {}, t("Changes from “{title}” to the current text", { title })),
+    el("p", { class: "muted", id: "diff-stats" }),
+    body,
+    el("div", { class: "buttons" },
+      el("button", { type: "button", onclick: loadVersions }, t("Back")),
+      readOnly ? null : el("button", { type: "button", onclick: () => restoreVersion(v, title) }, t("Restore this version"))));
+  try {
+    const diff = await api("GET", `/api/documents/${docId}/versions/${v.id}/compare`);
+    $("#diff-stats").textContent = diff.added || diff.removed
+      ? t("{added} words added, {removed} removed since then", { added: diff.added, removed: diff.removed })
+      : t("No changes since then.");
+    body.replaceChildren(...diff.segments.map((s) => {
+      if (s.op === "skip") return el("span", { class: "diff-skip" }, s.lines === 1 ? t("… 1 unchanged line …") : t("… {n} unchanged lines …", { n: s.lines }));
+      if (s.op === "ins") return el("ins", {}, s.text);
+      if (s.op === "del") return el("del", {}, s.text);
+      return el("span", {}, s.text);
+    }));
+  } catch (err) {
+    body.replaceChildren(el("p", { class: "error" }, err.message));
+  }
+}
+
+async function restoreVersion(v, title) {
+  if (!await confirmDialog(t("Restore “{label}”? The current text is kept as a version first.", { label: title }), t("Restore"))) return;
   try {
     await api("POST", `/api/documents/${docId}/versions/${v.id}/restore`);
-    toast(t("Restored “{label}”.", { label: v.label }));
+    toast(t("Restored “{label}”.", { label: title }));
     loadVersions();
   } catch (err) {
     toast(err.message, { error: true });
@@ -650,7 +696,6 @@ $("#open-versions").addEventListener("click", () => {
   versionsDialog.showModal();
   loadVersions();
 });
-if (readOnly) $("#version-form").hidden = true;
 $("#version-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const label = event.target.elements.label.value.trim();

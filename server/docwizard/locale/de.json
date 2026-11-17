@@ -962,5 +962,20 @@
  "Sources not cited": "Nicht zitierte Quellen",
  "Sources to list in the bibliography without citing them. @* lists every source.": "Quellen, die ins Literaturverzeichnis sollen, ohne zitiert zu werden. @* nimmt alle Quellen auf.",
  "At the top of the first page": "Oben auf der ersten Seite",
- "Above the title": "Über dem Titel"
+ "Above the title": "Über dem Titel",
+ "Compare": "Vergleichen",
+ "Back": "Zurück",
+ "History": "Verlauf",
+ "Changes": "Änderungen",
+ "Named versions": "Benannte Versionen",
+ "Latest autosave": "Letzte automatische Sicherung",
+ "Edited by {names}": "Bearbeitet von {names}",
+ "The history starts with the next edits.": "Der Verlauf beginnt mit den nächsten Änderungen.",
+ "Changes from “{title}” to the current text": "Änderungen von „{title}“ bis zum aktuellen Text",
+ "Restore this version": "Diese Version wiederherstellen",
+ "{added} words added, {removed} removed since then": "Seitdem {added} Wörter hinzugefügt, {removed} entfernt",
+ "No changes since then.": "Seitdem keine Änderungen.",
+ "… 1 unchanged line …": "… 1 unveränderte Zeile …",
+ "… {n} unchanged lines …": "… {n} unveränderte Zeilen …",
+ "DocWizard keeps the history of this document: every autosave of the last hour, then one per hour for two days, one per day for two months and one per week after that. Name a version to keep it exactly.": "DocWizard bewahrt den Verlauf dieses Dokuments auf: jede automatische Sicherung der letzten Stunde, dann eine pro Stunde für zwei Tage, eine pro Tag für zwei Monate und danach eine pro Woche. Benenne eine Version, um sie genau so zu behalten."
 }

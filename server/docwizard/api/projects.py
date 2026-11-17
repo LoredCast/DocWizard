@@ -8,7 +8,7 @@ import datetime as dt
 from ..auth import permissions
 from ..http.request import HTTPError, Request, bad_request, not_found
 from ..http.response import Response, json_response, user_content
-from ..projects import files
+from ..projects import files, history
 from ..projects import service as svc
 from ..render import fields, languages
 
@@ -293,7 +293,11 @@ def register(app) -> None:
 
     async def list_versions(req: Request) -> Response:
         doc, _, _ = await document_access(app, req, req.param("id"), "read")
-        return json_response({"versions": await app.db.read(lambda c: svc.list_versions(c, doc["id"]))})
+        def load(c):
+            return svc.list_versions(c, doc["id"]), history.list_history(c, doc["id"])
+
+        named, automatic = await app.db.read(load)
+        return json_response({"versions": named, "history": automatic})
 
     async def create_version(req: Request) -> Response:
         doc, _, _ = await document_access(app, req, req.param("id"), "versions")
@@ -332,6 +336,26 @@ def register(app) -> None:
             raise not_found("No such version.")
         return json_response(dict(row))
 
+    async def compare_version(req: Request) -> Response:
+        """A version compared with the current text, or with another version (?with=<id>) (§8.5)."""
+        doc, _, _ = await document_access(app, req, req.param("id"), "read")
+        snap_id = req.param("v")
+        row = await app.db.fetchone("SELECT text FROM doc_snapshots WHERE id = ? AND doc_id = ?",
+                                    (int(snap_id) if snap_id.isdigit() else -1, doc["id"]))
+        if row is None:
+            raise not_found("No such version.")
+        other = req.query.get("with", "current")
+        if other == "current":
+            room = await app.rooms.get(doc["id"])
+            newer = await room.call(lambda: _text(room))
+        else:
+            o = await app.db.fetchone("SELECT text FROM doc_snapshots WHERE id = ? AND doc_id = ?",
+                                      (int(other) if other.isdigit() else -1, doc["id"]))
+            if o is None:
+                raise not_found("No such version.")
+            newer = o["text"]
+        return json_response(await asyncio.to_thread(history.compare, row["text"], newer))
+
     r.add("GET", "/api/projects", list_projects)
     r.add("POST", "/api/projects", create_project)
     r.add("GET", "/api/projects/{id}", get_project, guest=True)
@@ -350,7 +374,12 @@ def register(app) -> None:
     r.add("GET", "/api/documents/{id}/versions", list_versions, guest=True)
     r.add("POST", "/api/documents/{id}/versions", create_version, guest=True)
     r.add("GET", "/api/documents/{id}/versions/{v}", version_text, guest=True)
+    r.add("GET", "/api/documents/{id}/versions/{v}/compare", compare_version, guest=True)
     r.add("POST", "/api/documents/{id}/versions/{v}/restore", restore_version, guest=True)
+
+
+async def _text(room) -> str:
+    return room.text()
 
 
 def _json(value):

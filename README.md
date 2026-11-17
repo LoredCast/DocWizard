@@ -14,7 +14,7 @@ A self-hostable editor for structured writing: term papers, theses, articles and
 
 - **Editing**: CodeMirror with pandoc Markdown (front matter, citations, math, footnotes, attributes, fenced divs), live preview of headings, emphasis, links, task lists, citation chips and MathML, citation autocomplete, heading folding and a word count. A LaTeX mode for `.tex` files.
 - **Saving that survives crashes**: every edit is committed to SQLite (`synchronous=FULL`) before it is acknowledged, then written to plain files in the project folder. On startup, the files are reconstructed from the database. Edits made to those files outside DocWizard are detected and reconciled, with real conflicts kept visible instead of blended.
-- **Versions**: named versions, and restore (the current text is kept as a version first).
+- **Versions and history**: named versions plus an automatic history (every autosave of the last hour, then hourly for two days, daily for two months and weekly after that), each with who edited. Compare any of them with the current text word by word, and restore (the current text is kept as a version first).
 - **Search**: full-text search across every document you can open, with SQLite FTS5.
 
 ### Working together

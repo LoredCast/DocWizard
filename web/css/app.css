@@ -284,6 +284,12 @@
   .conflicts li.active { border-left: 2px solid var(--danger); padding-left: 8px; }
   .danger-text { color: var(--danger) !important; }
   @media (max-width: 900px) { .compare { grid-template-columns: 1fr; } }
+  .versions-list { max-height: 50vh; overflow: auto; }
+  .versions-list .list-head { font-weight: 600; padding-top: 12px; }
+  .diff { white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.6 var(--mono); border: 1px solid var(--line); padding: 8px; max-height: 55vh; overflow: auto; }
+  .diff ins { text-decoration: none; color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
+  .diff del { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
+  .diff-skip { display: block; color: var(--muted); font-family: var(--font); margin: 4px 0; }
   pre.alt { white-space: pre-wrap; font: 13px/1.5 var(--mono); border: 1px solid var(--line); padding: 8px; margin: 4px 0; }
   /* Layouts: gallery and editor (§9.3) */
   .layout-list li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; padding: 12px 0; }

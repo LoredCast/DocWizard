@@ -168,14 +168,16 @@
     </div>
   </form>
 </dialog>
-<dialog id="versions-dialog" aria-labelledby="versions-title">
+<dialog id="versions-dialog" class="wide" aria-labelledby="versions-title">
   <div class="form">
     <h2 id="versions-title">{{ _("Versions") }}</h2>
+    <p class="muted">{{ _("DocWizard keeps the history of this document: every autosave of the last hour, then one per hour for two days, one per day for two months and one per week after that. Name a version to keep it exactly.") }}</p>
     <form class="row" id="version-form">
       <input name="label" placeholder="{{ _('Name this version') }}" required aria-label="{{ _('Version name') }}">
       <button type="submit">{{ _("Save version") }}</button>
     </form>
-    <ul class="plain" id="versions-list"></ul>
+    <ul class="plain versions-list" id="versions-list"></ul>
+    <div id="versions-compare" hidden></div>
     <div class="buttons"><button type="button" data-close-dialog>{{ _("Close") }}</button></div>
   </div>
 </dialog>

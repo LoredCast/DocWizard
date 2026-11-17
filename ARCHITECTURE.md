@@ -653,6 +653,7 @@ sequenceDiagram
 - Every accepted update is appended to `doc_ops` before it is broadcast.
 - A snapshot goes into `doc_snapshots` every 500 operations or after 60 s idle.
 - Operations older than the newest snapshot are kept for 7 days (configurable) so reconnecting clients can catch up, then pruned.
+- **History.** Older automatic snapshots are not dropped but thinned by age (`projects/history.py`): every snapshot of the last hour, one per hour for two days, one per day for 60 days, one per week after that. The snapshot kept for a period is its last one. Each automatic snapshot records who edited since the one before (`authors`, display names from the operation log), and a kept snapshot inherits the authors of the ones dropped before it. The Versions dialog lists named versions and this history; any of them can be compared with the current text (a word-level diff with unchanged lines collapsed, `GET /api/documents/{id}/versions/{v}/compare`) and restored.
 - Rooms are unloaded from memory after 10 minutes without connections. The snapshot and operations in SQLite remain authoritative ([§11.2](#112-canonical-state)).
 
 ### 8.6 Reconnect and offline

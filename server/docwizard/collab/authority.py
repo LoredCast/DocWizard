@@ -26,7 +26,7 @@ from typing import Any
 
 from ..auth import permissions
 from ..logs import fields
-from ..projects import files
+from ..projects import files, history
 from ..projects import service as svc
 from .changeset import ChangeSet, InvalidChange, from_diff
 from .merge import reconcile
@@ -517,13 +517,18 @@ class Room:
         retention = self.rooms.cfg.collab.op_retention_days * 86400
 
         def work(c):
-            c.execute("INSERT INTO doc_snapshots(doc_id, version, text, label, created_by) VALUES (?, ?, ?, ?, ?)",
-                      (self.doc_id, version, text, label, user_id))
+            authors = None
+            if label is None:
+                # Who edited since the previous automatic snapshot, for the history (§8.5).
+                prev = c.execute("SELECT max(version) FROM doc_snapshots WHERE doc_id = ? AND label IS NULL",
+                                 (self.doc_id,)).fetchone()[0]
+                authors = json.dumps(history.authors_since(c, self.doc_id, prev or 0, version))
+            c.execute("INSERT INTO doc_snapshots(doc_id, version, text, label, created_by, authors)"
+                      " VALUES (?, ?, ?, ?, ?, ?)", (self.doc_id, version, text, label, user_id, authors))
             if label is None:
                 c.execute("UPDATE documents SET snapshot_version = ? WHERE id = ?", (version, self.doc_id))
-                # Unlabelled snapshots older than the newest one are no longer needed.
-                c.execute("DELETE FROM doc_snapshots WHERE doc_id = ? AND label IS NULL AND version < ?",
-                          (self.doc_id, version))
+                # Older automatic snapshots are the history: thinned by age, never all dropped.
+                history.thin(c, self.doc_id, time.time())
                 c.execute("DELETE FROM doc_ops WHERE doc_id = ? AND version < ? AND created_at < ?",
                           (self.doc_id, version, time.time() - retention))
 
