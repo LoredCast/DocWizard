@@ -1,5 +1,5 @@
 // The editor page: wires the editor, collaboration, preview, export, layout options and versions.
-import { EditorSelection, EditorState, EditorView, redo, undo } from "codemirror";
+import { Decoration, EditorSelection, EditorState, EditorView, StateEffect, StateField, redo, undo } from "codemirror";
 import { DocSession } from "../collab/peer.js";
 import { PresenceSender, PresenceView, peersField } from "../collab/presence.js";
 import { Socket } from "../collab/socket.js";
@@ -103,6 +103,22 @@ const markClicks = EditorView.domEventHandlers({
     return false;
   },
 });
+// The line a click in the preview jumped to lights up for a moment.
+const flashLine = StateEffect.define();
+const flashField = StateField.define({
+  create: () => Decoration.none,
+  update(set, tr) {
+    let out = set.map(tr.changes);
+    for (const e of tr.effects) {
+      if (e.is(flashLine)) {
+        out = e.value === null ? Decoration.none
+          : Decoration.set([Decoration.line({ class: "cm-jump-flash" }).range(e.value)]);
+      }
+    }
+    return out;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
 // Pasted and dropped images go to figures/ and become figures in the text.
 const images = !readOnly && !review && !offlineRecord && (isMarkdown || kind === "latex") && snap.can.upload !== false
   ? new ImageInserter({ projectId, kind })
@@ -119,7 +135,7 @@ const session = new DocSession({
   socket, docId, clientID: snap.clientID, text: snap.text, version: snap.version,
   makeState: (text, version) => EditorState.create({ doc: text, extensions: [
     base, peersField, anchorsField, conflictGutter((id) => openConflicts(id)), markClicks,
-    review ? reviewFrontMatter : [], images ? images.extension() : [],
+    review ? reviewFrontMatter : [], images ? images.extension() : [], flashField,
     layoutFields ? fieldsExtension(layoutFields) : [], isScript ? characterCompletion(() => characters) : [],
     grammar ? grammarExtension({ ignore: (m, w) => { grammar.ignore(m, w); checkGrammar(); },
                                  addWord: (w) => { grammar.addWord(w); checkGrammar(); } }) : [],
@@ -454,6 +470,9 @@ const html = new HtmlPreview(frame, {
 const pdf = new PdfPreview(pane, {
   onLoad: () => clearPreviewError("pdf"),
   onError: (url) => showPreviewError("pdf", url),
+  onPick: (pick) => findInSource(pick),
+  hint: t("Double-click to show this in the source"),
+  scrollRatio: takeScrollRatio(),
 });
 if (isLatex) {
   for (const radio of document.querySelectorAll('input[name="preview-target"]')) radio.closest("label").hidden = true;
@@ -598,6 +617,61 @@ function cursorMoved() {
   if (id === lastHeading) return;
   lastHeading = id;
   html.scrollTo(id);
+}
+
+// From the PDF preview back to the source (§6.4): double-click (double-tap) a spot. LaTeX answers
+// with SyncTeX; otherwise the server finds the words around the spot in the build's files.
+let picking = 0;
+async function findInSource(pick) {
+  const key = /\/api\/renders\/([0-9a-f]{64})\//.exec(pick.url ?? "")?.[1];
+  if (!key) return;
+  const mine = ++picking;
+  try {
+    const hit = await api("POST", `/api/projects/${projectId}/source-at`, {
+      key, page: pick.page, pages: pick.pages, x: pick.x, y: pick.y, words: pick.words, at: pick.at, doc: docId,
+    });
+    if (mine !== picking) return;
+    if (hit.path !== snap.doc.path) {
+      // The other file's editor opens the same preview at the same place.
+      try { sessionStorage.setItem(`dw.pdfScroll.${projectId}`, String(pdf.scrollRatio())); } catch { /* ignore */ }
+      location.href = `/p/${projectId}/${hit.path.split("/").map(encodeURIComponent).join("/")}#L${hit.line}C${hit.column}`;
+      return;
+    }
+    jumpToLine(hit.line, hit.column);
+  } catch (err) {
+    if (mine !== picking) return;
+    toast(err.status === 404 ? t("This spot couldn't be found in the source.") : err.message, { error: err.status !== 404 });
+  }
+}
+
+function takeScrollRatio() {
+  try {
+    const key = `dw.pdfScroll.${projectId}`;
+    const value = Number(sessionStorage.getItem(key) ?? 0);
+    sessionStorage.removeItem(key);
+    return Number.isFinite(value) ? value : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function jumpToLine(line, column = 0) {
+  const doc = view.state.doc;
+  const target = doc.line(Math.max(1, Math.min(line, doc.lines)));
+  const pos = Math.min(target.from + Math.max(0, column), target.to);
+  if (narrow.matches && split.classList.contains("show-preview")) setMobilePreview(false);
+  view.dispatch({ selection: { anchor: pos }, effects: [EditorView.scrollIntoView(pos, { y: "center" }), flashLine.of(target.from)] });
+  view.focus();
+  setTimeout(() => view.dispatch({ effects: flashLine.of(null) }), 1600);
+}
+
+// Links to a line (#L12, or #L12C4 with a column), from a click in another file's preview.
+{
+  const m = /^#L(\d+)(?:C(\d+))?$/.exec(location.hash);
+  if (m) {
+    history.replaceState(null, "", location.pathname + location.search);
+    requestAnimationFrame(() => jumpToLine(Number(m[1]), Number(m[2] ?? 0)));
+  }
 }
 
 // -- Export ---------------------------------------------------------------

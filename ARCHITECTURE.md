@@ -377,9 +377,13 @@ The line with the cursor always shows raw source. A toggle switches to plain sou
   - The app serves `/_preview/` only when the request's host is the preview origin.
   - Every response, including images and SVG files, carries `Referrer-Policy: no-referrer` and a CSP that blocks scripts and all external loads, so the token can't leak: `default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors <app origin>`.
   - The iframe is `sandbox`ed without `allow-scripts`, `allow-same-origin`, popups or top-level navigation.
-  - Scroll sync is one-way, from editor to preview. When the section under the cursor changes, the editor calls `iframe.contentWindow.location.replace(url + "#" + headingId)`. That is a fragment navigation, so the preview scrolls without reloading and without adding browser history entries. This works across origins: the HTML spec lets a page call `replace()` and set `href` on a cross-origin `Location`, and nothing else. Assigning `iframe.src` instead would add a history entry for every section change. Syncing back from preview to editor would need a script in the preview ([§23](#23-open-questions)).
+  - Scroll sync is one-way, from editor to preview. When the section under the cursor changes, the editor calls `iframe.contentWindow.location.replace(url + "#" + headingId)`. That is a fragment navigation, so the preview scrolls without reloading and without adding browser history entries. This works across origins: the HTML spec lets a page call `replace()` and set `href` on a cross-origin `Location`, and nothing else. Assigning `iframe.src` instead would add a history entry for every section change. Syncing back from the HTML preview would need a script in it ([§23](#23-open-questions)); the PDF preview does it (below).
   - Exact line mapping would need pandoc's `sourcepos` extension, which the `markdown` reader does not support.
-- **PDF preview** uses the browser's built-in viewer in an iframe, reopened at the current page with `#page=N`. Optional PDF.js integration (lazy-loaded) keeps the scroll position across re-renders and adds SyncTeX click-to-source for LaTeX.
+- **PDF preview** uses the vendored PDF.js (`preview/pdf.js`) on every device. All pages are laid out at their final size at once and drawn as they come near the visible part (pages far away are dropped again in long documents); a new render replaces the pages only once the ones in view are drawn, at the same relative scroll position, so the preview doesn't jump or flash while typing.
+- **From the preview to the source**: double-clicking (double-tapping) a spot in the PDF moves the editor's cursor there, opening the right file of a multi-file build (`#L12C4` in the address), and the preview stays where it was. The client sends the page, the point in PDF points from the page's top left and the words around it from the page's text to `POST /api/projects/{id}/source-at` with the render's key.
+  - LaTeX: after a `pdf-latex` render, `render/synctex.py` turns the job's `document.synctex.gz` into `synctex.json` next to the PDF, with project-relative paths (read without following links and within a size limit). The innermost line box under the point, and in it the last glue, kern or math record before the point, gives the file and line.
+  - Everything else (Typst PDFs, and LaTeX made from Markdown, whose SyncTeX points into pandoc's intermediate file): the words around the click are looked up in the build's input files, following each side with a small lookahead so rendered citations, footnote marks and hyphenation don't break the match; equally good matches are ranked by how near they are to where the page lies in the build.
+  - The HTML preview is a sandboxed page on another origin without scripts, so it can't report clicks; jumping back works from the PDF.
 - **Layout options panel** is generated from the layout's variable schema ([§9.3](#93-layouts)).
 
 ### 6.5 Offline and caching
@@ -1863,7 +1867,7 @@ Editor font    [ Sans ▾ ]   Size [ 17 ▾ ]
 - **"Dark paper" toggle (for comfort):**
   - reloads the HTML preview with `?paper=dark`. The preview server then adds a stylesheet that inverts the page (`filter: invert(1) hue-rotate(180deg)`) and re-inverts images. The app page can't style a cross-origin document, and inverting the whole `<iframe>` element would invert images too;
   - never affects exports;
-  - the browser's built-in PDF viewer can't be themed. With the optional PDF.js integration, the same filter applies to its pages.
+  - in the PDF preview (PDF.js), the same filter applies to its pages.
 - **While rendering**, the preview keeps showing the last result, and its header says "Updating…". Errors replace the header text with the first diagnostic, and the old preview stays visible.
 
 ### 25.11 Feedback and states

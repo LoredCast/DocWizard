@@ -7,6 +7,8 @@ import pytest
 from docwizard.projects import service as svc
 from docwizard.projects import starters
 
+from tests.integration.test_render import HAS_TYPST, _pandoc_ok, rapp, rclient, wait_job  # noqa: F401
+
 from .test_layouts import open_editor
 
 
@@ -134,3 +136,18 @@ async def test_pasted_images_never_replace_a_file(app, client):
     # The editor knows whether this person may upload.
     snap = await open_editor(client, pid, "paper.md")
     assert snap["can"]["upload"] is True
+
+
+@pytest.mark.skipif(not _pandoc_ok() or not HAS_TYPST, reason="needs pandoc and typst")
+@pytest.mark.parametrize("layout", ["term-paper", "thesis", "book-manuscript", "manuscript-novel", "manuscript-story",
+                                    "normseite", "screenplay", "drehbuch", "av-script"])
+async def test_every_starter_renders(rapp, rclient, layout):
+    rclient.csrf = (await rclient.get("/api/me")).json()["csrf"]
+    made = (await rclient.post("/api/projects", json={"name": layout, "layout": layout})).json()
+    for target in ("pdf-typst", "html"):
+        r = await rclient.post(f"/api/projects/{made['id']}/export", json={"target": target, "doc": made["mainDocument"]})
+        assert r.status == 202, r.text
+        done = await wait_job(rclient, r.json()["job"])
+        assert done["status"] == "ok", (layout, target, done["diagnostics"])
+        errors = [d for d in done["diagnostics"] if d.get("severity") == "error"]
+        assert not errors, errors
