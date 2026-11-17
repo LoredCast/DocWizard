@@ -221,6 +221,85 @@ async def test_private_layouts_belong_to_their_owner(app, client):
     assert (await client.request("DELETE", f"/api/layouts/{lid}")).status == 400
 
 
+# -- front matter fields (§9.4) --------------------------------------------------
+def _where(layouts, lid):
+    from docwizard.render import fields
+    return {item["key"]: item["where"] for item in fields.shown(layouts.get(lid).design)}
+
+
+def test_layouts_list_the_fields_they_print(tmp_path):
+    from docwizard.render import fields
+
+    layouts = Layouts([REPO_LAYOUTS], tmp_path)
+    for lay in layouts.list():
+        info = fields.for_layout(lay)
+        keys = [item["key"] for item in info["shown"]]
+        assert keys[:2] == ["title", "subtitle"], lay.id
+        assert all(key in info["catalog"] for key in keys + info["general"]), lay.id
+        assert not set(keys) & set(info["general"]), lay.id
+        for item in lay.design["cover.fields"]:
+            if "key" in item:
+                assert item["key"] in keys or item["key"] in ("byline", "place-date"), (lay.id, item)
+
+    turabian = _where(layouts, "turabian")
+    assert list(turabian) == ["title", "subtitle", "author", "course", "instructor", "date"]
+    assert turabian["course"] == [{"at": "cover"}]
+    # Labels the layout prints before a value, and entries made from several fields.
+    wien = _where(layouts, "uni-wien-philosophie")
+    assert wien["student-id"] == [{"at": "cover", "label": "Matrikelnummer:"}]
+    assert wien["place"] == [{"at": "cover", "as": "place-date"}] and "date" in wien
+    assert wien["declaration"] == [{"at": "declaration"}]
+    # The first page's corners, the running header and the page numbers count too.
+    story = _where(layouts, "manuscript-story")
+    assert story["author"] == [{"at": "corner-left"}, {"at": "cover", "as": "byline"},
+                               {"at": "page-number", "as": "surname"}]
+    assert story["word-count"] == [{"at": "corner-right"}] and story["short-title"] == [{"at": "page-number"}]
+    assert "short-title" not in _where(layouts, "turabian")
+    assert {"at": "header"} in _where(layouts, "normseite")["title"]
+    assert "abstract" in _where(layouts, "ieee") and "abstract" not in _where(layouts, "mla")
+    assert fields.for_layout(layouts.get("turabian"))["titlePage"] is True
+    # The editor shows the field texts in the interface language.
+    from docwizard import i18n
+    de = i18n.catalog("de")
+    for entry in fields.describe(designs.complete({}))["catalog"].values():
+        assert entry["label"] in de and entry["help"] in de, entry["key"]
+
+
+def test_fields_follow_a_changed_design():
+    from docwizard.render import fields
+
+    design = designs.complete({"cover.fields": [{"key": "supervisor", "label": "Betreuung:"}, {"key": "byline"}],
+                               "page.header": "author", "cover.abstract": False})
+    shown = {item["key"]: item["where"] for item in fields.shown(design)}
+    assert list(shown) == ["title", "subtitle", "supervisor", "author"]
+    assert shown["author"] == [{"at": "cover", "as": "byline"}, {"at": "header"}]
+    entry = fields.entry("affiliation")
+    assert entry["in"] == "author" and entry["topLevel"] is False and "${}" in entry["snippet"]
+
+
+async def test_editor_and_new_documents_show_the_layout_fields(app, client):
+    client.csrf = (await client.get("/api/me")).json()["csrf"]
+    r = await client.post("/api/projects", json={"name": "Wien", "layout": "uni-wien-philosophie"})
+    assert r.status == 201, r.text
+    pid = r.json()["id"]
+    snap = await open_editor(client, pid)
+    keys = [item["key"] for item in snap["fields"]["shown"]]
+    assert {"course", "instructor", "student-id", "program", "place", "declaration"} <= set(keys)
+    assert snap["fields"]["catalog"]["student-id"]["example"] == 'student-id: "01234567"'
+    assert "lang" in snap["fields"]["general"]
+    # The starter document has a line for each field to fill in, and they render as nothing until then.
+    assert 'course: ""\ninstructor: ""' in snap["text"] and 'student-id: ""' in snap["text"]
+    assert snap["text"].index("date:") < snap["text"].index("paper-type:") < snap["text"].index("lang:")
+    # The default layout adds nothing beyond title, author and date.
+    plain = await open_editor(client, await new_project(client))
+    assert "course:" not in plain["text"] and [i["key"] for i in plain["fields"]["shown"]][:2] == ["title", "subtitle"]
+    # The layout API and the gallery say which fields a layout prints.
+    got = (await client.get("/api/layouts/mla")).json()
+    assert [i["key"] for i in got["fields"]["shown"]] == ["title", "subtitle", "author", "instructor", "course", "date"]
+    gallery = await client.get("/layouts")
+    assert "Front matter fields:" in gallery.text and "<code>student-id</code>" in gallery.text
+
+
 # -- rendering -------------------------------------------------------------------
 @pytest.mark.skipif(not _pandoc_ok(), reason="needs pandoc")
 async def test_new_layouts_render(rapp, rclient):

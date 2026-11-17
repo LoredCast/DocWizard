@@ -15,6 +15,7 @@ import {
   toggleOrderedList, toggleQuote, toggleStrike, toggleTaskList,
 } from "./commands.js";
 import { CommentsPanel } from "./comments.js";
+import { FieldsPanel, LayoutFields, fieldsExtension } from "./fields.js";
 import { ReferencesPanel } from "./references.js";
 import { baseExtensions } from "./setup.js";
 
@@ -68,6 +69,7 @@ const socket = new Socket();
 const base = baseExtensions({ kind, readOnly });
 let library = new Map();
 let references = null; // the references panel, created below
+let fieldsPanel = null; // the fields panel, created below
 // Clicking commented text opens its thread.
 const markClicks = EditorView.domEventHandlers({
   click(event) {
@@ -77,12 +79,18 @@ const markClicks = EditorView.domEventHandlers({
   },
 });
 let layoutOptions = { ...snap.layoutOptions };
+// The front matter fields the layout prints (§9.4): autocomplete and hover help in the
+// front matter, and the Fields panel below.
+const layoutFields = isMarkdown ? new LayoutFields(snap.fields, {
+  layoutName: snap.layout?.name ?? "",
+  titlePage: () => layoutOptions.titlepage ?? snap.fields?.titlePage ?? false,
+}) : null;
 
 const session = new DocSession({
   socket, docId, clientID: snap.clientID, text: snap.text, version: snap.version,
   makeState: (text, version) => EditorState.create({ doc: text, extensions: [
     base, peersField, anchorsField, conflictGutter((id) => openConflicts(id)), markClicks,
-    session.extension(version)] }),
+    layoutFields ? fieldsExtension(layoutFields) : [], session.extension(version)] }),
   onStatus: showStatus,
   onEvent: handleEvent,
   onUpdates: () => { presence.flush(); comments.flush(); conflictLoader.flush(); },
@@ -102,6 +110,7 @@ const view = new EditorView({
     }
     if (trs.some((tr) => tr.selection)) cursorMoved();
     if (trs.some((tr) => tr.selection || tr.docChanged)) references?.cursorMoved();
+    if (trs.some((tr) => tr.docChanged)) fieldsPanel?.docChanged();
   },
 });
 const { text: _text, version: _version, clientID: _clientID, ...meta } = snap;
@@ -662,11 +671,12 @@ const comments = new CommentsPanel({
   onCount: (n) => { $("#open-comments").textContent = n ? t("Comments ({n})", { n }) : t("Comments"); },
 });
 sidePanel.addEventListener("toggle", () => {
-  split.classList.toggle("with-panel", !sidePanel.hidden);
+  split.classList.toggle("with-panel", !sidePanel.hidden || Boolean(references?.open) || Boolean(fieldsPanel?.open));
   $("#open-comments").setAttribute("aria-pressed", String(!sidePanel.hidden));
 });
 $("#open-comments").addEventListener("click", () => {
   if (!comments.open && references?.open) references.hide();
+  if (!comments.open && fieldsPanel?.open) fieldsPanel.hide();
   if (comments.open) comments.hide();
   else comments.show();
 });
@@ -680,7 +690,8 @@ references = isMarkdown && refsPanel ? new ReferencesPanel({
   view, panel: refsPanel, readOnly, canBrowse,
   onToggle: (open) => {
     if (open && comments.open) comments.hide();
-    split.classList.toggle("with-panel", open || comments.open);
+    if (open && fieldsPanel?.open) fieldsPanel.hide();
+    split.classList.toggle("with-panel", open || comments.open || Boolean(fieldsPanel?.open));
     split.classList.toggle("refs-open", open);
     $("#open-refs")?.setAttribute("aria-pressed", String(open));
     formatBar?.querySelector('[data-cmd="refs"]')?.setAttribute("aria-pressed", String(open));
@@ -688,6 +699,22 @@ references = isMarkdown && refsPanel ? new ReferencesPanel({
   onCited: reloadCitationsSoon,
 }) : null;
 $("#open-refs")?.addEventListener("click", () => references?.toggle());
+
+// -- Fields (§9.4) -------------------------------------------------------------
+const fieldsEl = $("#fields-panel");
+fieldsPanel = layoutFields && fieldsEl ? new FieldsPanel({
+  view, panel: fieldsEl, fields: layoutFields, readOnly,
+  hasOptions: Object.keys(snap.layout?.variables ?? {}).length > 0,
+  openOptions: () => $("#open-options").click(),
+  onToggle: (open) => {
+    if (open && comments.open) comments.hide();
+    if (open && references?.open) references.hide();
+    split.classList.toggle("with-panel", open || comments.open || Boolean(references?.open));
+    split.classList.toggle("fields-open", open);
+    $("#open-fields")?.setAttribute("aria-pressed", String(open));
+  },
+}) : null;
+$("#open-fields")?.addEventListener("click", () => fieldsPanel?.toggle());
 
 // -- Conflicts (§12.3) ------------------------------------------------------
 let conflicts = [];

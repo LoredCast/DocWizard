@@ -10,7 +10,7 @@ from ..http.request import HTTPError, Request, bad_request, not_found
 from ..http.response import Response, json_response, user_content
 from ..projects import files
 from ..projects import service as svc
-from ..render import languages
+from ..render import fields, languages
 
 
 # Guests never manage a project or see who else is in it (§14.2).
@@ -64,12 +64,13 @@ async def document_access(app, req: Request, doc_id: str, capability: str):
 async def create_project_with_starter(app, user, name: str, layout: str, starter: bool = True,
                                      lang: str = "en") -> tuple[str, str | None]:
     today = dt.date.today().isoformat()
+    extra = fields.starter_lines(app.layouts.get(layout)) if app.layouts.exists(layout) else []
 
     def work(c):
         pid = svc.create_project(c, user.id, name, layout)
         main = None
         if starter:
-            main = svc.create_document(c, pid, "paper.md", svc.starter(lang, user.display_name, today))
+            main = svc.create_document(c, pid, "paper.md", svc.starter(lang, user.display_name, today, extra))
             svc.create_document(c, pid, "references.json", svc.STARTER_REFS)
         return pid, main
 

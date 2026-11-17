@@ -359,6 +359,7 @@ The line with the cursor always shows raw source. A toggle switches to plain sou
 **Other features**
 
 - Citation autocomplete after `[@` or `@`, fed by the citation worker ([§10.4](#104-editor-support)).
+- Front matter help ([§9.4](#94-document-metadata)): the **Fields** panel lists the fields the project's layout prints, with what each one means, where it appears, an example, and whether the document has it filled in; one click adds a missing field in the layout's order or jumps to it. Inside the front matter, typing a name suggests the fields (the layout's own first) and hovering a key explains it.
 - Outline panel and folding by heading.
 - Word count of body text, excluding front matter, citation keys, code and comments. Footnotes and bibliography are counted separately.
 - Diagnostics from renders (Typst and LaTeX errors) shown in the gutter.
@@ -835,6 +836,7 @@ link-citations: true
 - DocWizard-specific keys (`layout`, `layout-options`) are consumed by the app. Their values reach pandoc as variables.
 - `lang` is the document's main language as a BCP 47 tag, `otherlangs` lists others it uses; passages in another language are marked `[mot]{lang=fr}` or `::: {lang=fr}`. See [§9.8](#98-document-languages).
 - `date` written as `2026-11-13` (or `2026-11`) is formatted for the language and the layout; anything else stays as written.
+- **Which fields a layout prints** follows from its design, not from a list kept by hand (`render/fields.py`): the title and subtitle, the keys in `cover.fields` and the first page's corners, the running header (`page.header`), the label before the page numbers (`page.number-label`, which uses `short-title`) and the declaration page. Title block entries made from other fields map back to them (`byline` is `author`, `place-date` is `place` and `date`). So every layout, built in or made in the layout editor, lists exactly what it prints. A catalog in the same module explains every field DocWizard knows: label, meaning, a snippet to insert and an example. The editor gets both in its snapshot, the layout API returns them, the gallery lists each layout's fields, and a new project's first document starts with an empty line for each field its layout prints beyond title, author and date. Layouts with templates of their own don't read the design, so for them only the general fields (`lang`, `bibliography`, …) are listed.
 
 ### 9.5 Targets
 

@@ -49,9 +49,14 @@ Schreib hier. Quellen zitierst du so [@doe2020, S. 4]; trag sie in
 """
 
 
-def starter(lang: str, author: str, date: str) -> str:
-    """The first paper of a new project, in the interface language."""
-    return (STARTER_DE if lang == "de" else STARTER).format(author=author, date=date)
+def starter(lang: str, author: str, date: str, fields: list[str] | tuple = ()) -> str:
+    """The first paper of a new project, in the interface language. *fields* are front matter
+    lines for what the layout prints besides title, author and date (render/fields.py)."""
+    text = (STARTER_DE if lang == "de" else STARTER).format(author=author, date=date)
+    if fields:
+        line = f"date: {date}\n"
+        text = text.replace(line, line + "".join(f"{f}\n" for f in fields), 1)
+    return text
 
 STARTER_REFS = """[
   {

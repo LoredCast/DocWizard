@@ -19,6 +19,8 @@
       {% if d["cover.page"] %}<span>{{ _("title page") }}</span>{% endif %}
       {% if lay.parent and lay.custom %}<span>{{ _("based on {name}", name=names.get(lay.parent, lay.parent)) }}</span>{% endif %}
     </p>
+    {% set keys = field_keys(lay) %}
+    {% if keys %}<p class="layout-fields muted">{{ _("Front matter fields:") }} {% for key in keys %}<code>{{ key }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
   </div>
   <div class="row">
     <a class="button" href="/layouts/{{ lay.id }}">{{ _("Edit") if can_edit(lay) else _("Open") }}</a>
