@@ -251,7 +251,7 @@ export class CommentsPanel {
     if (t.suggestion !== null) {
       const state = { accepted: tr("Accepted"), rejected: tr("Rejected") }[t.suggestionState];
       node.append(el("p", { class: "muted" }, state ? (t.resolvedBy ? tr("{state} by {name}", { state, name: t.resolvedBy }) : state)
-        : tr("Suggested change")));
+        : tr("Suggested by {name}", { name: t.comments[0]?.author ?? "" })));
       if (!t.suggestionState && !t.orphaned) {
         const decide = el("div", { class: "buttons" });
         if (this.canResolve) {

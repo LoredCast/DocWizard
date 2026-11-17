@@ -24,7 +24,12 @@ for (const form of $$("form[data-upload]")) {
       for (const [i, file] of files.entries()) {
         if (status) status.textContent = t("Uploading {i} of {n}: {name}", { i: i + 1, n: files.length, name: file.name });
         const path = file.name.split("/").map(encodeURIComponent).join("/");
-        await api("PUT", `/api/projects/${project}/assets/${path}`, file, { raw: true });
+        const result = await api("PUT", `/api/projects/${project}/assets/${path}`, file, { raw: true });
+        // One imported Word file opens right away, with its comments and changes (§8.11).
+        if (files.length === 1 && result?.imported) {
+          location.href = `/p/${project}/${result.path.split("/").map(encodeURIComponent).join("/")}`;
+          return;
+        }
       }
       location.reload();
     } catch (err) {

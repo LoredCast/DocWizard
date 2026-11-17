@@ -8,7 +8,7 @@ import datetime as dt
 from ..auth import permissions
 from ..http.request import HTTPError, Request, bad_request, not_found
 from ..http.response import Response, json_response, user_content
-from ..projects import files, fountain, history
+from ..projects import docx_import, files, fountain, history
 from ..projects import service as svc
 from ..render import fields, languages
 
@@ -215,6 +215,8 @@ def register(app) -> None:
         except files.PathError as exc:
             raise bad_request(str(exc)) from None
         data = await req.body(limits.max_upload_bytes)
+        if path.lower().endswith(".docx"):
+            return await import_docx(project, path, data, req)
         if path.lower().endswith(".fountain"):
             # Fountain screenplays become Markdown documents for the script layouts (§9.3).
             try:
@@ -254,6 +256,64 @@ def register(app) -> None:
         except ValueError as exc:
             raise bad_request(str(exc)) from None
         return json_response({"path": path, "type": "asset", "size": len(data)}, 201)
+
+    async def store_asset(project_id: str, path: str, data: bytes) -> None:
+        root = app.rooms.project_dir(project_id)
+
+        def store():
+            digest = files.put_blob(app.cfg.data_dir, data)
+            st = files.atomic_write(root, path, data)
+            return digest, st
+
+        digest, st = await asyncio.to_thread(store)
+        await app.db.write(lambda c: svc.put_asset(c, project_id, path, digest, len(data), st))
+
+    async def import_docx(project, path: str, data: bytes, req: Request) -> Response:
+        """A Word file becomes a Markdown document; its comments become threads and its tracked
+        changes suggestions (§8.11). Images go to a folder next to it."""
+        stem = path[: -len(".docx")]
+        markdown, media = await app.renderer.convert_docx(data)
+        folder = f"{stem}-media"
+        markdown = markdown.replace("../out/media/", folder + "/")
+        text, threads = docx_import.parse(markdown)
+
+        def free_path(c):
+            n = 1
+            while True:
+                candidate = f"{stem}.md" if n == 1 else f"{stem}-{n}.md"
+                if not svc.get_document_by_path(c, project["id"], candidate):
+                    return candidate
+                n += 1
+
+        doc_path = await app.db.read(free_path)
+        try:
+            for rel, blob in media.items():
+                await store_asset(project["id"], files.normalize(f"{folder}/{rel}"), blob)
+            doc_id = await app.db.write(lambda c: svc.create_document(c, project["id"], doc_path, text))
+        except (ValueError, files.PathError) as exc:
+            raise bad_request(str(exc)) from None
+        room = await app.rooms.get(doc_id)
+        await room.call(room.materialize)
+        made = {"comments": 0, "suggestions": 0}
+        for t in threads:
+            a = len(text[:t.start].encode("utf-16-le")) // 2
+            b = a + len(text[t.start:t.end].encode("utf-16-le")) // 2
+
+            def insert(c, frm, to, v, quote, t=t):
+                cid = c.execute(
+                    "INSERT INTO comments(doc_id, author_name, body, quote, anchor_from, anchor_to, anchor_version,"
+                    " suggestion) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (doc_id, f"{t.author} (Word)", t.body, quote if t.suggestion is not None else quote[:500],
+                     frm, to, v, t.suggestion)).lastrowid
+                c.execute("UPDATE comments SET thread_id = id WHERE id = ?", (cid,))
+                for author, body in t.replies:
+                    c.execute("INSERT INTO comments(doc_id, thread_id, author_name, body) VALUES (?, ?, ?, ?)",
+                              (doc_id, cid, f"{author} (Word)", body))
+                return cid
+
+            await room.call(lambda: room.add_thread(room.version, a, b, insert))
+            made["suggestions" if t.suggestion is not None else "comments"] += 1
+        return json_response({"id": doc_id, "type": "document", "path": doc_path, "imported": "docx", **made}, 201)
 
     async def get_asset(req: Request) -> Response:
         project, _ = await project_access(app, req, req.param("id"), "read")

@@ -1003,7 +1003,6 @@
  "Accepted": "Angenommen",
  "Rejected": "Abgelehnt",
  "{state} by {name}": "{state} von {name}",
- "Suggested change": "Vorgeschlagene Änderung",
  "Reject": "Ablehnen",
  "Accept": "Annehmen",
  "The passage changed since this suggestion was made. Replace it with the suggestion anyway?": "Die Stelle hat sich geändert, seit der Vorschlag gemacht wurde. Trotzdem durch den Vorschlag ersetzen?",
@@ -1028,6 +1027,7 @@
  "about {pages} pages · {minutes} min": "etwa {pages} Seiten · {minutes} Min.",
  "{n} scenes. Estimated at 55 lines a page; the PDF has the exact count.": "{n} Szenen. Geschätzt mit 55 Zeilen pro Seite; das PDF hat die genaue Zahl.",
  "Fountain screenplay": "Fountain-Drehbuch",
- "Fountain screenplays (.fountain) become Markdown documents; pick the Screenplay or Drehbuch layout for them.": "Fountain-Drehbücher (.fountain) werden zu Markdown-Dokumenten; wählen Sie dafür das Layout Screenplay oder Drehbuch.",
- "E-book (EPUB)": "E-Book (EPUB)"
+ "E-book (EPUB)": "E-Book (EPUB)",
+ "Word files (.docx) become Markdown documents: their comments become comment threads and tracked changes become suggestions to accept or reject. Fountain screenplays (.fountain) become documents for the Screenplay and Drehbuch layouts.": "Word-Dateien (.docx) werden zu Markdown-Dokumenten: Ihre Kommentare werden zu Kommentar-Threads, nachverfolgte Änderungen zu Vorschlägen, die du annimmst oder ablehnst. Fountain-Drehbücher (.fountain) werden zu Dokumenten für die Layouts Screenplay und Drehbuch.",
+ "Suggested by {name}": "Vorgeschlagen von {name}"
 }

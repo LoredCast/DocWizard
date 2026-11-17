@@ -689,11 +689,18 @@ Each peer gets a stable color index and a display name, which for guests is the 
 
 ### 8.10 Suggestions
 
-Track changes stays a non-goal ([§2](#2-goals-and-non-goals)); suggestions cover what reviewers need from it.
+Track changes stays a non-goal ([§2](#2-goals-and-non-goals)); suggestions cover what reviewers need from it, and Word's tracked changes import as suggestions ([§8.11](#811-word-files-in-and-out)).
 
 - A suggestion is a comment thread whose first comment carries replacement text (`comments.suggestion`) for the anchored passage; its note is optional. Commenters and editors can suggest. The thread keeps the whole passage as written when it was suggested (other threads keep 500 characters).
 - The editor shows open suggestions in place: the passage struck through, the new text right after it. The panel shows a word-level diff.
 - **Accept** (editors) replaces the anchored passage with the suggestion as an ordinary update from the authority (`system:suggestion`, authored by whoever accepted). If the passage no longer reads as when it was suggested, the server answers `409 changed` and the editor asks before replacing it anyway. **Reject** (editors) leaves the text alone. Either way the thread is resolved with `suggestion_state`, and the people in the thread are notified ([§8.9](#89-mentions-and-notifications)).
+
+### 8.11 Word files in and out
+
+Many reviewers and supervisors work in Word, so their comments and tracked changes come in and go back out.
+
+- **Import.** Uploading a `.docx` creates `<name>.md` (or `<name>-2.md`, …) instead of storing the file. The render worker runs `pandoc --from docx --track-changes=all` with `filters/docx_import.lua`, which replaces comment and change spans with markers (private-use characters the Markdown writer leaves alone) and appends their authors, dates and comment text as JSON in a final HTML comment. Images are extracted to `<name>-media/`. `projects/docx_import.py` removes the markers and keeps Word's original wording: each tracked change becomes a suggestion ([§8.10](#810-suggestions)) — a deletion suggests empty text, a deletion followed by an insertion suggests the new text, and an insertion widens to the word before it so the thread has text to sit on. Comments become threads at their range (an empty range widens to a word); Word replies, which pandoc gives as further comments on the same range, join the first one's thread. Authors show as "Name (Word)", without an account. A single imported file opens in the editor.
+- **Export.** A DOCX export of a Markdown document carries its open threads as Word comments: before the job, `_with_comments` inserts pandoc `comment-start`/`comment-end` spans at the current anchors (moved past block syntax at the start of a line; threads in the front matter, in code or across paragraphs are left out). An open suggestion becomes a comment that says what was suggested. If the text changed between the snapshot and reading the anchors, the export goes out without comments rather than misplacing them.
 
 ## 9. Rendering and layouts
 
