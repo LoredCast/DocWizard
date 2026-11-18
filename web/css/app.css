@@ -825,3 +825,28 @@
     .ch-actions { gap: 0 16px; }
   }
 }
+
+@layer components {
+  .format-bar svg.icon { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
+  .print-frame { position: fixed; right: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; border: 0; pointer-events: none; }
+
+  /* Download or print: PDF first, the other formats below, the technical ones folded away. */
+  .export-form { min-width: min(24rem, 100%); }
+  .export-quick { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 16px; }
+  .export-quick button { flex: 1 1 8rem; }
+  .export-formats { border: 0; padding: 0; margin: 0; display: grid; gap: 2px; }
+  .export-formats legend { padding: 0; margin-bottom: 4px; color: var(--muted); font-size: 13px; }
+  .export-tech { margin-top: 6px; }
+  .export-tech summary { color: var(--muted); font-size: 13px; cursor: pointer; padding: 4px 0; }
+  .export-form .export-formats label.choice { display: flex; width: fit-content; }
+  .export-form .export-tech label.choice { margin-left: 14px; }
+  .export-form #export-conflicts:empty, .export-form #export-status:empty { display: none; }
+
+  /* The search panel wraps on phones, with room to tap (its colours: searchTheme in editor/main.js). */
+  #editor .cm-search { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; padding: 6px 8px; font-size: 14px; }
+  #editor .cm-search label { display: inline-flex; gap: 4px; align-items: center; }
+  @media (pointer: coarse) {
+    #editor .cm-search input, #editor .cm-search button { min-height: var(--control); }
+    #editor .cm-search .cm-textfield { flex: 1 1 10rem; font-size: 16px; }
+  }
+}
