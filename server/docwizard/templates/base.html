@@ -15,6 +15,10 @@
 {% if user %}<meta name="dw-user" content="u{{ user.id }}">{% elif guest %}<meta name="dw-user" content="g{{ guest.id }}">{% endif %}
 <title>{% block title %}DocWizard{% endblock %}</title>
 <link rel="icon" href="{{ static }}/favicon.svg" type="image/svg+xml">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="{{ static }}/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <link rel="stylesheet" href="{{ static }}/css/app.css">
 {% if i18n_json %}<script type="application/json" id="i18n">{{ i18n_json|safe }}</script>{% endif %}
 {% block head %}{% endblock %}
@@ -23,6 +27,7 @@
 <header class="toolbar">
   <nav class="crumbs" aria-label="{{ _('Breadcrumb') }}">{% block crumbs %}<a class="wordmark" href="/">DocWizard</a>{% endblock %}</nav>
   <div class="actions">
+    <span class="net-state" id="net-state" role="status" hidden title="{{ _('Changes are kept in this browser and sent when the connection is back.') }}">{{ _("Offline") }}</span>
     {% block actions %}{% endblock %}
     {% if user %}
     <details class="menu account-menu">

@@ -392,7 +392,13 @@ The line with the cursor always shows raw source. A toggle switches to plain sou
   - `recent`: a mirror of the user's recent documents, so `/` can render instantly and offline
   - `citations`: cached CSL-JSON per source, with ETag
   - `layouts`: layout metadata for the options panel
+  - `projects`: `{projectId, name, savedAt, count}` for projects kept **available offline** as a whole
 - Unconfirmed edits survive reloads and offline periods and are sent on reconnect ([§8.6](#86-reconnect-and-offline)).
+- **Whole projects offline.** "Available offline" on the project page fetches an editor snapshot of every document (`POST /api/projects/{id}/offline`, only those whose version changed since the browser's copies) and keeps them with `kept: <projectId>`, which pruning skips. Every signed-in page refreshes kept projects at most every 5 minutes while online, so a train or plane trip starts from recent text. Offline, `/p/<project>` lists that project's documents from IndexedDB, and each opens in the editor shell, also documents never opened in this browser.
+- **The outbox.** Documents with waiting edits are sent as soon as any signed-in page is online, not only when the document is opened again: `POST /api/documents/{id}/merge` reconciles them like the socket's `merge` ([§8.6](#86-reconnect-and-offline)), idempotently by a merge id stored before sending. An open editor holds the Web Lock `dw-doc:<id>` for its document, and the outbox skips documents whose lock is taken, so no copy is written by two tabs. The page then says how many documents were sent and how many passages need a look.
+- **Back online.** The offline shells reload when the `online` event fires, and also check the server every 10 s, since the event isn't reliable. A copy whose client ID expired while offline reloads into the real editor page, which merges it.
+- **Installable.** `/manifest.webmanifest` lets browsers install DocWizard as an app with its own window; without a connection it starts with the offline shells.
+- **Never locked in.** `GET /api/projects/{id}/archive` downloads the project as a zip of plain files, with the current text of every document.
 
 ### 6.6 Web workers
 
@@ -1043,7 +1049,7 @@ The master key is backed up separately, not next to the data it encrypts. Restor
 
 ### 12.1 Model
 
-- A sync target connects one project folder to one remote folder over WebDAV. Sync is two-way and polling-based.
+- A sync target connects one project folder to one remote folder over WebDAV, to a folder on the server ([§12.6](#126-folders-on-the-server)) or to a branch of a git repository ([§12.7](#127-git-repositories)). Sync is two-way and polling-based.
 - Supported servers:
   - Nextcloud and ownCloud;
   - Seafile, through its WebDAV server SeafDAV, which an admin must enable;
@@ -1114,6 +1120,25 @@ Result:  The result is negative.     + conflict "inconclusive" (Nextcloud), unre
 - Default poll interval is 60 s per target, plus a sync 5 s after local changes settle. Maximum file size and file count per target are configurable.
 - Errors are recorded on the target and shown in the project. After repeated failures, polling backs off exponentially, up to 1 hour.
 - Requests use `urllib` in threads. XML responses are parsed with `defusedxml`.
+
+### 12.6 Folders on the server
+
+A target can also be a folder on the server itself, for setups where Syncthing, Dropbox, a mounted share or someone with shell access works with the same files.
+
+- An admin lists the folders projects may use in `sync.folder_roots`. Empty (the default) turns folder sync off. A project picks a folder inside one of them; two projects can't use the same folder, or folders inside each other.
+- The folder behaves like a WebDAV server to the engine ([§12.2](#122-algorithm)): a file's ETag is its modification time and size, `PUT` and `DELETE` check it like `If-Match`, and renames are `rename(2)`. Everything else, including conflicts and conflict copies, is the same.
+- Paths follow the file rules ([§11.3](#113-file-rules)): symlinks are never followed, writes are atomic, hidden files and folders are left alone, and folders that a delete leaves empty are removed.
+
+### 12.7 Git repositories
+
+A target can be one branch of a git repository over HTTPS (GitHub, GitLab, Gitea, Forgejo and others), authenticated with a username and an access token.
+
+- DocWizard keeps a clone in `<data_dir>/sync-git/<target id>/`. Each run fetches the branch (`--depth 1`) and resets the clone to it, syncs the project with the clone's files exactly like a folder ([§12.6](#126-folders-on-the-server)), then commits what it wrote as one commit and pushes. When nothing changed, there is no commit. The message lists the files ("Update paper.md and 2 other files"), and commits are by the person who connected the repository.
+- If someone pushed in the meantime, the commit is rebased onto theirs and pushed again, up to three times. If the push still fails, the run fails and the sync bases go back to what they were, so the next run compares both sides with the last state that really reached the repository. Nothing is lost either way, because DocWizard's own text is authoritative ([§11.2](#112-canonical-state)).
+- An empty repository or a missing branch is created by the first push. The clone is a cache: if it's missing, the next run clones again and starts without bases, so files on both sides are compared by content.
+- Files whose names start with a dot (`.github/`, `.gitignore`) stay in git and aren't imported. Files that the repository's `.gitignore` excludes stay in the clone but are never committed.
+- **Isolation:** git runs with no system or user configuration, no hooks, no credential helpers, no terminal prompts, `core.symlinks=false` and no submodules. Only `https://` remotes are accepted, plus `http://` for hosts an admin allowed. The host is checked with the outbound request policy ([§15](#15-security-model)) and git is pinned to the address that passed (`http.curloptResolve`), so a DNS change can't redirect it; redirects aren't followed. The token reaches git as an HTTP header through its environment (`GIT_CONFIG_*`), never on its command line, and is masked in errors.
+- Git sync needs the `git` command on the app's path (the container image includes it). `sync.git = false` turns it off.
 
 ## 13. Accounts, authentication and authorization
 
@@ -1335,6 +1360,7 @@ The exact package list and versions are recorded in `web/vendor/MANIFEST`.
 | Typst (pinned) | Fast PDF | Worker | Apache-2.0 |
 | TeX Live (optional image variant) | LaTeX documents and layouts | Worker | various free licenses |
 | bubblewrap (optional) | Per-job sandbox outside Docker | Worker host | LGPL-2.0-or-later |
+| git (optional) | Git sync ([§12.7](#127-git-repositories)) | App | GPL-2.0-only |
 | Reverse proxy (Caddy recommended) | TLS, static files, publish origin | Proxy | Apache-2.0 (Caddy) |
 
 **Data**: CSL styles (CC BY-SA 3.0), shipped with attribution.
@@ -1564,6 +1590,8 @@ default_quota_bytes = 2_000_000_000
 [sync]
 default_poll_seconds = 60
 max_files_per_target = 5000
+folder_roots = []            # folders on this server that projects may sync with (§12.6)
+git = true                    # git repositories over HTTPS (§12.7)
 
 [collab]
 op_retention_days = 7

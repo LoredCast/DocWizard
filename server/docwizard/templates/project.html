@@ -3,6 +3,15 @@
 {% block crumbs %}<a class="wordmark" href="/">DocWizard</a><span>/</span><span>{{ project.name }}</span>{% endblock %}
 {% block content %}
 {% if error %}<p class="error pad" role="alert">{{ _(error) }}</p>{% endif %}
+<div class="project-bar" data-project="{{ project.id }}" data-project-name="{{ project.name }}">
+  {% if not guest %}
+  <label class="switch" title="{{ _('Keep every document of this project in this browser, to read and edit without a connection.') }}">
+    <input type="checkbox" data-keep-offline> <span>{{ _("Available offline") }}</span>
+  </label>
+  <span class="muted" data-offline-state role="status"></span>
+  {% endif %}
+  <a class="spacer-left" href="/api/projects/{{ project.id }}/archive" download>{{ _("Download as .zip") }}</a>
+</div>
 <div class="table-wrap">
 <table>
   <thead><tr><th>{{ _("Name") }} ▴</th><th class="opt">{{ _("Kind") }}</th><th>{{ _("Modified") }}</th><th class="num">{{ _("Size") }}</th></tr></thead>
@@ -142,7 +151,11 @@
 <section id="sync" data-project="{{ project.id }}">
   <h2>{{ _("Sync") }}</h2>
   {% if sync %}
-  <p>{{ _("Synced with {service}:", service=sync.label) }} <strong>{{ sync.remotePath or "/" }}</strong> <span class="muted">{{ _("at {url}", url=sync.url) }}{% if sync.username %} {{ _("as {user}", user=sync.username) }}{% endif %}</span></p>
+  <p>
+    {%- if sync.kind == "git" %}{{ _("Synced with the git repository") }} <strong>{{ sync.url }}</strong> <span class="muted">{{ _("branch {branch}", branch=sync.branch) }}{% if sync.author %}, {{ _("commits by {name}", name=sync.author) }}{% endif %}</span>
+    {%- elif sync.kind == "folder" %}{{ _("Synced with the folder") }} <strong>{{ sync.url }}/{{ sync.remotePath }}</strong>
+    {%- else %}{{ _("Synced with {service}:", service=sync.label) }} <strong>{{ sync.remotePath or "/" }}</strong> <span class="muted">{{ _("at {url}", url=sync.url) }}{% if sync.username %} {{ _("as {user}", user=sync.username) }}{% endif %}</span>
+    {%- endif %}</p>
   <p class="{{ "error" if sync.status == "error" else "muted" }}" id="sync-state" role="status">
     {%- if sync.status == "error" %}{{ _("Last sync failed: {error}", error=sync.lastError) }}
     {%- elif sync.status == "paused" %}{{ _("Paused.") }}
@@ -154,29 +167,47 @@
     <button type="button" class="danger" data-sync-action="disconnect">{{ _("Disconnect") }}</button>
   </div>
   {% else %}
-  <p class="muted">{{ _("Keep this project in a folder on Nextcloud, Seafile or any WebDAV server. Changes go both ways; overlapping edits become conflicts to review.") }}</p>
-  <details class="disclosure">
-    <summary>Nextcloud</summary>
-    <form class="form" id="sync-nextcloud">
-      <label>{{ _("Nextcloud address") }} <input name="server" required placeholder="https://cloud.example.org" inputmode="url"></label>
-      <label>{{ _("Folder") }} <input name="remotePath" placeholder="Documents/{{ project.name }}" value="DocWizard/{{ project.name }}"></label>
-      <div><button type="submit" class="primary">{{ _("Connect to Nextcloud") }}</button></div>
-      <p class="muted" id="sync-flow" role="status" hidden></p>
-    </form>
-  </details>
-  <details class="disclosure">
-    <summary>{{ _("Seafile or another WebDAV server") }}</summary>
-    <form class="form" id="sync-webdav">
-      <label>{{ _("Server") }}
-        <select name="kind"><option value="webdav">WebDAV</option><option value="seafile">Seafile (SeafDAV)</option></select>
-      </label>
-      <label>{{ _("WebDAV address") }} <input name="url" required placeholder="https://dav.example.org/files" inputmode="url"></label>
-      <label>{{ _("Folder") }} <input name="remotePath" value="DocWizard/{{ project.name }}"></label>
-      <label>{{ _("Username") }} <input name="username" autocomplete="off"></label>
-      <label>{{ _("Password or token") }} <input name="password" type="password" autocomplete="new-password"></label>
-      <div><button type="submit">{{ _("Connect") }}</button></div>
-    </form>
-  </details>
+  <p class="muted">{{ _("Keep this project's files as plain files somewhere else as well. Changes go both ways; overlapping edits become conflicts to review.") }}</p>
+  <label class="field">{{ _("Sync with") }}
+    <select id="sync-kind">
+      <option value="nextcloud">Nextcloud</option>
+      {% if sync_options.git %}<option value="git">{{ _("Git repository (GitHub, GitLab, Gitea…)") }}</option>{% endif %}
+      {% if sync_options.folder %}<option value="folder">{{ _("Folder on this server") }}</option>{% endif %}
+      <option value="seafile">Seafile (SeafDAV)</option>
+      <option value="webdav">{{ _("Another WebDAV server") }}</option>
+    </select>
+  </label>
+  <form class="form" id="sync-nextcloud" data-sync-kind="nextcloud">
+    <label>{{ _("Nextcloud address") }} <input name="server" required placeholder="https://cloud.example.org" inputmode="url"></label>
+    <label>{{ _("Folder") }} <input name="remotePath" placeholder="Documents/{{ project.name }}" value="DocWizard/{{ project.name }}"></label>
+    <div><button type="submit" class="primary">{{ _("Connect to Nextcloud") }}</button></div>
+    <p class="muted" id="sync-flow" role="status" hidden></p>
+  </form>
+  {% if sync_options.git %}
+  <form class="form" id="sync-git" data-sync-kind="git" hidden>
+    <label>{{ _("Repository address") }} <input name="url" required placeholder="https://github.com/you/thesis.git" inputmode="url" autocomplete="off"></label>
+    <label>{{ _("Branch") }} <input name="branch" value="main" autocomplete="off"></label>
+    <label>{{ _("Username") }} <input name="username" autocomplete="off"></label>
+    <label>{{ _("Access token") }} <input name="password" type="password" autocomplete="new-password"></label>
+    <p class="muted">{{ _("A token with read and write access to this repository only, such as a fine-grained GitHub token with Contents: read and write. DocWizard commits its changes and pulls everyone else's.") }}</p>
+    <div><button type="submit" class="primary">{{ _("Connect repository") }}</button></div>
+  </form>
+  {% endif %}
+  {% if sync_options.folder %}
+  <form class="form" id="sync-folder" data-sync-kind="folder" hidden>
+    <label>{{ _("Folder") }} <input name="folder" required value="{{ project.name }}" autocomplete="off"></label>
+    <p class="muted">{{ _("Inside {root}, which programs like Syncthing or Dropbox can keep in step with your computer.", root=sync_options.folderRoots|join(", ")) }}</p>
+    <div><button type="submit" class="primary">{{ _("Connect folder") }}</button></div>
+  </form>
+  {% endif %}
+  <form class="form" id="sync-webdav" data-sync-kind="webdav seafile" hidden>
+    <input type="hidden" name="kind" value="webdav">
+    <label>{{ _("WebDAV address") }} <input name="url" required placeholder="https://dav.example.org/files" inputmode="url"></label>
+    <label>{{ _("Folder") }} <input name="remotePath" value="DocWizard/{{ project.name }}"></label>
+    <label>{{ _("Username") }} <input name="username" autocomplete="off"></label>
+    <label>{{ _("Password or token") }} <input name="password" type="password" autocomplete="new-password"></label>
+    <div><button type="submit" class="primary">{{ _("Connect") }}</button></div>
+  </form>
   {% endif %}
 </section>
 {% endif %}

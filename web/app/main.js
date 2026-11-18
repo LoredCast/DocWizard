@@ -43,3 +43,39 @@ for (const form of $$("form[data-upload]")) {
 }
 
 if ($("#sync")) import("./sync.js").then((m) => m.wireSync($("#sync")));
+
+// "Available offline" on the project page: every document of the project is kept in this
+// browser and refreshed whenever a page is open online (§6.5).
+const bar = $(".project-bar");
+const keepBox = bar?.querySelector("[data-keep-offline]");
+if (keepBox) {
+  const state = bar.querySelector("[data-offline-state]");
+  const pid = bar.dataset.project;
+  import("./store/outbox.js").then(async ({ forgetProject, keepProject }) => {
+    const { getKeptProject } = await import("./store/idb.js");
+    const show = (kept) => {
+      keepBox.checked = Boolean(kept);
+      state.textContent = kept?.count === undefined ? ""
+        : kept.count === 1 ? t("1 document in this browser") : t("{n} documents in this browser", { n: kept.count });
+    };
+    show(await getKeptProject(pid));
+    document.addEventListener("dw:outbox", async () => show(await getKeptProject(pid)));
+    keepBox.addEventListener("change", async () => {
+      keepBox.disabled = true;
+      try {
+        if (keepBox.checked) {
+          state.textContent = t("Saving for offline use…");
+          show(await keepProject(pid, bar.dataset.projectName));
+        } else {
+          await forgetProject(pid);
+          show(null);
+        }
+      } catch (err) {
+        show(null);
+        toast(err.message, { error: true });
+      } finally {
+        keepBox.disabled = false;
+      }
+    });
+  });
+}

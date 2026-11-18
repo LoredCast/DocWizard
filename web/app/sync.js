@@ -5,6 +5,18 @@ import { $, api, confirmDialog, t, toast } from "./ui/dom.js";
 export function wireSync(section) {
   const base = `/api/projects/${section.dataset.project}/sync`;
 
+  // One form at a time, for the kind of place chosen.
+  const kind = $("#sync-kind", section);
+  const showKind = () => {
+    for (const form of section.querySelectorAll("form[data-sync-kind]")) {
+      form.hidden = !form.dataset.syncKind.split(" ").includes(kind.value);
+    }
+    const webdav = $("#sync-webdav", section);
+    if (webdav && (kind.value === "webdav" || kind.value === "seafile")) webdav.elements.kind.value = kind.value;
+  };
+  kind?.addEventListener("change", showKind);
+  if (kind) showKind();
+
   section.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-sync-action]");
     if (!button) return;
@@ -53,6 +65,24 @@ export function wireSync(section) {
       toast(err.message, { error: true });
     }
   });
+
+  const connect = (form, body) => async (event) => {
+    event.preventDefault();
+    const button = form.querySelector("button[type=submit]");
+    button.disabled = true;
+    try {
+      await api("PUT", base, body(form.elements));
+      location.reload();
+    } catch (err) {
+      button.disabled = false;
+      toast(err.message, { error: true });
+    }
+  };
+  const git = $("#sync-git", section);
+  git?.addEventListener("submit", connect(git, (f) => ({ kind: "git", url: f.url.value, branch: f.branch.value,
+                                                          username: f.username.value, password: f.password.value })));
+  const folder = $("#sync-folder", section);
+  folder?.addEventListener("submit", connect(folder, (f) => ({ kind: "folder", folder: f.folder.value })));
 
   $("#sync-webdav", section)?.addEventListener("submit", async (event) => {
     event.preventDefault();
