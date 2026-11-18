@@ -22,7 +22,8 @@ import { documentLanguage } from "../workers/grammar-text.js";
 import { ReferencesPanel } from "./references.js";
 import { SelectionBubble, reviewFrontMatter } from "./review.js";
 import { characterCompletion, openOutline } from "./script.js";
-import { baseExtensions } from "./setup.js";
+import { access, accessExtensions, baseExtensions } from "./setup.js";
+import { setSuggestMode, suggestField, suggestMode } from "./suggest-mode.js";
 
 wireCommon();
 
@@ -78,9 +79,19 @@ const store = (key, value) => {
 const socket = new Socket();
 // The review view keeps the text focusable (read-only), so keyboard users can select passages too;
 // on touch screens that would bring up the keyboard, so there it isn't.
+const coarse = window.matchMedia("(pointer: coarse)").matches;
 const base = baseExtensions({ kind, readOnly: readOnly || review, reading: review,
-                              editable: review ? !window.matchMedia("(pointer: coarse)").matches : !readOnly });
+                              editable: review ? !coarse : !readOnly });
 let bubble = null; // the review view's selection toolbar
+
+// Suggest mode (§8.10): typing becomes suggestions instead of changing the text. Anyone who
+// may comment can turn it on; it opens the text to typing for commenters and in the review view.
+const canSuggest = Boolean(snap.can.comment);
+const suggestKey = `dw.suggest.${docId}`;
+const suggest = canSuggest ? suggestMode({
+  submit: sendSuggestion, touch: coarse, onComment: () => comments.compose(),
+  labels: { box: t("Suggestion"), strike: t("Delete"), replace: t("Replace"), comment: t("Comment") },
+}) : null;
 
 // Grammar and spelling (§6.8): only while writing Markdown, and not on a metered connection
 // (Harper is a 20 MB download the first time).
@@ -139,6 +150,7 @@ const session = new DocSession({
     layoutFields ? fieldsExtension(layoutFields) : [], isScript ? characterCompletion(() => characters) : [],
     grammar ? grammarExtension({ ignore: (m, w) => { grammar.ignore(m, w); checkGrammar(); },
                                  addWord: (w) => { grammar.addWord(w); checkGrammar(); } }) : [],
+    suggest ? suggest.extension : [],
     session.extension(version)] }),
   onStatus: showStatus,
   onEvent: handleEvent,
@@ -158,7 +170,10 @@ const view = new EditorView({
       updateFormatBar();
     }
     if (trs.some((tr) => tr.selection)) cursorMoved();
-    if (bubble && trs.some((tr) => tr.selection || tr.docChanged)) bubble.update();
+    if (bubble && trs.some((tr) => tr.selection || tr.docChanged)) {
+      if (suggesting()) bubble.hide(); // suggest mode has its own selection toolbar
+      else bubble.update();
+    }
     if (trs.some((tr) => tr.selection || tr.docChanged)) references?.cursorMoved();
     if (trs.some((tr) => tr.docChanged)) fieldsPanel?.docChanged();
   },
@@ -279,6 +294,7 @@ function handleEvent(msg) {
       presence.replaceAll(msg.version, msg.peers ?? []);
       if (location.hash.startsWith("#comment-")) openLinkedThread();
       else comments.load();
+      if (suggest) suggest.retry(view);
       loadConflicts();
       presenceSender.reset();
       presenceSender.send(true);
@@ -289,6 +305,7 @@ function handleEvent(msg) {
       break;
     case "reset":
       presence.restore();
+      if (suggest) setSuggesting(stored(suggestKey, "off") === "on", { quiet: true });
       if (library.size) view.dispatch({ effects: setLibrary.of(library) });
       docChanged();
       break;
@@ -893,8 +910,63 @@ $("#open-comments").addEventListener("click", () => {
 $("#close-panel").addEventListener("click", () => comments.hide());
 $("#new-comment").hidden = !snap.can.comment;
 $("#new-comment").addEventListener("click", () => comments.compose());
-$("#new-suggestion").hidden = !snap.can.comment;
-$("#new-suggestion").addEventListener("click", () => comments.compose(true));
+$("#new-suggestion").hidden = !canSuggest;
+$("#new-suggestion").addEventListener("click", () => setSuggesting(!suggesting()));
+
+function suggesting() {
+  return Boolean(view.state.field(suggestField, false)?.on);
+}
+
+// Turn suggest mode on or off: the banner says it's on, and the text opens to typing for
+// people who otherwise only read it.
+function setSuggesting(on, { quiet = false } = {}) {
+  if (!suggest) return;
+  store(suggestKey, on ? "on" : "off");
+  const locked = !on && (readOnly || review);
+  view.dispatch({ effects: [setSuggestMode.of(on),
+    access.reconfigure(accessExtensions(locked, on || (review ? !coarse : !readOnly)))] });
+  const button = $("#new-suggestion");
+  button.setAttribute("aria-pressed", String(on));
+  button.title = on ? t("Stop suggesting: type to change the text again (Ctrl+Alt+G)")
+    : t("Suggest changes: what you type becomes suggestions (Ctrl+Alt+G)");
+  $("#suggest-banner").hidden = !on;
+  const reviewBanner = $("#review-banner");
+  if (reviewBanner) reviewBanner.hidden = on; // one banner at a time
+  // The banner takes the formatting bar's place: formatting doesn't apply to suggestions.
+  if (formatBar) formatBar.hidden = on || readOnly || !isMarkdown || review;
+  bubble?.hide();
+  if (on && !quiet) view.focus();
+}
+$("#suggest-off")?.addEventListener("click", () => setSuggesting(false));
+if (suggest) setSuggesting(stored(suggestKey, readOnly && !review ? "on" : "off") === "on", { quiet: true });
+// Send the suggestion being typed before the page goes away.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden" && suggest) suggest.finish(view);
+});
+
+// One suggestion typed in suggest mode, sent as a thread with positions at the synced version.
+async function sendSuggestion(locate) {
+  for (let i = 0; i < 50 && session.unconfirmed() > 0; i++) await new Promise((r) => setTimeout(r, 100));
+  const item = locate();
+  if (!item) return true;
+  const synced = session.toSynced([[item.from, item.to]]);
+  if (!synced) return false;
+  try {
+    await api("POST", `/api/documents/${docId}/comments`,
+              { body: "", from: synced[0][0], to: synced[0][1], version: session.version(), suggestion: item.text });
+  } catch (err) {
+    if (err.code === "unchanged") return true;
+    if (!err.status || err.status >= 500) {
+      toast(t("Your suggestion will be sent once you're back online."));
+      return false;
+    }
+    toast(t("A suggestion couldn't be sent: {message}", { message: err.message }), { error: true });
+    return true;
+  }
+  await comments.load();
+  return true;
+}
+
 if (review) {
   if (snap.can.comment) {
     bubble = new SelectionBubble(view, { onComment: () => comments.compose(), onSuggest: () => comments.compose(true) });
@@ -1155,7 +1227,7 @@ document.addEventListener("keydown", (event) => {
     if (snap.can.comment) comments.compose();
   } else if (mod && event.altKey && (event.key === "g" || event.code === "KeyG")) {
     event.preventDefault();
-    if (snap.can.comment) comments.compose(true);
+    if (canSuggest) setSuggesting(!suggesting());
   } else if (mod && event.altKey && event.code === "KeyO" && isMarkdown) {
     event.preventDefault();
     showOutline();
