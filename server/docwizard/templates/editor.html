@@ -26,6 +26,8 @@
     <button type="button" id="open-versions">{{ _("Versions") }}</button>
     {% if can(role, "share", project) and not guest %}<button type="button" id="open-share">{{ _("Share") }}</button>{% endif %}
     {% if can(role, "publish", project) and not guest %}<button type="button" id="open-publish">{{ _("Publish") }}</button>{% endif %}
+    {% if can(role, "edit", project) %}<button type="button" id="rename-doc">{{ _("Rename") }}</button>
+    <button type="button" id="delete-doc" class="danger">{{ _("Delete") }}</button>{% endif %}
   </div>
 </div>
 {% endblock %}
@@ -83,6 +85,13 @@
   <aside class="pane side-panel refs-panel" id="refs-panel" aria-label="{{ _('References') }}" hidden></aside>
   <aside class="pane side-panel fields-panel" id="fields-panel" aria-label="{{ _('Fields') }}" hidden></aside>
 </div>
+<dialog id="rename-dialog" aria-labelledby="rename-title">
+  <form method="dialog" class="form" id="rename-form">
+    <h2 id="rename-title">{{ _("Rename") }}</h2>
+    <label>{{ _("New name") }} <input name="path" id="rename-path" required value="{{ doc.path }}"></label>
+    <div class="buttons"><button type="submit" value="cancel" formnovalidate>{{ _("Cancel") }}</button><button type="submit" value="save" class="primary">{{ _("Rename") }}</button></div>
+  </form>
+</dialog>
 <dialog id="export-dialog" aria-labelledby="export-title">
   <form method="dialog" class="form" id="export-form">
     <h2 id="export-title">{{ _("Export") }}</h2>

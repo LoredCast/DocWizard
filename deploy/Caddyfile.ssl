@@ -28,11 +28,24 @@
 		reverse_proxy unix//run/docwizard/app.sock
 	}
 
+	# Unlisted publications (/u-...) are never indexed. Public ones follow DOCWIZARD_PUBLIC_ROBOTS:
+	# "all" (default) or "noindex, nofollow"; set [server] index_public_sites to match (§14.4).
+	handle /u-* {
+		root * /srv/publish
+		header {
+			Content-Security-Policy "default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+			X-Content-Type-Options "nosniff"
+			X-Robots-Tag "noindex, nofollow"
+		}
+		file_server
+	}
+
 	handle {
 		root * /srv/publish
 		header {
 			Content-Security-Policy "default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 			X-Content-Type-Options "nosniff"
+			X-Robots-Tag "{$DOCWIZARD_PUBLIC_ROBOTS:all}"
 		}
 		file_server
 	}

@@ -1,0 +1,67 @@
+{% extends "admin_base.html" %}
+{% block admin_title %}{{ _("Publications") }}{% endblock %}
+{% block admin %}
+<h1>{{ _("Publications") }}</h1>
+{% if notice %}<p role="status">{{ _({"unpublish": "Unpublished.", "takedown": "Taken down. Nobody can publish at this address again.", "suspend-owner": "Account suspended and its publications taken down.", "release": "The address can be used again."}.get(notice, "Saved.")) }}</p>{% endif %}
+<form method="get" class="row searchbar">
+  <input type="search" name="q" value="{{ q }}" placeholder="{{ _("Search by address, owner or project") }}" aria-label="{{ _("Search publications") }}">
+  <button type="submit">{{ _("Search") }}</button>
+</form>
+{% if publications %}
+<table class="grid">
+  <thead><tr><th>{{ _("Address") }}</th><th>{{ _("Owner") }}</th><th>{{ _("Document") }}</th><th>{{ _("Updated") }}</th><th><span class="visually-hidden">{{ _("Actions") }}</span></th></tr></thead>
+  <tbody>
+  {% for p in publications %}
+  <tr>
+    <td><a href="{{ p.url }}" rel="noopener noreferrer" target="_blank">{{ p.slug }}</a>{% if p.visibility == "unlisted" %} <span class="badge">{{ _("unlisted") }}</span>{% endif %}{% if p.status == "error" %} <span class="badge">{{ _("error") }}</span>{% endif %}</td>
+    <td>{{ p.owner }}{% if not p.owner_active %} <span class="badge">{{ _("disabled") }}</span>{% endif %}</td>
+    <td>{{ p.project }}<br><span class="muted">{{ p.doc_path }}</span></td>
+    <td>{{ p.updated_at|reltime if p.updated_at else _("never") }}</td>
+    <td>
+      <details class="menu">
+        <summary>{{ _("Moderate") }}</summary>
+        <div class="menu-body">
+          <form method="post" action="/admin/publications" class="form">
+            <input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="q" value="{{ q }}">
+            <input type="hidden" name="id" value="{{ p.id }}">
+            <label>{{ _("Reason (kept in the audit log)") }} <input name="reason" maxlength="500"></label>
+            <div class="buttons">
+              <button type="submit" name="action" value="unpublish">{{ _("Unpublish") }}</button>
+              <button type="submit" name="action" value="takedown" class="danger" data-confirm="{{ _("Take down {slug}? The address stays blocked.", slug=p.slug) }}">{{ _("Take down") }}</button>
+              {% if p.owner_id != user.id and p.owner_active %}
+              <button type="submit" name="action" value="suspend-owner" class="danger" data-confirm="{{ _("Suspend {username} and take down everything they published?", username=p.owner) }}">{{ _("Suspend owner and unpublish all") }}</button>
+              {% endif %}
+            </div>
+          </form>
+        </div>
+      </details>
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">{{ _("Nothing is published.") if not q else _("No publication matches.") }}</p>
+{% endif %}
+{% if blocked %}
+<h2>{{ _("Taken down") }}</h2>
+<table class="grid">
+  <thead><tr><th>{{ _("Address") }}</th><th>{{ _("Reason") }}</th><th>{{ _("When") }}</th><th><span class="visually-hidden">{{ _("Actions") }}</span></th></tr></thead>
+  <tbody>
+  {% for b in blocked %}
+  <tr>
+    <td>{{ b.slug }}</td>
+    <td>{{ b.reason or "" }}{% if b.admin %}<br><span class="muted">{{ b.admin }}</span>{% endif %}</td>
+    <td>{{ b.taken_down_at|reltime }}</td>
+    <td>
+      <form method="post" action="/admin/publications">
+        <input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="slug" value="{{ b.slug }}">
+        <button type="submit" name="action" value="release">{{ _("Allow again") }}</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}
