@@ -8,7 +8,7 @@ import zipfile
 from docwizard.pages.lifecycle import device_label
 from tests.asgi_client import Client
 from tests.integration.test_collab import new_project, open_editor
-from tests.integration.test_sharing import make_user
+from tests.integration.test_sharing import USER_PASSWORD, make_user
 
 FIREFOX = "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
 IPHONE = ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko)"
@@ -38,8 +38,8 @@ def test_device_labels():
 
 async def test_sessions_list_and_revoke(app, client):
     olga = await make_user(app, "olga")
-    phone = await login_from(app, "olga", "a long enough password", IPHONE)
-    laptop = await login_from(app, "olga", "a long enough password", FIREFOX)
+    phone = await login_from(app, "olga", USER_PASSWORD, IPHONE)
+    laptop = await login_from(app, "olga", USER_PASSWORD, FIREFOX)
     page = await laptop.get("/settings")
     assert "Safari on iPhone" in page.text and "Firefox on Linux" in page.text
     assert page.text.count("this device") == 1
@@ -185,10 +185,10 @@ async def test_delete_account(app, client):
                                                           "password": "wrong", "hand_over": "1"})
     assert r.status == 400 and "current password is wrong" in r.text
     r = await olga.post("/settings/delete-account", form={"_csrf": csrf, "confirm_username": "nope",
-                                                          "password": "a long enough password"})
+                                                          "password": USER_PASSWORD})
     assert r.status == 400
     r = await olga.post("/settings/delete-account", form={"_csrf": csrf, "confirm_username": "olga",
-                                                          "password": "a long enough password", "hand_over": "1"})
+                                                          "password": USER_PASSWORD, "hand_over": "1"})
     assert r.status == 303 and r.header("location") == "/login?deleted=1"
     assert (await olga.get("/api/me")).status == 401
     for sql in ("SELECT 1 FROM users WHERE id = ?", "SELECT 1 FROM sessions WHERE user_id = ?",
