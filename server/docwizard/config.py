@@ -32,6 +32,17 @@ class ServerConfig:
     serve_static: bool = True
     source_url: str = "https://github.com/LoredCast/DocWizard"
     release: str = ""
+    # Search engines may index public publications (§14.4). Unlisted ones are never indexed.
+    index_public_sites: bool = True
+
+
+@dataclass
+class LegalConfig:
+    """Links shown in the footer of the login, registration, share and error pages (§13.2)."""
+    terms_url: str = ""
+    privacy_url: str = ""
+    imprint_url: str = ""
+    abuse_email: str = ""
 
 
 @dataclass
@@ -63,11 +74,20 @@ class AccountsConfig:
 class RenderConfig:
     worker_socket: str = ""  # default: <jobs_dir>/worker.sock
     spawn_worker: bool = False  # development: start the worker as a child process
-    concurrency: int = 2
-    timeout_seconds: int = 90
+    concurrency: int = 2  # jobs at once; give the worker the same number (DOCWIZARD_WORKER_CONCURRENCY)
+    timeout_seconds: int = 90  # users.render_timeout_seconds overrides it for the projects someone owns
     memory_mb: int = 1536
     preview_debounce_ms: int = 300
     default_layout: str = "default"
+    # Fairness (§9.2). Slots kept for quick targets (HTML, Typst PDF, Word...), so LaTeX builds can't
+    # take them all; at most concurrency - 1.
+    fast_lane: int = 1
+    user_previews: int = 1  # previews one person renders at once; more wait their turn
+    user_exports: int = 2  # exports one person may have queued or running; more get 429
+    per_user_rpm: int = 0  # renders (cache misses) per person per minute; 0: no limit
+    latex_daily_limit: int = 0  # LaTeX builds per person per day; 0: no limit
+    # LaTeX for projects whose owner has no users.allow_latex setting of their own.
+    allow_latex: bool = True
 
 
 @dataclass
@@ -154,6 +174,7 @@ class Config:
     sync: SyncConfig = field(default_factory=SyncConfig)
     smtp: SMTPConfig = field(default_factory=SMTPConfig)
     grammar: GrammarConfig = field(default_factory=GrammarConfig)
+    legal: LegalConfig = field(default_factory=LegalConfig)
     oidc: list[OIDCProvider] = field(default_factory=list)
 
     # -- derived values -------------------------------------------------
@@ -301,6 +322,12 @@ def load(path: str | os.PathLike | None = None, env: dict[str, str] | None = Non
         raise ValueError("security.captcha_provider needs captcha_site_key and captcha_secret")
     if cfg.accounts.require_email_verification and not cfg.smtp.host:
         raise ValueError("accounts.require_email_verification needs an [smtp] section to send the links")
+    for key in ("terms_url", "privacy_url", "imprint_url"):
+        value = getattr(cfg.legal, key)
+        if value and urlsplit(value).scheme not in ("http", "https"):
+            raise ValueError(f"legal.{key} must be an http or https URL")
+    if cfg.legal.abuse_email and "@" not in cfg.legal.abuse_email:
+        raise ValueError("legal.abuse_email must be an email address")
     if cfg.server.durability not in ("full", "normal"):
         raise ValueError("server.durability must be 'full' or 'normal'")
     if not _is_loopback_url(cfg.server.public_url) and _is_loopback_url(cfg.server.preview_url):

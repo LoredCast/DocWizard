@@ -433,7 +433,7 @@ class App:
 
     def published_file(self, req: Request) -> Response:
         """Published sites on the publish host, for setups without a proxy (§14.4)."""
-        from .render.publish import SITE_CSP
+        from .render.publish import SITE_CSP, robots_tag
 
         rel = req.path.lstrip("/")
         parts = Path(rel).parts
@@ -458,6 +458,9 @@ class App:
         resp.set_header("x-content-type-options", "nosniff")
         resp.set_header("referrer-policy", "no-referrer")
         resp.set_header("cache-control", "public, max-age=60")
+        robots = robots_tag(parts[0], self.cfg.server.index_public_sites)
+        if robots:
+            resp.set_header("x-robots-tag", robots)
         return resp
 
     def error_response(self, req: Request, err: HTTPError) -> Response:
@@ -516,6 +519,7 @@ class App:
             "release": self.cfg.release,
             "theme": theme if theme in ("dark", "light", "system") else "dark",
             "path": req.path,
+            "legal": self.cfg.legal,
         }
         base.update(ctx)
         return self.templates.get_template(name).render(**base)

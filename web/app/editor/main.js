@@ -617,7 +617,8 @@ function showRendered(msg) {
   }
   if (msg.target !== target) return;
   if (!msg.url) {
-    setPreviewState(t("Preview failed"));
+    // "limited": a render limit of the server; the next edit tries again.
+    setPreviewState(msg.status === "limited" ? t("Preview paused") : t("Preview failed"));
     return;
   }
   if ((msg.version ?? 0) < shown[msg.target]) return;

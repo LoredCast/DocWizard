@@ -11,6 +11,7 @@
     <label>{{ _("Password") }} <input name="password" type="password" autocomplete="new-password" required minlength="{{ min_length }}"></label>
     {% include "_captcha.html" %}
     {% if error %}<p class="error" role="alert">{{ _(error) }}</p>{% endif %}
+    {% if legal.terms_url or legal.privacy_url %}<p class="muted">{{ _("By creating an account, you accept the policies linked at the bottom of this page.") }}</p>{% endif %}
     <div class="buttons"><button type="submit" class="primary">{{ _("Create account") }}</button></div>
   </form>
 </section>

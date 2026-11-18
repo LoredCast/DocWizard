@@ -11,6 +11,8 @@ publish_dir = "/var/lib/docwizard-publish"
 jobs_dir = "/var/lib/docwizard-jobs"
 cache_dir = "/var/lib/docwizard-cache"
 serve_static = false                              # the proxy serves /static/
+# index_public_sites = false                      # keep public publications out of search engines; also set
+#                                                 # DOCWIZARD_PUBLIC_ROBOTS="noindex, nofollow" for the proxy
 
 [security]
 # secret_key_file = "/run/secrets/docwizard_key"   # encrypts stored credentials; default: <data_dir>/secret.key
@@ -48,10 +50,24 @@ max_files_per_target = 5000
 
 [render]
 worker_socket = "/var/lib/docwizard-jobs/sock/worker.sock"
-concurrency = 2
-timeout_seconds = 90
+concurrency = 2                                   # give the worker the same: DOCWIZARD_WORKER_CONCURRENCY
+timeout_seconds = 90                              # admins can set another per account
 memory_mb = 1536
 default_layout = "default"
+fast_lane = 1                                     # slots LaTeX can't take, so HTML and Typst previews never wait
+user_previews = 1                                 # previews per person at a time
+user_exports = 2                                  # exports per person queued or running; more get 429
+# For public hosting, also budget what one person can render (0: no limit):
+# per_user_rpm = 20                               # renders per minute (cache hits are free)
+# latex_daily_limit = 50                          # LaTeX builds per day
+# allow_latex = false                             # LaTeX only for accounts an admin allows
+
+# Links in every page's footer, for public hosting (terms, privacy policy, imprint, abuse contact):
+# [legal]
+# terms_url = "https://example.org/terms"
+# privacy_url = "https://example.org/privacy"
+# imprint_url = "https://example.org/imprint"
+# abuse_email = "abuse@example.org"
 
 [limits]
 max_document_bytes = 5000000

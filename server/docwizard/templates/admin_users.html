@@ -3,7 +3,7 @@
 {% block admin %}
 <h1>{{ _("Users") }}</h1>
 {% if error %}<p class="error" role="alert">{{ _(error) }}</p>{% endif %}
-{% if notice %}<p role="status">{{ _({"invited": "Invitation sent.", "reset-sent": "Reset link sent.", "delete": "Account deleted.", "disable": "Account disabled and logged out.", "enable": "Account enabled.", "logout": "Logged out everywhere."}.get(notice, "Saved.")) }}</p>{% endif %}
+{% if notice %}<p role="status">{{ _({"invited": "Invitation sent.", "reset-sent": "Reset link sent.", "delete": "Account deleted.", "disable": "Account disabled and logged out.", "enable": "Account enabled.", "logout": "Logged out everywhere.", "suspend": "Account suspended and its publications taken down."}.get(notice, "Saved.")) }}</p>{% endif %}
 {% if link %}
 <div class="form callout" role="status">
   <p><strong>{{ _("Invitation link for {username}", username=link.username) if link.purpose == "invite" else _("Password reset link for {username}", username=link.username) }}</strong>.{% if link.why %} {{ _("It couldn't be emailed: {reason}", reason=_(link.why)) }}{% endif %} {{ _("Pass it on privately. It works once, for 7 days.") if link.purpose == "invite" else _("Pass it on privately. It works once, for an hour.") }}</p>
@@ -33,6 +33,12 @@
             <input type="hidden" name="action" value="update">
             <label>{{ _("Email") }} <input name="email" type="email" value="{{ u.email or "" }}"></label>
             <label>{{ _("Storage quota in GB (empty: default, 0: no limit)") }} <input name="quota_gb" inputmode="decimal" value="{{ (u.quota_bytes / 1000000000)|round(2) if u.quota_bytes is not none else "" }}"></label>
+            <label>{{ _("LaTeX builds for their projects") }} <select name="allow_latex">
+              <option value=""{% if u.allow_latex is none %} selected{% endif %}>{{ _("Server default ({value})", value=_("allowed") if latex_default else _("not allowed")) }}</option>
+              <option value="1"{% if u.allow_latex == 1 %} selected{% endif %}>{{ _("Allowed") }}</option>
+              <option value="0"{% if u.allow_latex == 0 %} selected{% endif %}>{{ _("Not allowed") }}</option>
+            </select></label>
+            <label>{{ _("Render time limit in seconds (empty: {seconds})", seconds=timeout_default) }} <input name="render_timeout" inputmode="numeric" value="{{ u.render_timeout_seconds or "" }}"></label>
             <div class="buttons"><button type="submit">{{ _("Save") }}</button></div>
           </form>
           <form method="post" action="/admin/users/{{ u.id }}" class="actions-list">
@@ -48,6 +54,7 @@
             <button type="submit" name="action" value="logout">{{ _("Log out everywhere ({count})", count=u.live_sessions) }}</button>
             {% if u.id != user.id %}
             <button type="submit" name="action" value="{{ "enable" if not u.active else "disable" }}">{{ _("Enable account") if not u.active else _("Disable account") }}</button>
+            {% if u.active %}<button type="submit" name="action" value="suspend" class="danger" data-confirm="{{ _("Suspend {username} and take down everything they published?", username=u.username) }}">{{ _("Suspend and unpublish all") }}</button>{% endif %}
             <button type="submit" name="action" value="delete" class="danger" data-confirm="{{ _("Delete {username}? This can't be undone.", username=u.username) }}">{{ _("Delete account") }}</button>
             {% endif %}
           </form>

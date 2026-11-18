@@ -337,6 +337,17 @@ def user_storage_bytes(conn: sqlite3.Connection, user_id: int) -> int:
     return int(row[0] + row[1] + row[2])
 
 
+def total_storage_bytes(conn: sqlite3.Connection) -> int:
+    """What every account's storage adds up to, counted as in user_storage_bytes (for /metrics)."""
+    row = conn.execute(
+        "SELECT (SELECT COALESCE(SUM(size), 0) FROM assets),"
+        " (SELECT COALESCE(SUM(COALESCE(json_extract(d.materialized_stat, '$[2]'),"
+        "   (SELECT length(CAST(s.text AS BLOB)) FROM doc_snapshots s WHERE s.doc_id = d.id"
+        "    ORDER BY s.version DESC, s.id DESC LIMIT 1), 0)), 0) FROM documents d),"
+        " (SELECT COALESCE(SUM(length(CAST(text AS BLOB))), 0) FROM doc_snapshots WHERE label IS NOT NULL)").fetchone()
+    return int(row[0] + row[1] + row[2])
+
+
 def project_owner(conn: sqlite3.Connection, project_id: str) -> int | None:
     row = conn.execute("SELECT owner_id FROM projects WHERE id = ?", (project_id,)).fetchone()
     return row[0] if row else None
