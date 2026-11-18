@@ -4,61 +4,62 @@
 [![Version](https://img.shields.io/github/v/tag/LoredCast/DocWizard?label=version&sort=semver)](https://github.com/LoredCast/DocWizard/tags)
 [![ghcr.io Pulls](https://img.shields.io/badge/dynamic/json?logo=github&url=https%3A%2F%2Fipitio.github.io%2Fbackage%2FLoredCast%2FDocWizard%2Fdocwizard-app.json&query=%24.downloads&label=ghcr.io%20pulls&cacheSeconds=14400)](https://github.com/LoredCast/DocWizard/pkgs/container/docwizard-app)
 
-A self-hostable editor for structured writing: term papers, theses, articles and reports. You write pandoc Markdown in the browser; **layouts** decide how the output looks. Exports go through pandoc, with Typst for PDF and citeproc for citations.
+DocWizard is a self-hosted, collaborative editor for structured writing: term papers, theses, articles, and reports. You write plain-text Pandoc Markdown (or LaTeX) in the browser, while **layouts** control all styling and exports through Pandoc, Typst, LaTeX, and Citeproc.
 
-[ARCHITECTURE.md](ARCHITECTURE.md) is the design reference. This version covers the roadmap milestones M0 to M6 (§21): reliable editing, submission-ready output, collaboration, sharing and comments, offline work, the integrations, and LaTeX with the rest of the polish.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design reference.
 
-## What works
+## Features
 
-### Writing
+- **Writing & Crash Safety**: CodeMirror 6 editor with Pandoc Markdown support (front matter, citations, math rendered with Temml, footnotes, attributes, fenced divs), formatting toolbar, live syntax preview, heading folding, word count, LaTeX mode, and SQLite FTS5 full-text search. Named versions plus an automatic history (hourly, daily, then weekly), compared word by word and restorable. Grammar and spelling checks with [Harper](https://writewithharper.com) in the browser for English, and optionally a LanguageTool server for other languages. Every edit is committed to SQLite (`synchronous=FULL`) and materialized to plain files on disk; external edits are reconciled with visible conflict markers instead of silent overwrites.
+- **Collaboration & Offline**: Real-time multi-user editing via OT (`@codemirror/collab`) with live cursors and presence, anchored comment threads with `@mentions` and notifications, suggested changes to accept or reject, role-based share links (`owner`, `editor`, `commenter`, `viewer`), review links that show the text set like a page for people who don't write Markdown, optional guest access, and offline editing via service worker + IndexedDB: a whole project can be kept in the browser and edited without a connection, and edits are merged when it's back, even for documents that aren't open. DocWizard installs as an app. Uploaded `.docx` files keep their comments and tracked changes, and DOCX exports carry open comment threads back to Word.
+- **Previews & Exports**: Sandboxed HTML previews and PDF previews (native viewer on desktop, lazy-loaded PDF.js on mobile/unsupported browsers), multi-file LaTeX builds (`latexmk`), static site publishing, and exports to PDF (Typst or LaTeX), DOCX, ODT, HTML, EPUB, Markdown, Typst/LaTeX source, and ZIP. Documents declare their language (`lang: de-AT`), and dates, quotation marks, hyphenation and generated headings follow it.
+- **Layouts**: `default`, `term-paper`, `article` and `thesis`; layouts after real style guides (`oxford`, `uni-wien-philosophie`, `aps`, `turabian`, `mla`, `apa-student`, `mhra`, `ieee`, `wuerzburg-germanistik`, `goettingen-vcm`); journal formats (`acm`, `springer-lncs`, `elsevier`); manuscripts (`manuscript-story`, `manuscript-novel`, `normseite`, `book-manuscript`); and scripts in plain Markdown (`screenplay`, `drehbuch`, `av-script`, with Fountain import and export). The editor's Fields panel shows which front matter fields a layout prints. The **layout editor** at `/layouts` copies any layout and changes fonts, margins, spacing, headings, captions, footnotes, citations, the title page, a declaration page and more, with a live PDF preview; custom layouts can be shared on the server.
+- **Citations**: CSL-JSON, BibTeX, RIS or Zotero libraries (zotero.org or Zotero desktop's local API), with `@` autocomplete, a References panel that browses your libraries, DOI/ISBN/arXiv lookup, and a page finder that searches a source's PDF for the quoted passage. Bundled styles include Chicago (18th and 17th editions), APA, MLA, MHRA, Harvard, IEEE, American Physical Society, Oxford Guide to Style, DIN 1505-2 and university styles. Cross-references to figures, tables and equations.
+- **Sync, Auth & Administration**: Two-way sync with WebDAV (Nextcloud, Seafile, generic WebDAV), a git repository over HTTPS (DocWizard commits and pulls) or a folder on the server, and projects download as a zip of plain files; local accounts with TOTP two-step login, OpenID Connect (`[[oidc]]`), AES-256-GCM encrypted credentials, `/admin` dashboard with Prometheus `/metrics`, and English/German UI.
 
-- **Editing**: CodeMirror with pandoc Markdown (front matter, citations, math, footnotes, attributes, fenced divs), live preview of headings, emphasis, links, task lists, citation chips and MathML, citation autocomplete, heading folding and a word count. A LaTeX mode for `.tex` files.
-- **Saving that survives crashes**: every edit is committed to SQLite (`synchronous=FULL`) before it is acknowledged, then written to plain files in the project folder. On startup, the files are reconstructed from the database. Edits made to those files outside DocWizard are detected and reconciled, with real conflicts kept visible instead of blended.
-- **Versions and history**: named versions plus an automatic history (every autosave of the last hour, then hourly for two days, daily for two months and weekly after that), each with who edited. Compare any of them with the current text word by word, and restore (the current text is kept as a version first).
-- **Grammar and spelling**: [Harper](https://writewithharper.com) checks English as you type, in the browser, so the text stays on your machine; click an underline for the fix. An admin can add a LanguageTool server for other languages. Each person can switch checking off in their settings.
-- **Search**: full-text search across every document you can open, with SQLite FTS5.
+*Not yet implemented:* SyncTeX jump-to-source in PDFs.
 
-### Working together
+## Quick Start (Docker)
 
-- **Collaboration**: several tabs or people edit the same document (OT with a central authority, compatible with `@codemirror/collab`), with live cursors, selections and a list of who is here. The protocol is tested against injected failures.
-- **Sharing**: project roles (owner, editor, commenter, viewer), share links with a role and an expiry, and guests who join through a link without an account (admins decide whether guests are allowed and their highest role).
-- **Comments**: threads anchored to text that stay in place while people edit, with replies and resolving. Recent documents and pins on the home page.
-- **Review links**: a share link can open documents in the review view, for supervisors, editors and producers who don't write Markdown: the text as it reads, set like a page, where selecting a passage offers Comment and Suggest change.
-- **Suggestions**: select text and suggest new wording; the editor shows it struck through with the new text beside it, and editors accept it (it becomes an edit) or reject it. Commenters can suggest too, which makes review links useful without edit rights.
-- **Word files**: upload a `.docx` and it becomes a Markdown document; its comments become comment threads and its tracked changes become suggestions to accept or reject. DOCX exports keep the open comment threads as Word comments, so a supervisor can comment in Word and the discussion carries on in DocWizard.
-- **Mentions and notifications**: `@username` in a comment notifies that member; replies notify everyone who wrote in the thread. Notifications appear on the home page and in the editor, and unread ones are mailed (mentions and replies, only mentions, or never, per person).
-- **Offline**: a service worker keeps the app and the documents this browser has stored available offline. Edits made offline are kept in IndexedDB and come back as a merge, with overlapping changes shown as conflicts in their own panel, never blended.
+The recommended deployment runs three containers (`app`, `worker`, and `proxy`/Caddy) using prebuilt multi-arch images (`linux/amd64`, `linux/arm64`) from GHCR.
 
-### Output
+1. Download the Compose file and example configuration:
 
-- **Rendering**: a separate worker runs pandoc, Typst and latexmk, each job as its own Unix user with resource limits. HTML preview on a separate preview origin through capability URLs; PDF preview; exports to PDF (Typst or LaTeX), DOCX, ODT, HTML, EPUB, Markdown, Typst and LaTeX source, and a zip of the project.
-- **Layouts**: `default`, `term-paper` (title page, numbered sections, 1.5 spacing), `article` (two columns with an abstract), and layouts after real style guides: `oxford` (University of Oxford Style Guide), `uni-wien-philosophie` (the Vienna philosophy department's *Leitfaden*, with title page, plagiarism declaration and its own citation styles), `aps` (Physical Review), `turabian` (Turabian student papers), `mla`, `apa-student` (APA student papers), `mhra`, `ieee`, and the German university guides `wuerzburg-germanistik` and `goettingen-vcm`; `thesis` (title page with supervisor, declaration, abstract, contents and lists, chapters on new pages, roman front matter numbers); journal and conference formats `acm` (sigconf), `springer-lncs` and `elsevier` (elsarticle manuscript); manuscripts for publishers: `manuscript-story` and `manuscript-novel` (Shunn's format), `normseite` (the German standard page) and `book-manuscript`; and scripts written in plain Markdown: `screenplay`, `drehbuch` and `av-script` (two-column documentary scripts). Scripts get (MORE)/(CONT'D) across page breaks, dual dialogue (`NAME ^`), scenes in the editor's Outline, character-name autocomplete and a page count with running time in the status bar. Fountain (`.fountain`) files can be uploaded and exported. Projects pick options such as paper size, font size, spacing and citation style. The editor's Fields panel shows which front matter fields the layout prints (course, instructor, student ID, …), what each means and where it appears, and adds them in one click; typing in the front matter suggests them and hovering explains them. Layouts can extend each other. Lua filters in installed layouts only run after an admin approves them, by hash.
-- **Layout editor**: make a copy of any layout and change how everything renders, with a live PDF preview: paper and margins, columns, page numbers and running header, fonts and sizes, line and paragraph spacing, indents, four heading levels (run-in headings too) (size, weight, case, alignment, spacing, numbering schemes), the title block or title page and which front matter fields it shows, a declaration page, the table of contents, block quotations, footnotes, citation style and bibliography, captions, and which options authors get. Custom layouts store only what differs from the layout they are based on, so they follow its updates, and can be shared with everyone on the server. Fonts for the PDF: Libertinus Serif, New Computer Modern, Noto Serif and Noto Sans, Tinos (Times New Roman metrics), Carlito (Calibri metrics), Cousine and DejaVu Sans Mono.
-- **Citations**: from CSL-JSON, BibTeX or RIS files in the project, or from a Zotero library. Paste a DOI, ISBN or arXiv ID into the References panel to look it up, add it to `references.json` and cite it. Typing `@` completes keys from the document's bibliography first, then from the project's other files and your Zotero libraries, and adds the file or library to the front matter when needed. Bundled styles: Chicago author-date, notes and shortened notes (18th and 17th editions), APA, MLA, MHRA (notes and author-date), Harvard, IEEE, American Physical Society, Oxford Guide to Style, DIN 1505-2, the Universität Wien philosophy styles (footnotes and short citations) and Würzburg Germanistik short citations. Cross-references to figures, tables and equations.
-- **Document languages**: a document or project declares its language (`lang: de-AT`) and marks passages in others (`[mot]{lang=fr}`). Dates, quotation marks, hyphenation, the bibliography's terms and every generated heading and label (Contents, Abstract, Figure, References or Literaturverzeichnis) follow it.
-- **LaTeX projects**: `.tex` documents and multi-file projects build with latexmk (LuaLaTeX by default, no shell escape), with errors and warnings shown at the right line. Markdown documents can also go to PDF through LaTeX.
-- **Publishing**: a document can be published as a static site on the publish origin, at a chosen or unlisted address, optionally with a PDF. It is updated a few seconds after edits and taken down when the document is deleted.
+   ```sh
+   curl -fsSLO https://raw.githubusercontent.com/LoredCast/DocWizard/main/deploy/compose.yaml
+   curl -fsSL https://raw.githubusercontent.com/LoredCast/DocWizard/main/deploy/docwizard.example.toml -o docwizard.toml
+   ```
 
-### Integrations
+2. Edit `docwizard.toml` with your URLs (for example `public_url = "https://write.example.org"`, and optionally a separate `publish_url` / `preview_url`).
 
-- **Sync**: projects sync both ways with Nextcloud, Seafile or any WebDAV server, a git repository over HTTPS (DocWizard commits and pulls) or a folder on the server, with the same reconciliation and conflicts as outside edits. A project also downloads as a zip of plain files.
-- **Offline**: a whole project can be kept in the browser and edited without a connection; edits are merged when it's back, even for documents that aren't open. DocWizard installs as an app.
-- **Zotero**: add a personal or group library from zotero.org with an API key, or Zotero desktop's local API. A References panel in the editor searches your libraries and browses their collections; citing an item adds its library to the document's front matter. PDF attachments open from Zotero's file storage or from the WebDAV folder Zotero syncs to, and the page finder searches a PDF for the quoted passage and puts the printed page into the citation's locator.
-- **Login providers**: any OpenID Connect provider, such as Keycloak or a university login, with allowed groups, admin groups and linking to existing accounts.
-- Stored credentials (WebDAV passwords, Zotero keys, authenticator secrets) are encrypted with the server's secret key. `python -m docwizard rotate-key` adds a new key and re-encrypts them. Outbound requests to private networks are refused unless an admin lists the host.
+3. Start the stack and create an admin account:
 
-### Accounts and administration
+   ```sh
+   docker compose up -d
+   docker compose exec app python -m docwizard create-admin you
+   ```
 
-- **Accounts**: local accounts, sessions, CSRF protection, two-step login with an authenticator app and recovery codes, password reset by mail, and invitations.
-- **Admin area** at `/admin`: health (worker, tool versions, disk, recent errors), users (invite, disable, reset links, require two-step login, quotas), settings that override the configuration file (registration, guests, password length, default layout, allowed private hosts), layout filter approval, and an audit log. Prometheus metrics at `/metrics` for admins.
-- **Maintenance**: a daily job empties trash older than 30 days, removes expired links and deletes unreferenced files. Backup and restore from the command line.
-- **Languages**: English and German. The language follows the browser until you choose one in your settings.
+By default, Caddy listens on `127.0.0.1:8080` (app) and `127.0.0.1:8081` (publish/preview) behind your reverse proxy (forward `Host`, `X-Forwarded-Proto`, and WebSockets).
 
-Not yet: PDF.js with SyncTeX (jumping between the PDF and the source), which the roadmap lists as optional.
+### Deployment Options
 
-## Run it for development
+- **Release channels (`DOCWIZARD_TAG`)**:
+  - `:main` (default): rolling builds from `main` (and `:sha-<commit>`).
+  - `:nightly`: pre-release builds from `nightly` (also `:nightly-YYYYMMDD`). Enable with `DOCWIZARD_TAG=nightly` or `-f deploy/compose.nightly.yaml`.
+  - `:latest` or `:<version>` (e.g. `0.1.0`): tagged releases.
+- **Built-in TLS**: Let Caddy manage HTTPS on ports `80` and `443` with [deploy/compose.ssl.yaml](deploy/compose.ssl.yaml):
 
-You need Python 3.12 or newer, [pandoc](https://pandoc.org/installing.html) 3.9 and [Typst](https://github.com/typst/typst/releases) 0.14 on your `PATH`. LaTeX builds also need TeX Live with `latexmk` and LuaLaTeX; without them, everything else works. The layouts' fonts go to `/usr/local/share/docwizard/fonts` with `sudo python3 -I deploy/fetch_tools.py --fonts-only` (or anywhere with `--fonts DIR` and `DOCWIZARD_FONTS_DIR=DIR`); without them, Typst falls back to its own fonts.
+  ```sh
+  DOCWIZARD_APP_HOST=write.example.org DOCWIZARD_PUBLISH_HOST=pub.example.org \
+    docker compose -f deploy/compose.yaml -f deploy/compose.ssl.yaml up -d
+  ```
+
+- **Local checkout & smaller worker**: Run `docker compose -f deploy/compose.yaml up -d --build` from the repo (use `--build-arg WITH_LATEX=0` to omit TeX Live from the worker image).
+- **Bare metal**: systemd units are provided in [deploy/systemd/](deploy/systemd).
+
+## Development
+
+Prerequisites: Python 3.12+, [Pandoc](https://pandoc.org/installing.html) 3.9+, [Typst](https://github.com/typst/typst/releases) 0.14+, and optionally TeX Live (`latexmk` and LuaLaTeX) for LaTeX projects. The layouts' fonts install to `/usr/local/share/docwizard/fonts` with `sudo python3 -I deploy/fetch_tools.py --fonts-only` (or anywhere with `--fonts DIR` and `DOCWIZARD_FONTS_DIR=DIR`); without them, Typst falls back to its own fonts.
 
 ```sh
 python -m venv .venv
@@ -66,64 +67,30 @@ python -m venv .venv
 pip install --require-hashes -r requirements.lock
 pip install -e '.[dev]'
 
-python -m docwizard create-admin you          # asks for a password
+python -m docwizard create-admin you
 DOCWIZARD_RENDER_SPAWN_WORKER=true python -m docwizard serve
 ```
 
-Open <http://localhost:8080>. The app serves previews from `http://127.0.0.1:8080/_preview`, a different origin, so keep using `localhost` for the app. Data goes to `./data/`.
+Open <http://localhost:8080>. By default in local dev, HTML previews are served from `http://127.0.0.1:8080/_preview` as a separate origin, so open the app via `localhost` (or set `DOCWIZARD_SERVER_PUBLIC_URL` to your LAN/tunnel URL for same-origin sandboxed previews). Data is stored in `./data/`.
 
-`DOCWIZARD_RENDER_SPAWN_WORKER=true` starts the render worker as a child process. It runs jobs as your own user then; per-job users need the worker to start as root, as it does in the container setup.
+Run `python -m docwizard check` to verify tools and directories.
 
-Every setting can come from `docwizard.toml` (see [deploy/docwizard.example.toml](deploy/docwizard.example.toml)) or from an environment variable named `DOCWIZARD_<SECTION>_<KEY>`. `python -m docwizard check` reports missing tools and directories.
+## Configuration & Operations
 
-Some features need configuration:
+Settings are read from `docwizard.toml` (see [deploy/docwizard.example.toml](deploy/docwizard.example.toml)) and can be overridden with `DOCWIZARD_<SECTION>_<KEY>` environment variables.
 
-- **Mail** for password resets and invitations: an `[smtp]` section. Without it, admins copy the links from the admin area and pass them on.
-- **Grammar checking**: `python3 -I deploy/fetch_tools.py --harper web/vendor/harper` installs Harper for English (the container images include it). For other languages, point `[grammar] languagetool_url` at a LanguageTool server.
-- **Login providers**: one `[[oidc]]` block per provider. Register `<public_url>/login/oidc/<id>/callback` as the redirect URI.
-- **The secret key** that encrypts stored credentials is created at `<data_dir>/secret.key` on first start, or read from `security.secret_key_file`. Back it up separately from the data: without it, stored passwords and keys can't be read.
-- **Sync servers in your own network** (such as `nextcloud.lan` or `git.lan`) need to be listed in `security.allow_private_outbound` or in the admin settings.
-- **Folder sync**: list the folders projects may use in `[sync] folder_roots`, for example one that Syncthing also shares. Git sync needs `git` on the `PATH`.
+- **Mail (`[smtp]`)**: Enables password-reset and invitation emails. Without it, admins copy one-time links directly from `/admin/users`.
+- **Grammar checking**: `python3 -I deploy/fetch_tools.py --harper web/vendor/harper` installs Harper for English (the container images include it). For other languages, set `[grammar] languagetool_url` to a LanguageTool server.
+- **OIDC (`[[oidc]]`)**: Register `<public_url>/login/oidc/<id>/callback` as the redirect URI at your provider.
+- **Secret key**: Created automatically at `<data_dir>/secret.key` (or set `security.secret_key_file`). Back it up separately from your database; rotate keys with `python -m docwizard rotate-key`.
+- **Private LAN sync hosts**: List internal WebDAV/Nextcloud/git hosts in `security.allow_private_outbound` (or in `/admin/settings`).
+- **Folder and git sync**: List the folders projects may sync with in `[sync] folder_roots`, for example one that Syncthing also shares. Git sync needs `git` on the `PATH` (the container image includes it).
+- **Backups**: Back up and restore consistent snapshots with:
 
-## Deploy
-
-[deploy/compose.yaml](deploy/compose.yaml) runs three containers: the app, the render worker (no network, read-only root, only the capabilities it needs to switch users) and Caddy, which serves static assets and published sites and forwards app requests to the app's Unix socket.
-
-Prebuilt multi-arch images (`linux/amd64`, `linux/arm64`) are published to GitHub Container Registry (`ghcr.io/loredcast/docwizard-*`):
-- `main` commits publish rolling tags (`:main` and `:sha-<commit>`).
-- `nightly` commits publish nightly channel tags (`:nightly`, `:nightly-YYYYMMDD`, and `:sha-<commit>`).
-- `v*` git tags publish release tags (`:<version>`, `:latest`).
-
-By default, Compose pulls `:main` and listens on two local HTTP ports (`127.0.0.1:8080` for the app and `127.0.0.1:8081` for the publish/preview origin) so an external reverse proxy on the same host or another host can handle TLS and public domains without needing a repo clone:
-
-```sh
-curl -fsSLO https://raw.githubusercontent.com/LoredCast/DocWizard/main/deploy/compose.yaml
-curl -fsSL https://raw.githubusercontent.com/LoredCast/DocWizard/main/deploy/docwizard.example.toml -o docwizard.toml
-# Edit docwizard.toml with your https:// URLs, then point your external TLS proxy
-# (forwarding Host, X-Forwarded-Proto and WebSockets):
-#   write.example.org -> <host>:8080
-#   pub.example.org   -> <host>:8081
-# Set DOCWIZARD_TAG=nightly (or latest / 0.1.0) to switch channels instead of :main.
-docker compose up -d
-docker compose exec app python -m docwizard create-admin you
-```
-
-From a local checkout, run `docker compose -f deploy/compose.yaml up -d` (add `-f deploy/compose.nightly.yaml` or `DOCWIZARD_TAG=nightly` for the nightly channel, `--build` to build locally, and override `DOCWIZARD_APP_LISTEN` / `DOCWIZARD_PUBLISH_LISTEN` / `DOCWIZARD_TRUSTED_PROXIES` if needed).
-
-To let the bundled Caddy terminate TLS directly on ports `80` and `443`, opt in with [deploy/compose.ssl.yaml](deploy/compose.ssl.yaml), [deploy/Caddyfile.ssl](deploy/Caddyfile.ssl), and bare domain names:
-
-```sh
-DOCWIZARD_APP_HOST=write.example.org DOCWIZARD_PUBLISH_HOST=pub.example.org \
-  docker compose -f deploy/compose.yaml -f deploy/compose.ssl.yaml up -d
-```
-
-The worker image includes TeX Live for LaTeX builds. Build it with `--build-arg WITH_LATEX=0` for a much smaller image without them.
-
-Published sites and previews are served from the publish host. In the Compose setup Caddy serves them from the publish directory; with `serve_static = true` the app serves them itself, which is fine for development.
-
-For a machine without containers, [deploy/systemd/](deploy/systemd) has units for the app and the worker; put any reverse proxy in front that forwards both hosts to the app's socket.
-
-Back up with `python -m docwizard backup <dir>` and restore with `python -m docwizard restore <dir>`.
+  ```sh
+  python -m docwizard backup <dir>
+  python -m docwizard restore <dir>
+  ```
 
 ## Tests
 
@@ -131,22 +98,22 @@ Back up with `python -m docwizard backup <dir>` and restore with `python -m docw
 pytest
 ```
 
-The suite has unit tests, property tests for the changeset and merge code, a cross-check of the Python changeset port against CodeMirror's own implementation (needs Node), adversarial protocol tests, and integration tests for collaboration, crash recovery, backup, sharing, offline merges, sync (against a WebDAV server in the test), Zotero, OIDC, publishing, two-step login, the admin area, search, the German interface and rendering. Rendering tests run when pandoc is installed, LaTeX tests when latexmk is; point `DOCWIZARD_TEST_TOOLS_PATH` at a directory with specific pandoc and Typst binaries to test those versions.
+The suite covers unit, property, adversarial collaboration protocol, and integration tests. Pandoc, Typst, LaTeX, and CodeMirror/frontend cross-check tests run automatically when `pandoc`, `typst`, `latexmk`, and `node` are available (set `DOCWIZARD_TEST_TOOLS_PATH` to point at specific `pandoc`/`typst` binaries).
 
 ## Repository
 
-| Path | What |
+| Path | Purpose |
 |---|---|
-| `server/docwizard/` | The app: HTTP, auth, projects, collaboration, rendering, citations, sync, publishing, admin |
-| `server/docwizard/locale/` | Interface translations, keyed by the English text |
-| `worker/` | The render worker (standard library only) |
-| `web/` | Stylesheet, ES modules and the vendored CodeMirror and Temml bundles |
-| `layouts/` | Built-in layouts |
-| `csl/` | Bundled citation styles (CC BY-SA 3.0, from the CSL project) |
-| `filters/` | Built-in Lua filters (cross-references, page breaks, word count) |
-| `deploy/` | Dockerfiles, Compose, Caddy and systemd |
-| `scripts/vendor.sh` | Rebuilds the vendored frontend bundles |
+| `server/docwizard/` | ASGI app: HTTP, auth, projects, collaboration, rendering, citations, sync, admin |
+| `server/docwizard/locale/` | Interface translations (`de.json`) |
+| `worker/` | Isolated render worker (Python stdlib only) |
+| `web/` | Stylesheet, ES modules, service worker, and vendored CodeMirror / Temml / PDF.js |
+| `layouts/` | Built-in layouts, each a folder with `layout.json` and its README |
+| `csl/` | Bundled CSL citation styles |
+| `filters/` | Built-in Lua filters (`crossref`, `pagebreak`, `wordcount`, `zotero`) |
+| `deploy/` | Dockerfiles, Compose files, Caddyfiles, and systemd units |
+| `scripts/vendor.sh` | Rebuilds and checksums vendored frontend bundles |
 
 ## License
 
-See [LICENSE](LICENSE).
+GNU Affero General Public License v3.0 or later — see [LICENSE](LICENSE).
