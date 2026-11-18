@@ -571,6 +571,45 @@
   #editor .cm-jump-flash { background: var(--sel); animation: jump-flash 1.6s ease-out forwards; }
   @keyframes jump-flash { 60% { background: var(--sel); } to { background: transparent; } }
   @media (prefers-reduced-motion: reduce) { #editor .cm-jump-flash { animation: none; } }
+  /* The title card: the front matter as a document's title block (§6.3) */
+  #editor .cm-title-card {
+    display: grid; gap: 2px; padding: 8px 0 12px; margin-bottom: 8px; border-bottom: 1px solid var(--line);
+    font-family: var(--font); cursor: default;
+  }
+  #editor .cm-title-card input, #editor .cm-title-card textarea {
+    width: 100%; min-width: 0; border: 1px solid transparent; border-radius: var(--radius); padding: 2px 6px; margin: 0 -6px;
+    background: transparent; color: var(--fg); font: inherit; min-height: 0; width: calc(100% + 12px);
+  }
+  #editor .cm-title-card input:hover:not(:disabled), #editor .cm-title-card textarea:hover:not(:disabled) { border-color: var(--line); }
+  #editor .cm-title-card input:focus, #editor .cm-title-card textarea:focus { border-color: var(--accent); outline: none; }
+  #editor .cm-title-card input::placeholder, #editor .cm-title-card textarea::placeholder { color: var(--muted); opacity: .7; }
+  #editor .cm-title-card .tc-title { font-size: 1.6em; font-weight: 600; line-height: 1.3; }
+  #editor .cm-title-card .tc-subtitle { font-size: 1.1em; }
+  #editor .cm-title-card .tc-byline { display: flex; gap: 4px 16px; flex-wrap: wrap; color: var(--muted); }
+  #editor .cm-title-card .tc-byline input { color: var(--muted); }
+  #editor .cm-title-card .tc-author { flex: 1 1 12rem; width: auto; }
+  #editor .cm-title-card .tc-date { flex: 0 1 11rem; width: auto; }
+  #editor .cm-title-card .tc-abstract { display: grid; gap: 2px; margin-top: 6px; }
+  #editor .cm-title-card .tc-abstract textarea { resize: vertical; font-size: .95em; line-height: 1.5; }
+  #editor .cm-title-card .tc-label, #editor .cm-title-card .tc-field label { color: var(--muted); font-size: 12px; }
+  #editor .cm-title-card .tc-foot { position: relative; margin-top: 6px; font-size: 13px; }
+  #editor .cm-title-card .tc-more { min-width: 0; }
+  #editor .cm-title-card .tc-more > summary { margin-right: 48px; }
+  #editor .cm-title-card .tc-more > summary { cursor: pointer; color: var(--muted); width: fit-content; }
+  #editor .cm-title-card .tc-fields { display: grid; grid-template-columns: minmax(6rem, max-content) minmax(0, 1fr); gap: 4px 12px; align-items: center; margin: 8px 0 4px; }
+  #editor .cm-title-card .tc-field { display: contents; }
+  #editor .cm-title-card .tc-field input { margin: 0; width: 100%; border-color: var(--line); }
+  #editor .cm-title-card .tc-field button { justify-self: start; }
+  #editor .cm-title-card .tc-actions { margin-top: 4px; }
+  #editor .cm-title-card .tc-yaml { position: absolute; right: 0; top: 0; color: var(--muted); font-family: var(--mono); font-size: 11px; letter-spacing: .04em; }
+  #editor .cm-title-card .tc-complex { font-size: 13px; }
+  #editor .cm-title-card button.link { min-height: 0; }
+  @media (pointer: coarse) {
+    #editor .cm-title-card button.link { min-height: var(--control); }
+    #editor .cm-title-card .tc-byline input, #editor .cm-title-card .tc-field input { min-height: var(--control); }
+  }
+  @media (max-width: 480px) { #editor .cm-title-card .tc-fields { grid-template-columns: 1fr; gap: 2px; } }
+  #editor .cm-title-yaml-bar { display: flex; gap: 12px; align-items: baseline; font-family: var(--font); font-size: 13px; padding: 4px 0; }
   /* After a formatted paste: undo the formatting (§6.3). */
   .paste-note {
     position: absolute; right: 16px; bottom: 12px; z-index: 4; display: flex; align-items: center; gap: 12px;

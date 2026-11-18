@@ -135,7 +135,7 @@ function withCode(text) {
 }
 
 export class FieldsPanel {
-  constructor({ view, panel, fields, readOnly, onToggle, openOptions, hasOptions }) {
+  constructor({ view, panel, fields, readOnly, onToggle, openOptions, hasOptions, reveal = null }) {
     this.view = view;
     this.panel = panel;
     this.fields = fields;
@@ -143,6 +143,7 @@ export class FieldsPanel {
     this.onToggle = onToggle ?? (() => {});
     this.openOptions = openOptions;
     this.hasOptions = hasOptions;
+    this.reveal = reveal; // shows a field in the title card, when the editor has one
     this.timer = null;
     this.body = el("div", { class: "panel-body" });
     panel.replaceChildren(
@@ -176,7 +177,8 @@ export class FieldsPanel {
     this.timer = setTimeout(() => this.render(), 250);
   }
 
-  goTo(pos) {
+  goTo(pos, key = null) {
+    if (key && this.reveal?.(key)) return;
     this.view.dispatch({ selection: EditorSelection.cursor(pos), scrollIntoView: true });
     this.view.focus();
   }
@@ -186,6 +188,7 @@ export class FieldsPanel {
     if (!change) return;
     this.view.dispatch({ changes: change.changes, selection: EditorSelection.cursor(change.cursor),
                          scrollIntoView: true, userEvent: "input" });
+    if (this.reveal?.(f.in && !f.topLevel ? f.in : f.key)) return;
     this.view.focus();
   }
 
@@ -199,7 +202,7 @@ export class FieldsPanel {
     }[state.state];
     let action = null;
     if (state.at !== null) {
-      action = el("button", { type: "button", class: "link", onclick: () => this.goTo(state.at) },
+      action = el("button", { type: "button", class: "link", onclick: () => this.goTo(state.at, f.in && !f.topLevel ? f.in : key) },
         state.state === "missing" ? t("Go to author") : t("Go to"));
     } else if (!this.readOnly) {
       action = el("button", { type: "button", onclick: () => this.add(f) }, t("Add"));
@@ -221,8 +224,9 @@ export class FieldsPanel {
     const fields = this.fields;
     const list = (items, opts) => el("ul", { class: "plain field-list" }, items.map((key) => this.item(key, keys, opts)));
     const parts = [
-      el("p", { class: "muted field-intro" }, ...withCode(
-        t("Fields go in the front matter: the lines between --- at the very top of the document, one “name: value” per line. Typing a name there suggests the fields; hovering one explains it."))),
+      el("p", { class: "muted field-intro" }, ...withCode(this.reveal
+        ? t("Fill these in at the top of the document, in its title card. Go to or Add takes you there. In the YAML view they are the lines between --- at the very top, one “name: value” per line.")
+        : t("Fields go in the front matter: the lines between --- at the very top of the document, one “name: value” per line. Typing a name there suggests the fields; hovering one explains it."))),
     ];
     if (fields.ownTemplates) {
       parts.push(el("p", { class: "muted" },

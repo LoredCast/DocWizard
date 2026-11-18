@@ -25,6 +25,7 @@ import { SelectionBubble, reviewFrontMatter } from "./review.js";
 import { characterCompletion, openOutline } from "./script.js";
 import { access, accessExtensions, baseExtensions } from "./setup.js";
 import { setSuggestMode, suggestField, suggestMode } from "./suggest-mode.js";
+import { TitleCardEditor, refreshCard } from "./title-card.js";
 
 wireCommon();
 
@@ -144,6 +145,15 @@ const layoutFields = isMarkdown ? new LayoutFields(snap.fields, {
   layoutName: snap.layout?.name ?? "",
   titlePage: () => layoutOptions.titlepage ?? snap.fields?.titlePage ?? false,
 }) : null;
+// The front matter shows as a title card to type into; the YAML is a switch away.
+const yamlKey = `dw.yaml.${docId}`;
+const titleCard = isMarkdown && !review ? new TitleCardEditor({
+  fields: layoutFields,
+  locked: (state) => state.readOnly || Boolean(state.field(suggestField, false)?.on),
+  onMore: () => fieldsPanel?.show(),
+  yaml: stored(yamlKey, "off") === "on",
+  onYaml: (on) => store(yamlKey, on ? "on" : "off"),
+}) : null;
 
 const session = new DocSession({
   socket, docId, clientID: snap.clientID, text: snap.text, version: snap.version,
@@ -151,7 +161,7 @@ const session = new DocSession({
     base, peersField, anchorsField, conflictGutter((id) => openConflicts(id)), markClicks,
     review ? reviewFrontMatter : [], richPaste ? richPaste.extension() : [], images ? images.extension() : [],
     flashField,
-    layoutFields ? fieldsExtension(layoutFields) : [], isScript ? characterCompletion(() => characters) : [],
+    layoutFields ? fieldsExtension(layoutFields) : [], titleCard ? titleCard.extension() : [], isScript ? characterCompletion(() => characters) : [],
     grammar ? grammarExtension({ ignore: (m, w) => { grammar.ignore(m, w); checkGrammar(); },
                                  addWord: (w) => { grammar.addWord(w); checkGrammar(); } }) : [],
     suggest ? suggest.extension : [],
@@ -1012,7 +1022,7 @@ function setSuggesting(on, { quiet = false } = {}) {
   store(suggestKey, on ? "on" : "off");
   const locked = !on && (readOnly || review);
   view.dispatch({ effects: [setSuggestMode.of(on),
-    access.reconfigure(accessExtensions(locked, on || (review ? !coarse : !readOnly)))] });
+    access.reconfigure(accessExtensions(locked, on || (review ? !coarse : !readOnly))), refreshCard.of(null)] });
   const button = $("#new-suggestion");
   button.setAttribute("aria-pressed", String(on));
   button.title = on ? t("Stop suggesting: type to change the text again (Ctrl+Alt+G)")
@@ -1082,6 +1092,7 @@ $("#open-refs")?.addEventListener("click", () => references?.toggle());
 const fieldsEl = $("#fields-panel");
 fieldsPanel = layoutFields && fieldsEl ? new FieldsPanel({
   view, panel: fieldsEl, fields: layoutFields, readOnly,
+  reveal: titleCard ? (key) => titleCard.reveal(view, key) : null,
   hasOptions: Object.keys(snap.layout?.variables ?? {}).length > 0,
   openOptions: () => $("#open-options").click(),
   onToggle: (open) => {

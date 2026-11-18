@@ -1115,5 +1115,18 @@
  "Paste as plain text": "Als reinen Text einfügen",
  "Ctrl+Shift+V pastes plain text right away": "Strg+Umschalt+V fügt gleich reinen Text ein",
  "A picture in the pasted text was left out. Paste or drop it on its own to add it.": "Ein Bild im eingefügten Text wurde ausgelassen. Füg es einzeln ein oder zieh es in den Text.",
- "{n} pictures in the pasted text were left out. Paste or drop each one on its own to add it.": "{n} Bilder im eingefügten Text wurden ausgelassen. Füg sie einzeln ein oder zieh sie in den Text."
+ "{n} pictures in the pasted text were left out. Paste or drop each one on its own to add it.": "{n} Bilder im eingefügten Text wurden ausgelassen. Füg sie einzeln ein oder zieh sie in den Text.",
+ "Document details": "Dokumentangaben",
+ "Document details as YAML": "Dokumentangaben als YAML",
+ "Show as a title card": "Als Titelkarte zeigen",
+ "Subtitle (optional)": "Untertitel (optional)",
+ "Author (several: separate with ;)": "Autor:in (mehrere mit ; trennen)",
+ "Set in the YAML": "Im YAML festgelegt",
+ "Authors: edit as YAML": "Autor:innen: als YAML bearbeiten",
+ "More details ({n})": "Weitere Angaben ({n})",
+ "More details": "Weitere Angaben",
+ "Edit as YAML": "Als YAML bearbeiten",
+ "Add a detail…": "Angabe hinzufügen …",
+ "Show the document details as YAML, as they are in the file": "Die Dokumentangaben als YAML zeigen, so wie sie in der Datei stehen",
+ "Fill these in at the top of the document, in its title card. Go to or Add takes you there. In the YAML view they are the lines between --- at the very top, one “name: value” per line.": "Diese Angaben füllst du oben im Dokument in der Titelkarte aus; „Zur Stelle“ und „Hinzufügen“ bringen dich hin. In der YAML-Ansicht sind es die Zeilen zwischen --- ganz oben, eine „Name: Wert“ pro Zeile."
 }
