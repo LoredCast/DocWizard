@@ -213,6 +213,20 @@ async def test_random_pushes_with_failures_never_diverge(client, app):
         if rng.random() < 0.25:
             raise sqlite3.OperationalError("injected failure")
 
+    def take(j, msg):
+        """Apply an update a client received; True if it answers that client's own push."""
+        if msg["t"] == "updates" and msg["from"] == versions[j]:
+            mine = False
+            for u in msg["updates"]:
+                texts[j] = ChangeSet.from_json(u["changes"]).apply(texts[j])
+                versions[j] += 1
+                if u["clientID"] == snaps[j]["clientID"]:
+                    mine = True
+                    acknowledged.extend("\n".join(part[1:]) for part in u["changes"]
+                                        if isinstance(part, list) and len(part) > 1)
+            return mine
+        return msg["t"] in ("rejected", "error")
+
     app.db.before_commit = failing
     for step in range(60):
         i = rng.randrange(3)
@@ -222,22 +236,22 @@ async def test_random_pushes_with_failures_never_diverge(client, app):
         pos = rng.choice(starts)
         await sockets[i].send({"t": "push", "doc": doc, "version": versions[i], "updates": [
             {"clientID": snaps[i]["clientID"], "changes": insert_at(texts[i], pos, marker)}]})
-        # Drain everything each client has received so far.
+        # Every push is answered (applied, rejected or not saved); wait for that answer, so a
+        # slow commit can't leave the last push unanswered when the loop ends.
+        while not take(i, await sockets[i].recv(timeout=5)):
+            pass
+        # Drain what the other clients have received so far; anything late is picked up below.
         for j in range(3):
             while True:
                 try:
-                    msg = await sockets[j].recv(timeout=0.03)
+                    take(j, await sockets[j].recv(timeout=0.03))
                 except asyncio.TimeoutError:
                     break
-                if msg["t"] == "updates" and msg["from"] == versions[j]:
-                    for u in msg["updates"]:
-                        texts[j] = ChangeSet.from_json(u["changes"]).apply(texts[j])
-                        versions[j] += 1
-                        if u["clientID"] == snaps[j]["clientID"]:
-                            acknowledged += ["\n".join(part[1:]) for part in u["changes"]
-                                             if isinstance(part, list) and len(part) > 1]
     app.db.before_commit = None
     room = app.rooms.loaded(doc)
+    for j in range(3):
+        while versions[j] < room.version:
+            take(j, await sockets[j].recv(timeout=5))
     state = await app.db.read(lambda c: svc.load_state(c, doc))
     assert state.text == room.text() and state.version == room.version
     for j in range(3):
