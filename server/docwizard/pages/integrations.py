@@ -57,6 +57,7 @@ def register(app) -> None:
                 return redirect("/settings?saved=zotero#zotero")
             return redirect("/settings#zotero")
 
+        app.require_verified_email(req, "zotero")
         values = {k: form.get(k, "").strip()
                   for k in ("name", "connection", "library_type", "library_id", "collection", "api_url")}
         api_key = form.get("api_key", "").strip()

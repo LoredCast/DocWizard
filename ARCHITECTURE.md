@@ -552,6 +552,17 @@ HTML previews never come from these routes; they live on the preview origin ([§
 | Blob garbage collection | daily | deletes blobs unreferenced for more than 24 h; paused while a backup runs |
 | Render cache eviction | hourly, least recently used, by size cap | |
 
+### 7.7 Storage quotas and limits
+
+A server open to people the admin doesn't know needs every write to have a ceiling. DocWizard keeps the knobs generic (no plans or billing in the code): an external provisioning script or the admin area sets them per account.
+
+- **What counts**: the projects an account owns, with everything in them: assets (active and trashed), each document at its current size and named versions (`service.user_storage_bytes`). Uploads by editors of a shared project count for its owner. Automatic history doesn't count: nobody can delete it by hand, and it is thinned by age.
+- **The limit**: `users.quota_bytes`, or `limits.default_quota_bytes` (2 GB) when that is empty. 0 or less means no limit, for one account or as the default.
+- **Where it is checked**: uploads, new documents and projects, Word imports, named versions and restores, references added by lookup, files and changes pulled by sync, offline merges and live edits. Live edits use a figure at most 30 s old plus what was added since, and only text that grows a document is checked: deleting always works.
+- **Over the limit**: `413` with code `quota_exceeded` and "Storage quota reached…". The upload form and the editor show it as a message, a sync run stops with it as its error, and live edits stay in the browser until there is room.
+- **Object counts**: `limits.max_projects_per_user` and `limits.max_files_per_project` (0: no limit) return `413` with `project_limit` or `file_limit`.
+- The home page and Settings show the space used against the quota; the admin's Users page shows it per account.
+
 ## 8. Collaboration
 
 ### 8.1 Model
@@ -766,7 +777,12 @@ flowchart LR
 
 - **Requests** come from editors (preview, 300 ms after typing pauses), from exports and from publishing.
 - **Cache key**: SHA-256 over the project content at that version, the layout content hash, target, options and tool versions. Identical requests from several collaborators share one job and one result.
-- **Scheduling**: per `(build, target)` only the newest request is kept. Older queued jobs are dropped and running ones are cancelled. Global concurrency is limited (default: number of CPU cores, at most 4).
+- **Scheduling**: per `(build, target)` only the newest request is kept. Older queued jobs are dropped and running ones are cancelled. `render.concurrency` jobs run at once (default 2, no upper clamp; give the worker the same number with `DOCWIZARD_WORKER_CONCURRENCY`).
+- **Fairness**:
+  - *Fast lane.* LaTeX builds (`pdf-latex`), which can take minutes, may not use the `render.fast_lane` slots (default 1, at most `concurrency - 1`). They queue among themselves for the other slots, so HTML and Typst previews never wait behind a row of LaTeX builds. Quick targets use any free slot.
+  - *Per person* (the actor: an account, or a guest). Each person renders `render.user_previews` previews at a time (default 1); more wait their turn without holding a slot. Each person has at most `render.user_exports` exports queued or running (default 2); more get `429 export_limit`.
+  - *Optional budgets*, off by default. `render.per_user_rpm` is a token bucket of renders per minute that actually run (cache hits and shared jobs are free). `render.latex_daily_limit` caps LaTeX builds per person per UTC day. Both are kept in memory. Over a budget, exports get `429` and previews a `rendered` message with `status: "limited"`, which the editor shows as "Preview paused" with the reason.
+  - *Per project owner.* LaTeX follows `users.allow_latex` (NULL: `render.allow_latex`, default on), and the time limit `users.render_timeout_seconds` (NULL: `render.timeout_seconds`). Admins set both on the Users page. Refused LaTeX builds answer `403 latex_disabled`, pointing to the Typst PDF. While `require_email_verification` is on, LaTeX also waits for the owner's confirmed address.
 - **Build inputs and preview scope**: a project can set `build_inputs`, either a root document (`main.tex`, or `main.md` for Markdown) or an ordered list of Markdown files that pandoc reads as one document (`chapters/01.md`, `chapters/02.md`, …). Editing any input renders the whole build, so editing `chapters/02.tex` previews `main.tex` instead of failing on a missing preamble. Markdown projects can set `preview_scope` to `current-file` for faster previews, with the root's metadata merged in. LaTeX always previews the root.
 - **Job isolation (baseline, every deployment).** The boundary is the job, not the worker container. Every job runs as its own Unix user, taken from a pool with one user id per concurrency slot (for example 20000–20003):
   1. The app writes the job directory, `jobs/run/<id>/`, with `job.json`, a snapshot of the project files at that version and the resolved bibliography.
@@ -918,7 +934,9 @@ link-citations: true
 ### 9.6 Engine settings
 
 - **Typst**: `typst compile --root <job> --font-path <layout>/fonts --ignore-system-fonts <file>.typ`. Typst cannot read files outside `--root`. The worker has no network, so any Typst packages a layout uses (`@preview/…`) must be in the shared, read-only package cache (`--package-cache-path`). Admins install them from the admin area, and the app downloads them into the shared volume.
-- **LaTeX**: `latexmk -lualatex -interaction=nonstopmode -halt-on-error -synctex=1 -no-shell-escape`, with the environment variables `openin_any=p` and `openout_any=p` (kpathsea's paranoid mode).
+- **LaTeX**: `latexmk -lualatex -interaction=nonstopmode -halt-on-error -synctex=1 -no-shell-escape`, with kpathsea's paranoid mode twice over: the worker writes a `texmf.cnf` of the job's own (`openin_any = p`, `openout_any = p`, `shell_escape = f`; owned by the supervisor, read-only for the job) and puts it first with `TEXMFCNF=<job>/texmf-cnf:`, and sets the same values in the environment, which takes precedence. `TEXMFOUTPUT` is the job directory, so TeX reads and writes nothing outside it and no dot files.
+- **Links out of the job**: Typst's `--root` and kpathsea check paths, not where symlinks lead. Before every Typst and TeX step the worker kills what is left of earlier steps and removes, as the job's user, every symlink in the job directory that resolves outside it. It also refuses Typst runs without `--root` inside the job, and font folders outside the job, the render cache and the shared fonts, or with links leading out of them.
+- **Leftovers**: at startup the worker deletes job directories older than a minute that a restart interrupted (taking them over with `CAP_CHOWN`/`CAP_FOWNER` first), and hands younger ones back to the app.
 - **pandoc**: `meta` and `bib2csl` jobs run with `--sandbox`. Render jobs rely on the worker sandbox, because `--sandbox` doesn't restrict filters or PDF production and would block layout resources and images.
 - **Every job** gets its own `HOME`, `TMPDIR` and `TEXMFVAR` inside its job directory, and an environment containing only what the tool needs. Every render job is treated as untrusted code. LuaLaTeX alone gives documents a Lua interpreter (`\directlua`), whose file access is harder to reason about than TeX's own.
 
@@ -1173,8 +1191,11 @@ Registration mode is an admin setting: `open`, `invite` (invitation by email or 
   - stored as `scrypt$17$8$1$<salt>$<hash>`, so parameters can be raised later and old hashes upgraded at login;
   - each hash uses about 128 MiB, so a semaphore limits concurrent hashing (default 2) to prevent memory exhaustion.
 - **Password policy**: minimum length (default 12), checked against a bundled list of common passwords; no composition rules.
-- **Login throttling**: token buckets per account and per IP, kept in memory, with generic error messages.
+- **Login throttling**: token buckets per account and per IP, kept in memory, with generic error messages. Registrations and reset requests have buckets of their own, per IP and per email address or name, so people signing up at the same time never share one.
 - **Password reset and invitations**: sent by email via `smtplib`, using single-use tokens stored hashed and valid for 1 hour. Without SMTP, admins reset passwords.
+- **Email addresses**: optional at registration, required with `accounts.require_email_verification` (which needs `[smtp]`). An address is confirmed through a single-use link (`/verify/<token>`, valid 2 days; opening it shows a button, so mail scanners confirm nothing), by a login provider that sends it without `email_verified: false`, by using a reset or invitation link mailed to it, or by an admin entering it. A changed address replaces the old one only once its link is used. No two accounts share an address (compared without case). While the setting is on, publishing, sync with outside servers and Zotero libraries wait until the address is confirmed and answer with `403 email_unverified` and a pointer to Settings; admins are exempt.
+- **Legal links**: `[legal]` `terms_url`, `privacy_url`, `imprint_url` (http or https) and `abuse_email` appear in the footer of every page, the login, registration, share and error pages included. With terms or a privacy policy set, registration says that creating an account accepts them.
+- **Anti-bot challenge** (optional): `security.captcha_provider = "turnstile"` or `"hcaptcha"` with `captcha_site_key` and `captcha_secret` shows the provider's widget on registration and password reset and checks the answer on the server through the outbound policy (§15). The widget's origin is allowed in the CSP of those pages only.
 - **TOTP** (optional): RFC 6238, implemented with `hmac`, plus one-time recovery codes. Admins can require it.
 
 ### 13.3 Sessions and CSRF
@@ -1228,7 +1249,8 @@ All checks live in `auth/permissions.py`. Handlers call `require(actor, capabili
 
 The admin area covers:
 
-- **Users**: create, invite, disable, delete, reset password, set role and quota, require TOTP, view sessions.
+- **Users**: create, invite, disable, suspend (and unpublish everything), delete, reset password, set role, quota, LaTeX permission and render time limit, require TOTP, view sessions.
+- **Publications**: every published site with its owner; unpublish, take down, suspend the owner ([§14.4](#144-publishing)).
 - **Instance settings**: registration mode, guest policy, default layout, limits (render, upload, sync), SMTP status, outbound request policy.
 - **OIDC providers**: configured in `docwizard.toml` so secrets stay out of the database. The admin area shows their status and can run a test login.
 - **Layouts**: install layouts, approve Lua filters by hash, set the instance default, manage CSL styles and Typst packages.
@@ -1236,6 +1258,15 @@ The admin area covers:
 - **Audit log**.
 
 The CLI (`python -m docwizard …`) provides `serve`, `migrate`, `create-admin`, `reset-password`, `backup`, `check` (tools, sandbox, file permissions) and `rotate-key`.
+
+### 13.7 Self-service
+
+What an account can do for itself, so a public server doesn't route every request through an admin.
+
+- **Sessions**: Settings lists where the account is logged in (browser and system read from the user agent, last activity, this device marked). Each one can be revoked, which ends it at its next request; "Log out other devices" keeps only the current one. Revoking the current session logs out.
+- **Files and trash**: the project page renames and deletes documents and files, restores them from the project's trash, and sets the build inputs (§9.2). The editor renames and deletes the open document. Owners can empty a project's trash for good, and Settings lists deleted projects to restore or delete for good, with one action that empties all of an account's trash. Space is free right away, not after the 30-day purge (§7.6, §7.7).
+- **Export**: `GET /settings/export` streams a zip: `account.json` (profile, projects and roles, comments written, linked logins, Zotero libraries without keys, custom layouts), owned projects under `projects/`, projects shared with the account under `shared/`, and named versions under `versions/`. It is written to `<cache_dir>/exports` and removed after an hour; one export per account runs at a time.
+- **Deleting the account** needs the username typed, the password (or, without one, a login in the last 15 minutes) and the two-step code when it is on. Owned projects are deleted with their published sites and folders, or, when asked, handed to one of their editors. Sessions, logins, tokens, recovery codes, notifications and Zotero libraries go with the account; audit entries about it keep only that something happened. Comments in others' projects stay under the name they were written with. The last admin can't delete themselves.
 
 ## 14. Sharing, guests and publishing
 
@@ -1271,8 +1302,10 @@ People who review a text often don't write Markdown: supervisors, editors, produ
 - Owners, and editors if allowed, can publish a document as a static site. DocWizard renders the `html` target with the layout's template and writes it to `/var/lib/docwizard-publish/<slug>/`, with images and an optional PDF download.
 - Published sites are served by the proxy from a **separate origin** (for example `pub.example.org`) with a strict CSP and no scripts. Documents can contain raw HTML, which must never run on the app origin.
 - Visibility is public or unlisted (unguessable slug). Republishing is manual by default; "update automatically" re-renders once edits settle.
-- Slugs match `[a-z0-9][a-z0-9-]{2,63}`. Every path starting with `_` on the publish host (such as `/_preview/`) is reserved for DocWizard and can never be a slug.
+- Slugs match `[a-z0-9][a-z0-9-]{2,63}`. Every path starting with `_` on the publish host (such as `/_preview/`) is reserved for DocWizard and can never be a slug. Names that read as part of the server or as official (`admin`, `api`, `assets`, `static`, `login`, `register`, `healthz`, `metrics`, `well-known`, `robots`, `sitemap`, `abuse`, `security`, `terms`, `privacy`, … in `RESERVED_SLUGS`) are refused too; a publication keeps an address it had before.
+- **Search engines**: unlisted sites always get `X-Robots-Tag: noindex, nofollow` (the proxy matches `/u-*`) and a `robots` meta tag. Public sites are indexable unless `server.index_public_sites = false`; the proxy reads `DOCWIZARD_PUBLIC_ROBOTS` (`all` or `noindex, nofollow`), so set both.
 - Unpublishing deletes the folder.
+- **Moderation** (admin area, Publications): *Unpublish* deletes the folder and the row. *Take down* also blocks the address (`taken_down_slugs`) until an admin allows it again. *Suspend owner and unpublish all* disables the owner's account, ends their sessions and unpublishes every site of the projects they own; the Users page has the same action. Every step goes to the audit log, with the reason the admin gave.
 
 ## 15. Security model
 
@@ -1287,7 +1320,7 @@ People who review a text often don't write Markdown: supervisors, editors, produ
 | Account takeover | scrypt, throttling, TOTP, session rotation, `__Host-` cookies, OIDC matched by `(iss, sub)`, no automatic linking by email |
 | CSRF and cross-site WebSocket hijacking | `SameSite=Lax`, `Origin` checks, CSRF token header |
 | Malicious collaboration updates | Role check on every push; ChangeSets validated against document length and surrogate boundaries; size and rate limits |
-| Denial of service | Body and frame limits, render concurrency per user, job timeouts, quotas, scrypt semaphore, disconnecting slow clients; the proxy enforces connection limits |
+| Denial of service | Body and frame limits, render slots with a fast lane, per-person preview and export limits and optional render budgets ([§9.2](#92-render-jobs)), job timeouts, quotas, scrypt semaphore, disconnecting slow clients; the proxy enforces connection limits |
 | Secrets at rest | WebDAV and Zotero credentials and TOTP secrets are encrypted with AES-256-GCM, using a master key kept outside the database. Each ciphertext records its key id, so keys can be rotated |
 | Supply chain | Hash-pinned Python packages, vendored frontend code with checksums, verified binaries, CI check for new dependencies ([§17.5](#175-updating)) |
 | Leaks between users | Every query is scoped by permission checks. The render cache is keyed by content but served only to users with access to the project |
@@ -1533,8 +1566,9 @@ Release notes call out breaking config changes. The service worker picks up the 
 ### 18.4 Observability
 
 - JSON-lines logs on stdout via stdlib `logging`, with request id, user id, route, status and duration.
-- `/healthz` reports app liveness and whether the worker is reachable.
-- Optional `/metrics` in Prometheus text format (hand-written), admin-only or on a separate socket.
+- `/healthz` reports app liveness, cheaply.
+- `/readyz` (no login, any host) checks that the database takes a write, the worker answers `hello` and the data, jobs, cache and publish disks have 200 MB free. It answers `200` or `503` with the checks as JSON, for load balancers and orchestrators.
+- `/metrics` in Prometheus text format (hand-written), admin-only. Besides counts of users, projects and the like: `docwizard_renders_total{target,status}`, `docwizard_render_duration_seconds{target}` (histogram), `docwizard_render_queue_depth`, `docwizard_render_rejections_total`, `docwizard_quota_rejections_total`, `docwizard_registrations_total` and `docwizard_storage_bytes`. Counters start at zero with each process. Labels never carry user names, ids or paths.
 - The admin health page ([§13.6](#136-admin)).
 
 ## 19. Configuration
@@ -1554,20 +1588,24 @@ cache_dir    = "/var/lib/docwizard-cache"
 durability   = "full"                       # or "normal", see §7.3
 serve_static = false
 source_url   = "https://git.example.org/docwizard"     # AGPL source offer
+index_public_sites = true                   # search engines may index public publications (§14.4)
 
 [security]
 secret_key_file        = "/run/secrets/docwizard_key"
 allow_private_outbound = ["nextcloud.lan"]          # exceptions to the SSRF policy
 session_idle_days      = 14
 guest_session_hours    = 24
+captcha_provider       = ""                          # turnstile | hcaptcha
+captcha_site_key       = ""
+captcha_secret_file    = "/run/secrets/captcha"
 
 [accounts]
 registration            = "invite"   # open | invite | oidc-only | closed
 guests                  = true
 guest_max_role          = "editor"
-scratch_projects        = false
 require_totp_for_admins = true
 min_password_length     = 12
+require_email_verification = false   # needs [smtp]
 
 [smtp]
 host          = "smtp.example.org"
@@ -1597,11 +1635,25 @@ timeout_seconds     = 90
 memory_mb           = 1536
 preview_debounce_ms = 300
 default_layout      = "default"
+fast_lane           = 1      # slots LaTeX can't take (§9.2)
+user_previews       = 1      # per person, at a time
+user_exports        = 2      # per person, queued or running
+per_user_rpm        = 0      # renders per person per minute; 0: no limit
+latex_daily_limit   = 0      # LaTeX builds per person per day; 0: no limit
+allow_latex         = true   # users.allow_latex overrides it per account
+
+[legal]
+terms_url    = "https://example.org/terms"
+privacy_url  = "https://example.org/privacy"
+imprint_url  = "https://example.org/imprint"
+abuse_email  = "abuse@example.org"
 
 [limits]
 max_document_bytes  = 5_000_000
 max_upload_bytes    = 50_000_000
-default_quota_bytes = 2_000_000_000
+default_quota_bytes = 2_000_000_000   # per account; 0: no limit (§7.7)
+max_projects_per_user = 0              # 0: no limit
+max_files_per_project = 0
 
 [sync]
 default_poll_seconds = 60
@@ -1630,6 +1682,8 @@ max_push_churn    = 1_000_000   # inserted + deleted code units per push
 | Sync | pytest with Nextcloud and Seafile containers | Every row of the [§12.2](#122-algorithm) table, conflicts, ETag races, renames in both directions keeping `doc_id` |
 | OIDC | pytest with a Keycloak container | Login, group mapping, logout |
 | Frontend unit | Node's built-in test runner | Pandoc syntax extensions, citation search, word count |
+| Browser smoke (CI) | Playwright with headless Chromium, `node --test tests/e2e/` | At 390×844 and 1280×800: register and log in, create, rename and delete a file, the formatting toolbar, the phone's Edit/Preview switch with the HTML and PDF preview, the storage-quota message. Every page is checked for horizontal overflow, failed asset requests and page errors |
+| Lint (CI) | `ruff check` (`E9`, `F`), `node --check`, template compilation | Syntax errors, undefined names and unused imports in Python, syntax of every frontend module, templates that don't compile |
 | End-to-end | Playwright (optional, dev-only) | Two browsers editing one document, offline reload and reconnect, share links, preview scroll sync without new history entries in Chromium, Firefox and WebKit, uploaded HTML/SVG never running on the app origin |
 | Performance | `scripts/` | Size budgets, render timings on a reference paper |
 

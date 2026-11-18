@@ -36,6 +36,7 @@ def register(app) -> None:
     async def put(req: Request) -> Response:
         """Create or change the publication, then publish it."""
         doc, project, _ = await document_access(app, req, req.param("id"), "publish")
+        app.require_verified_email(req, "publish")
         body = await req.json_object()
         visibility = body.get("visibility", "public")
         if visibility not in ("public", "unlisted"):
@@ -46,9 +47,11 @@ def register(app) -> None:
             slug = current["slug"] if keep else unlisted_slug()
         else:
             try:
-                slug = check_slug(str(body.get("slug") or ""))
+                slug = check_slug(str(body.get("slug") or ""), current["slug"] if current else None)
             except PublishError as exc:
                 raise bad_request(str(exc)) from None
+            if (current is None or slug != current["slug"]) and await app.publisher.is_taken_down(slug):
+                raise bad_request("This address is no longer available. Choose another one.")
         auto, with_pdf = int(bool(body.get("autoUpdate"))), int(bool(body.get("withPdf")))
 
         def work(c):
@@ -84,6 +87,7 @@ def register(app) -> None:
 
     async def republish(req: Request) -> Response:
         doc, _, _ = await document_access(app, req, req.param("id"), "publish")
+        app.require_verified_email(req, "publish")
         pub = await get_pub(doc["id"])
         if pub is None:
             raise bad_request("This document isn't published.")

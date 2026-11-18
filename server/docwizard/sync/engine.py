@@ -22,6 +22,7 @@ from ..logs import fields
 from ..netpolicy import FetchError, PolicyError
 from ..projects import files
 from ..projects import service as svc
+from ..projects.quota import QuotaExceeded
 from ..secretbox import SecretError, context_for
 from .folder import FolderRemote
 from .git import GitError, GitRemote
@@ -239,6 +240,7 @@ class _Run:
 
     async def create_local(self, path: str, data: bytes) -> Local | None:
         """A file that arrived from the remote side becomes a document or an asset."""
+        await self.check_quota(len(data), new_file=True)
         if files.kind_for(path) is not None:
             try:
                 text, ending = files.decode_text(data)
@@ -254,6 +256,14 @@ class _Run:
             return Local("doc", path, files.sha256(data), doc_id, ending)
         sha = await self.write_asset(path, data)
         return Local("asset", path, sha)
+
+    async def check_quota(self, growth: int, new_file: bool = False) -> None:
+        """Files from the remote side count against the project owner's storage (§7.7). Going over
+        stops the run with an error the project page shows; files already pulled stay."""
+        try:
+            await self.app.quotas.check(self.pid, growth, new_files=int(new_file))
+        except QuotaExceeded as exc:
+            raise SyncError(exc.message) from None
 
     async def write_asset(self, path: str, data: bytes) -> str:
         def store():
@@ -301,6 +311,7 @@ class _Run:
             their_text, _ = files.decode_text(theirs)
         except UnicodeDecodeError:
             raise SyncError(f"{item.path} on the server is not valid UTF-8.") from None
+        await self.check_quota(len(theirs) - len(base))
         room = await self.app.rooms.get(item.doc_id)
         conflicts = await room.call(lambda: room.reconcile_outside(
             base_text, their_text, source=f"sync:{self.target['kind']}", label=f"Remote version, {self.label}",
@@ -500,6 +511,7 @@ class _Run:
                 if item.kind == "doc":
                     await self.apply_remote_text(item, await self.base_bytes(row), data)
                 else:
+                    await self.check_quota(len(data))
                     await self.write_asset(path, data)
                 await self.set_base(path, data, etag, entry.fileid, item_id)
                 self.report["downloaded"].append(path)
