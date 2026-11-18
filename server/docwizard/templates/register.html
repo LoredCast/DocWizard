@@ -5,8 +5,13 @@
   <form method="post" action="/register" class="form">
     <label>{{ _("Username") }} <input name="username" autocomplete="username" required autofocus value="{{ username }}"></label>
     <label>{{ _("Display name") }} <input name="display_name" autocomplete="name" value="{{ display_name }}"></label>
+    <label>{{ _("Email address") if email_required else _("Email address (optional)") }} <input name="email" type="email" autocomplete="email" maxlength="200" value="{{ email }}" {% if email_required %}required{% endif %}></label>
+    {% if email_required %}<p class="muted">{{ _("We send you a link to confirm it. Publishing and sync work once it is confirmed.") }}</p>
+    {% elif mail %}<p class="muted">{{ _("For password resets and comment notifications. We send you a link to confirm it.") }}</p>{% endif %}
     <label>{{ _("Password") }} <input name="password" type="password" autocomplete="new-password" required minlength="{{ min_length }}"></label>
+    {% include "_captcha.html" %}
     {% if error %}<p class="error" role="alert">{{ _(error) }}</p>{% endif %}
+    {% if legal.terms_url or legal.privacy_url %}<p class="muted">{{ _("By creating an account, you accept the policies linked at the bottom of this page.") }}</p>{% endif %}
     <div class="buttons"><button type="submit" class="primary">{{ _("Create account") }}</button></div>
   </form>
 </section>

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{{ _("Confirm your email address") }} · DocWizard{% endblock %}
+{% block content %}
+<section class="narrow">
+  <form method="post" class="form">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <h1>{{ _("Confirm your email address") }}</h1>
+    <p>{{ _("Use {email} for the account {username}?", email=email, username=username) }}</p>
+    {% if error %}<p class="error" role="alert">{{ _(error) }}</p>{% endif %}
+    <div class="buttons"><button type="submit" class="primary">{{ _("Confirm") }}</button></div>
+  </form>
+</section>
+{% endblock %}

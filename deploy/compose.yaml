@@ -45,6 +45,7 @@ services:
       - "${DOCWIZARD_PUBLISH_LISTEN:-127.0.0.1:8081}:8081"
     environment:
       DOCWIZARD_TRUSTED_PROXIES: ${DOCWIZARD_TRUSTED_PROXIES:-private_ranges}
+      DOCWIZARD_PUBLIC_ROBOTS: ${DOCWIZARD_PUBLIC_ROBOTS:-all} # "noindex, nofollow" keeps public sites out of search engines
     volumes:
       - run:/run/docwizard
       - publish:/srv/publish:ro

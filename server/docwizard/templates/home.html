@@ -4,6 +4,10 @@
 <button type="button" class="primary" data-open-dialog="new-project">{{ _("New project") }}</button>{% endblock %}
 {% block content %}
 {% if error %}<p class="error pad" role="alert">{{ _(error) }}</p>{% endif %}
+{% if verify == "sent" %}<p class="pad" role="status">{{ _("Welcome! We sent you a link to confirm your email address.") }}</p>
+{% elif verify == "failed" %}<p class="pad error" role="alert">{{ _("The confirmation link couldn't be sent. Try again in your settings.") }} <a href="/settings#email">{{ _("Settings") }}</a></p>
+{% elif email_reminder %}<p class="pad" role="status">{{ _("Confirm your email address to publish and sync.") }} <a href="/settings#email">{{ _("Settings") }}</a></p>{% endif %}
+{% if storage and storage.full %}<p class="pad error" role="alert">{{ _("Your storage is full. Delete files or empty the trash of your projects to keep writing.") }} <a href="/settings#storage">{{ _("Storage") }}</a></p>{% endif %}
 {% if inbox %}
 <h2 class="pad">{{ _("For you") }} <a class="muted" href="/notifications">{{ _("All notifications") }}</a></h2>
 <ul class="plain pad inbox">
@@ -61,6 +65,7 @@
 {% else %}
 <p class="pad">{{ _("No projects yet.") }} <button type="button" class="link" data-open-dialog="new-project">{{ _("New project") }}</button> · <button type="button" class="link" data-import-word>{{ _("Import a Word file") }}</button></p>
 {% endif %}
+{% if storage %}<p class="pad muted storage-line"><a href="/settings#storage">{{ _("Storage") }}</a>: {% if storage.limit %}{{ _("{used} of {limit} used", used=storage.used|filesize or "0 B", limit=storage.limit|filesize) }}{% else %}{{ _("{used} used", used=storage.used|filesize or "0 B") }}{% endif %}</p>{% endif %}
 <dialog id="new-project" aria-labelledby="new-project-title">
   <form method="post" action="/projects" class="form">
     <h2 id="new-project-title">{{ _("New project") }}</h2>

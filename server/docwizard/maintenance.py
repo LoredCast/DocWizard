@@ -59,6 +59,7 @@ class Maintenance:
             return projects, docs, assets
 
         projects, docs, assets = await self.app.db.write(work)
+        self.app.quotas.forget()
         for pid in projects:
             await asyncio.to_thread(shutil.rmtree, self.app.rooms.project_dir(pid), True)
         return {"projects": len(projects), "documents": docs, "assets": assets}

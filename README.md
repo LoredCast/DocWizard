@@ -85,6 +85,7 @@ Settings are read from `docwizard.toml` (see [deploy/docwizard.example.toml](dep
 - **Secret key**: Created automatically at `<data_dir>/secret.key` (or set `security.secret_key_file`). Back it up separately from your database; rotate keys with `python -m docwizard rotate-key`.
 - **Private LAN sync hosts**: List internal WebDAV/Nextcloud/git hosts in `security.allow_private_outbound` (or in `/admin/settings`).
 - **Folder and git sync**: List the folders projects may sync with in `[sync] folder_roots`, for example one that Syncthing also shares. Git sync needs `git` on the `PATH` (the container image includes it).
+- **Open registration**: For a server open to people you don't know, set `accounts.require_email_verification = true` (needs `[smtp]`) so publishing and sync wait for a confirmed email address, optionally add an anti-bot challenge (`security.captcha_provider = "turnstile"` or `"hcaptcha"`), and size `limits.default_quota_bytes`, `max_projects_per_user` and `max_files_per_project`. Quotas count everything an account's projects hold, trash included; `0` means no limit. Budget rendering with `render.per_user_rpm` and `render.latex_daily_limit` (or turn LaTeX off with `render.allow_latex = false` and allow it per account), fill in `[legal]` for the footer links, and watch `/readyz` and `/metrics`. Admins take down publications under Admin → Publications.
 - **Backups**: Back up and restore consistent snapshots with:
 
   ```sh
@@ -99,6 +100,15 @@ pytest
 ```
 
 The suite covers unit, property, adversarial collaboration protocol, and integration tests. Pandoc, Typst, LaTeX, and CodeMirror/frontend cross-check tests run automatically when `pandoc`, `typst`, `latexmk`, and `node` are available (set `DOCWIZARD_TEST_TOOLS_PATH` to point at specific `pandoc`/`typst` binaries).
+
+Browser smoke tests start a throwaway server and drive headless Chromium at phone (390×844) and desktop (1280×800) sizes: registration and login, creating, renaming and deleting a file, the formatting toolbar, the HTML and PDF preview with the phone's Edit/Preview switch, and the storage-quota message. They also fail on horizontal overflow, failed asset requests and page errors. They need the Node `playwright` package with Chromium, plus pandoc and Typst:
+
+```sh
+npm install --no-save playwright && npx playwright install chromium
+node --test tests/e2e/
+```
+
+CI runs `pytest`, the browser tests and the linters (`ruff check`, `node --check` on the frontend, template compilation) on every pull request into `main` and `nightly`.
 
 ## Repository
 

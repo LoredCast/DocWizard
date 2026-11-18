@@ -15,6 +15,7 @@ from ..auth import sessions, users
 from ..http.request import HTTPError, Request
 from ..http.response import Response, redirect
 from ..mail import MailError
+from ..render.scheduler import DURATION_BUCKETS
 
 ROLES = ("viewer", "commenter", "editor")
 REGISTRATION = ("open", "invite", "oidc-only", "closed")
@@ -91,11 +92,18 @@ def register(app) -> None:
         if q:
             sql += " WHERE u.username LIKE ? OR u.display_name LIKE ? OR u.email LIKE ?"
             params += [f"%{q}%"] * 3
-        rows = await app.db.fetchall(sql + " ORDER BY u.username COLLATE NOCASE LIMIT 500", tuple(params))
+        def load(c):
+            from ..projects.service import user_storage_bytes
+
+            found = c.execute(sql + " ORDER BY u.username COLLATE NOCASE LIMIT 500", tuple(params)).fetchall()
+            return [{**dict(r), "storage": user_storage_bytes(c, r["id"])} for r in found]
+
+        rows = await app.db.read(load)
         ctx.setdefault("error", None)
         ctx.setdefault("link", None)
         ctx.setdefault("notice", req.query.get("done"))
-        return page(req, "users", status, users=[dict(r) for r in rows], q=q, mail=app.mail.enabled, **ctx)
+        return page(req, "users", status, users=rows, q=q, mail=app.mail.enabled,
+                    latex_default=app.cfg.render.allow_latex, timeout_default=app.cfg.render.timeout_seconds, **ctx)
 
     async def users_get(req: Request) -> Response:
         return await users_page(req)
@@ -111,7 +119,7 @@ def register(app) -> None:
             return await users_page(req, 400, error="This email address doesn't look right.")
         try:
             uid = await app.db.write(lambda c: users.create(c, username, None, display_name=display_name,
-                                                             email=email, role=role))
+                                                             email=email, role=role, email_verified=True))
         except ValueError as exc:
             return await users_page(req, 400, error=str(exc))
         await audit(req, "user.create", f"user:{uid}", username=username, role=role)
@@ -142,7 +150,7 @@ def register(app) -> None:
             raise HTTPError(404, "not_found", "No such user.")
         action = form.get("action", "")
         me = uid == req.user.id
-        if me and action in ("disable", "make-user", "delete"):
+        if me and action in ("disable", "suspend", "make-user", "delete"):
             return await users_page(req, 400, error="You can't do this to your own account.")
         if action in ("disable", "enable"):
             active = int(action == "enable")
@@ -153,6 +161,15 @@ def register(app) -> None:
                     sessions.delete_for_user(c, uid)
 
             await app.db.write(work)
+        elif action == "suspend":
+            def suspend(c):
+                c.execute("UPDATE users SET active = 0 WHERE id = ?", (uid,))
+                sessions.delete_for_user(c, uid)
+
+            await app.db.write(suspend)
+            slugs = await app.publisher.unpublish_owned_by(uid)
+            await audit(req, "user.suspend", f"user:{uid}", username=row["username"], unpublished=", ".join(slugs))
+            return redirect("/admin/users?done=suspend" + ("&q=" + form.get("q", "") if form.get("q") else ""))
         elif action in ("make-admin", "make-user"):
             await app.db.execute("UPDATE users SET instance_role = ? WHERE id = ?",
                                  ("admin" if action == "make-admin" else "user", uid))
@@ -178,7 +195,21 @@ def register(app) -> None:
                 quota_bytes = int(float(quota) * 1_000_000_000) if quota else None
             except ValueError:
                 return await users_page(req, 400, error="The quota must be a number of gigabytes.")
-            await app.db.execute("UPDATE users SET email = ?, quota_bytes = ? WHERE id = ?", (email, quota_bytes, uid))
+            latex = {"1": 1, "0": 0}.get(form.get("allow_latex", ""))
+            timeout = form.get("render_timeout", "").strip()
+            if timeout and not (timeout.isdigit() and 10 <= int(timeout) <= 3600):
+                return await users_page(req, 400, error="The render time limit must be between 10 and 3600 seconds.")
+            # An address an admin enters counts as confirmed; an unchanged one keeps its state.
+            same = bool(email and row["email"] and email.lower() == row["email"].lower())
+
+            def update(c):
+                c.execute("UPDATE users SET email = ?, quota_bytes = ?, allow_latex = ?, render_timeout_seconds = ?"
+                          " WHERE id = ?", (email, quota_bytes, latex, int(timeout) if timeout else None, uid))
+                if not same:
+                    users.set_email(c, uid, email, verified=True)
+
+            await app.db.write(update)
+            app.quotas.forget(uid)
         elif action == "delete":
             owned = (await app.db.fetchone("SELECT COUNT(*) FROM projects WHERE owner_id = ?", (uid,)))[0]
             if owned:
@@ -246,7 +277,9 @@ def register(app) -> None:
         if form.get("guest_max_role") not in ROLES:
             return await settings_page(req, 400, error="Choose the highest role for guests.")
         new["guest_max_role"] = form["guest_max_role"]
-        new["scratch_projects"] = form.get("scratch_projects") == "1"
+        new["require_email_verification"] = form.get("require_email_verification") == "1"
+        if new["require_email_verification"] and not app.mail.enabled:
+            return await settings_page(req, 400, error="Set up mail first: confirmation links are sent by email.")
         new["require_totp_for_admins"] = form.get("require_totp_for_admins") == "1"
         try:
             new["min_password_length"] = max(8, min(128, int(form.get("min_password_length", "12"))))
@@ -306,6 +339,69 @@ def register(app) -> None:
         await app.save_filter_approvals()
         await audit(req, f"layout.{action}", layout.id, hash=digest)
         return redirect("/admin/layouts?done=" + action)
+
+    # -- publications -----------------------------------------------------------
+    async def publications_get(req: Request) -> Response:
+        require_admin(req)
+        q = req.query.get("q", "").strip()
+        sql = ("SELECT p.id, p.slug, p.visibility, p.status, p.updated_at, d.path AS doc_path, pr.name AS project,"
+               " u.id AS owner_id, u.username AS owner, u.active AS owner_active FROM publications p"
+               " JOIN projects pr ON pr.id = p.project_id JOIN users u ON u.id = pr.owner_id"
+               " JOIN documents d ON d.id = p.doc_id")
+        params: list = []
+        if q:
+            sql += " WHERE p.slug LIKE ? OR u.username LIKE ? OR pr.name LIKE ?"
+            params += [f"%{q}%"] * 3
+        rows = await app.db.fetchall(sql + " ORDER BY p.updated_at DESC LIMIT 500", tuple(params))
+        pubs = [{**dict(r), "url": app.publisher.url_for(r["slug"])} for r in rows]
+        blocked = await app.db.fetchall(
+            "SELECT t.slug, t.reason, t.taken_down_at, u.username AS admin FROM taken_down_slugs t"
+            " LEFT JOIN users u ON u.id = t.taken_down_by ORDER BY t.taken_down_at DESC LIMIT 200")
+        return page(req, "publications", publications=pubs, blocked=[dict(b) for b in blocked], q=q,
+                    notice=req.query.get("done"))
+
+    async def publications_post(req: Request) -> Response:
+        require_admin(req)
+        form = await req.form()
+        action = form.get("action", "")
+        back = "/admin/publications?done=" + action + ("&q=" + form.get("q", "") if form.get("q") else "")
+        if action == "release":
+            slug = form.get("slug", "")
+            await app.db.execute("DELETE FROM taken_down_slugs WHERE slug = ?", (slug,))
+            await audit(req, "publication.release", slug)
+            return redirect(back)
+        try:
+            pub_id = int(form.get("id", ""))
+        except ValueError:
+            raise HTTPError(404, "not_found", "No such publication.") from None
+        pub = await app.db.fetchone(
+            "SELECT p.slug, pr.owner_id, u.username FROM publications p JOIN projects pr ON pr.id = p.project_id"
+            " JOIN users u ON u.id = pr.owner_id WHERE p.id = ?", (pub_id,))
+        if pub is None:
+            raise HTTPError(404, "not_found", "No such publication.")
+        if action == "unpublish":
+            await app.publisher.unpublish(pub_id)
+            await audit(req, "publication.unpublish", pub["slug"], owner=pub["username"])
+        elif action == "takedown":
+            reason = form.get("reason", "").strip()[:500]
+            await app.publisher.take_down(pub_id, req.user.id, reason)
+            await audit(req, "publication.takedown", pub["slug"], owner=pub["username"], reason=reason)
+        elif action == "suspend-owner":
+            if pub["owner_id"] == req.user.id:
+                raise HTTPError(400, "bad_request", "You can't do this to your own account.")
+
+            def suspend(c):
+                c.execute("UPDATE users SET active = 0 WHERE id = ?", (pub["owner_id"],))
+                sessions.delete_for_user(c, pub["owner_id"])
+
+            await app.db.write(suspend)
+            await app.publisher.take_down(pub_id, req.user.id, form.get("reason", "").strip()[:500])
+            slugs = [pub["slug"], *await app.publisher.unpublish_owned_by(pub["owner_id"])]
+            await audit(req, "user.suspend", f"user:{pub['owner_id']}", username=pub["username"],
+                        unpublished=", ".join(slugs))
+        else:
+            raise HTTPError(400, "bad_request", "Unknown action.")
+        return redirect(back)
 
     # -- audit log --------------------------------------------------------------
     async def audit_get(req: Request) -> Response:
@@ -371,6 +467,35 @@ def register(app) -> None:
         gauge("docwizard_renders_running", len(app.renderer._inflight), "Render jobs queued or running.")
         gauge("docwizard_worker_up", int(bool(app.renderer.worker.versions)), "Whether the render worker answered.")
         gauge("docwizard_recent_errors", len(app.recent_errors), "Errors logged since start (last 50 kept).")
+        renderer = app.renderer
+        gauge("docwizard_render_queue_depth", renderer.queued, "Render jobs waiting for a slot.")
+        from ..projects.service import total_storage_bytes
+
+        gauge("docwizard_storage_bytes", await app.db.read(total_storage_bytes),
+              "Bytes stored for all accounts, counted as for quotas.")
+
+        def counter(name: str, value, help_text: str, labels: str = "") -> None:
+            if not any(line.startswith(f"# HELP {name} ") for line in lines):
+                lines.append(f"# HELP {name} {help_text}")
+                lines.append(f"# TYPE {name} counter")
+            lines.append(f"{name}{labels} {value}")
+
+        for (target, status), n in sorted(renderer.stats.totals.items()):
+            counter("docwizard_renders_total", n, "Renders run since start, by target and outcome.",
+                    f'{{target="{target}",status="{status}"}}')
+        counter("docwizard_render_rejections_total", renderer.rejections, "Renders refused by a per-person limit.")
+        counter("docwizard_quota_rejections_total", app.quotas.rejections, "Writes refused by a storage or object limit.")
+        counter("docwizard_registrations_total", app.registrations, "Accounts registered since start.")
+        name = "docwizard_render_duration_seconds"
+        if renderer.stats.durations:
+            lines.append(f"# HELP {name} How long renders took, by target.")
+            lines.append(f"# TYPE {name} histogram")
+        for target, hist in sorted(renderer.stats.durations.items()):
+            for bound, n in zip(DURATION_BUCKETS, hist):
+                lines.append(f'{name}_bucket{{target="{target}",le="{bound}"}} {n}')
+            lines.append(f'{name}_bucket{{target="{target}",le="+Inf"}} {hist[-1]}')
+            lines.append(f'{name}_sum{{target="{target}"}} {hist[-2]:.3f}')
+            lines.append(f'{name}_count{{target="{target}"}} {hist[-1]}')
         body = ("\n".join(lines) + "\n").encode()
         return Response(body, 200, "text/plain; version=0.0.4; charset=utf-8")
 
@@ -382,5 +507,7 @@ def register(app) -> None:
     r.add("POST", "/admin/settings", settings_post)
     r.add("GET", "/admin/layouts", layouts_get)
     r.add("POST", "/admin/layouts", layouts_post)
+    r.add("GET", "/admin/publications", publications_get)
+    r.add("POST", "/admin/publications", publications_post)
     r.add("GET", "/admin/audit", audit_get)
     r.add("GET", "/metrics", metrics)

@@ -281,9 +281,21 @@ class Room:
             new_len = cs.new_length
         if new_len > self.rooms.cfg.limits.max_document_bytes:
             raise PushError("too_large", "The document would exceed the size limit.")
+        await self.check_quota(new_len - len(self.buf))
         records = [{"clientID": peer.client_id, "changes": cs.to_json()} for cs in parsed]
         await self._commit(parsed, records, author=peer.author)
         return True
+
+    async def check_quota(self, growth: int) -> None:
+        """Text that grows the document counts against the project owner's storage (§7.7)."""
+        if growth <= 0:
+            return
+        from ..projects.quota import QuotaExceeded
+
+        try:
+            await self.rooms.app.quotas.check(self.project_id, growth, live=True)
+        except QuotaExceeded as exc:
+            raise PushError(exc.code, exc.message) from None
 
     async def _commit(self, changesets: list[ChangeSet], records: list[dict], author: int | str | None,
                       merge_id: str | None = None) -> int:
@@ -469,6 +481,7 @@ class Room:
         if not cs.empty_changes:
             if cs.new_length > self.rooms.cfg.limits.max_document_bytes:
                 raise PushError("too_large", "The document would exceed the size limit.")
+            await self.check_quota(cs.new_length - n)
             # The thread is decided: its anchor goes before the edit, so it isn't orphaned by it.
             self.anchors.pop(key, None)
             try:
@@ -496,6 +509,7 @@ class Room:
             "SELECT version FROM doc_ops WHERE doc_id = ? AND merge_id = ?", (self.doc_id, merge_id)).fetchone())
         if prior is not None:
             return {"t": "merged", "doc": self.doc_id, "mergeId": merge_id, "version": prior[0] + 1, "conflicts": 0}
+        await self.check_quota(u16len(text) - u16len(base))
         conflicts = await self._reconcile(base, text, source=f"offline:{peer.name}", author=peer.author,
                                           label=f"Offline version, {peer.name}", merge_id=merge_id,
                                           client_id=f"merge:{merge_id}")

@@ -60,7 +60,7 @@
 {% block content %}{% endblock %}
 </main>
 {% block footer %}
-<footer class="statusbar"><a href="/source">{{ _("Source code") }}</a><span>DocWizard {{ release }}</span></footer>
+<footer class="statusbar"><a href="/source">{{ _("Source code") }}</a>{% include "_legal.html" %}<span>DocWizard {{ release }}</span></footer>
 {% endblock %}
 {% block scripts %}{% endblock %}
 </body>
