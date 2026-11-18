@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block actions %}<form action="/search" method="get" role="search" class="inline"><input type="search" name="q" placeholder="{{ _('Search…') }}" aria-label="{{ _('Search your documents') }}" class="toolbar-search"></form>
+<button type="button" class="home-import" data-import-word title="{{ _('Open a Word file as a new document, with its comments and tracked changes') }}">{{ _("Import Word") }}</button>
 <button type="button" class="primary" data-open-dialog="new-project">{{ _("New project") }}</button>{% endblock %}
 {% block content %}
 {% if error %}<p class="error pad" role="alert">{{ _(error) }}</p>{% endif %}
@@ -58,7 +59,7 @@
 </table>
 </div>
 {% else %}
-<p class="pad">{{ _("No projects yet.") }} <button type="button" class="link" data-open-dialog="new-project">{{ _("New project") }}</button></p>
+<p class="pad">{{ _("No projects yet.") }} <button type="button" class="link" data-open-dialog="new-project">{{ _("New project") }}</button> · <button type="button" class="link" data-import-word>{{ _("Import a Word file") }}</button></p>
 {% endif %}
 <dialog id="new-project" aria-labelledby="new-project-title">
   <form method="post" action="/projects" class="form">
@@ -71,11 +72,14 @@
       </select>
     </label>
     <label class="choice"><input type="checkbox" name="starter" value="1" checked> {{ _("Start with sample files for the layout") }}</label>
+    <p class="hint muted">{{ _("Have a Word file already?") }} <button type="button" class="link" data-import-word>{{ _("Import it instead") }}</button></p>
     <div class="buttons">
       <button type="button" data-close-dialog>{{ _("Cancel") }}</button>
       <button type="submit" class="primary">{{ _("Create") }}</button>
     </div>
   </form>
 </dialog>
+<input type="file" id="import-word" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
+<p class="visually-hidden" id="import-status" role="status"></p>
 {% endblock %}
 {% block scripts %}<script type="module" src="{{ static }}/app/main.js"></script>{% endblock %}

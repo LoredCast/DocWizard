@@ -28,6 +28,7 @@ import { characterCompletion, openOutline } from "./script.js";
 import { access, accessExtensions, baseExtensions } from "./setup.js";
 import { setSuggestMode, suggestField, suggestMode } from "./suggest-mode.js";
 import { TitleCardEditor, refreshCard } from "./title-card.js";
+import { ChaptersDrawer } from "./chapters.js";
 import { addColumn, addRow, cycleAlign, deleteColumn, deleteRow, deleteTable, tableAt } from "./tables.js";
 import { setWriterMode, writerField, writerMode } from "./writer-mode.js";
 
@@ -51,7 +52,7 @@ if (!snap) {
   document.title = `${snap.doc.path} · ${snap.project.name} · DocWizard`;
   $("#crumb-project").textContent = snap.project.name;
   $("#crumb-project").href = `/p/${snap.project.id}`;
-  $("#crumb-doc").textContent = snap.doc.path;
+  $("#crumb-doc .crumb-name").textContent = snap.doc.path;
   $("#doc-kind").textContent = snap.doc.kind === "markdown" ? "Markdown"
     : snap.doc.kind.charAt(0).toUpperCase() + snap.doc.kind.slice(1);
   for (const node of document.querySelectorAll("[data-layout-name]")) node.textContent = snap.layout?.name ?? "";
@@ -1163,6 +1164,20 @@ fieldsPanel = layoutFields && fieldsEl ? new FieldsPanel({
   },
 }) : null;
 $("#open-fields")?.addEventListener("click", () => fieldsPanel?.toggle());
+
+// -- Chapters and files ------------------------------------------------------
+const chapters = new ChaptersDrawer({
+  host: split, projectId, docId, docPath: snap.doc.path, files: snap.files ?? [],
+  canEdit: Boolean(snap.can.edit), canBuild: Boolean(snap.can.change_layout), offline: Boolean(offlineRecord),
+  // Edits still on their way go first, so nothing is lost by leaving the page.
+  settle: async () => { for (let i = 0; i < 50 && session.unconfirmed() > 0; i++) await new Promise((r) => setTimeout(r, 100)); },
+  onBuild: () => { shown = { html: -1, "pdf-typst": -1, "pdf-latex": -1 }; requestPreview(0); },
+  openReferences: references ? () => references.show() : null,
+});
+for (const button of document.querySelectorAll("[data-open-chapters]")) {
+  // From the Actions menu, focus goes back to the menu's button, as the menu closes.
+  button.addEventListener("click", () => chapters.toggle(button.closest("#toolbar-buttons") ? moreBtn : button));
+}
 
 // -- Conflicts (§12.3) ------------------------------------------------------
 let conflicts = [];

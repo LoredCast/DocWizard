@@ -85,6 +85,21 @@ async def test_a_thesis_starts_with_chapters(app, client):
     assert 'institution: ""' in main or 'supervisor: ""' in main
 
 
+async def test_a_renamed_chapter_keeps_its_place(app, client):
+    made = await create(client, "thesis")
+    pid = made["id"]
+    tree = (await client.get(f"/api/projects/{pid}")).json()["tree"]
+    doc = next(e["id"] for e in tree if e["path"] == "chapters/02-background.md")
+    r = await client.request("PATCH", f"/api/documents/{doc}", json={"path": "chapters/02-related-work.md"})
+    assert r.status == 200, r.text
+    project = (await client.get(f"/api/projects/{pid}")).json()
+    assert project["buildInputs"] == ["thesis.md", "chapters/01-introduction.md", "chapters/02-related-work.md",
+                                      "chapters/03-conclusion.md"]
+    # The editor offers the Chapters drawer from the document's name and the Actions menu.
+    html = (await client.get(f"/p/{pid}/thesis.md")).text
+    assert 'id="crumb-doc"' in html and 'id="open-chapters"' in html
+
+
 async def test_fiction_has_no_bibliography(app, client):
     novel = await create(client, "manuscript-novel")
     assert await paths_of(app, novel["id"]) == ["chapters/01-chapter-one.md", "chapters/02-chapter-two.md",

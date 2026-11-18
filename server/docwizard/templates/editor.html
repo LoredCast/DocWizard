@@ -7,7 +7,7 @@
 <link rel="modulepreload" href="{{ static }}/app/editor/main.js">
 <meta name="csp-nonce" content="{{ nonce }}">
 {% endblock %}
-{% block crumbs %}<a class="wordmark" href="/">DocWizard</a><span>/</span><a href="/p/{{ project.id }}" id="crumb-project">{{ project.name }}</a><span>/</span><span id="crumb-doc">{{ doc.path }}</span>{% endblock %}
+{% block crumbs %}<a class="wordmark" href="/">DocWizard</a><span>/</span><a href="/p/{{ project.id }}" id="crumb-project">{{ project.name }}</a><span>/</span><button type="button" class="crumb-doc" id="crumb-doc" data-open-chapters aria-expanded="false" aria-controls="chapters" title="{{ _('Chapters and files') }}"><span class="crumb-name">{{ doc.path }}</span></button>{% endblock %}
 {% block actions %}
 <span class="presence" id="presence" aria-label="{{ _('Also here') }}"></span>
 <span class="status" id="save-state" role="status">{{ _("Saved") }}</span>
@@ -16,6 +16,7 @@
   <button type="button" id="more-actions" aria-expanded="false" aria-controls="toolbar-buttons">{{ _("Actions") }}</button>
   <div class="toolbar-buttons" id="toolbar-buttons">
     <span class="status menu-status" id="menu-save-state" aria-hidden="true">{{ _("Saved") }}</span>
+    <button type="button" id="open-chapters" data-open-chapters aria-expanded="false" aria-controls="chapters">{{ _("Chapters") }}</button>
     <button type="button" id="new-comment" title="{{ _('Comment on the selection (Ctrl+Alt+M)') }}">{{ _("Comment") }}</button>
     <button type="button" id="new-suggestion" aria-pressed="false" title="{{ _('Suggest changes: what you type becomes suggestions (Ctrl+Alt+G)') }}">{{ _("Suggest") }}</button>
     <button type="button" id="open-comments" aria-pressed="false">{{ _("Comments") }}</button>
