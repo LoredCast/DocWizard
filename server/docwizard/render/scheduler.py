@@ -3,11 +3,19 @@
 Identical requests from several collaborators share one job and one result.
 For previews only the newest request per build and target runs; older queued
 ones are dropped.
+
+Fairness: ``render.concurrency`` jobs run at once, but LaTeX builds may not take
+the ``render.fast_lane`` slots, so HTML and Typst previews never wait behind a
+queue of LaTeX builds. Each person renders ``render.user_previews`` previews at
+a time and has at most ``render.user_exports`` exports in flight; optional token
+buckets (``render.per_user_rpm``, ``render.latex_daily_limit``) bound how much
+one person can render. LaTeX and the time limit can be set per project owner.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import re
 import logging
@@ -19,6 +27,7 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..auth.throttle import TokenBucket
 from ..citations.zotero import referenced_sources
 from ..http.request import HTTPError
 from ..logs import fields
@@ -39,6 +48,56 @@ def _is_root(text: str) -> bool:
 
 MAIN_CANDIDATES = ("main.md", "paper.md", "index.md", "thesis.md", "article.md")
 PREVIEW_TOKEN_TTL = 6 * 3600
+# Targets that may take minutes and stay out of the fast lane.
+HEAVY_TARGETS = {"pdf-latex"}
+DURATION_BUCKETS = (0.5, 1, 2, 5, 10, 30, 60, 120, 300)
+RATE_MESSAGE = "You're rendering a lot right now. Wait a minute, then try again."
+LATEX_DAILY_MESSAGE = "You've reached today's limit for LaTeX builds. Use the PDF made with Typst, or try again tomorrow."
+EXPORT_LIMIT_MESSAGE = "Wait for your other exports to finish, then try again."
+
+
+class _PerKey:
+    """A semaphore per person, dropped again when nobody holds or waits for it."""
+
+    def __init__(self, size: int):
+        self.size = size
+        self._sems: dict[str, asyncio.Semaphore] = {}
+        self._users: dict[str, int] = {}
+
+    @contextlib.asynccontextmanager
+    async def hold(self, key: str | None):
+        if not key or self.size <= 0:
+            yield
+            return
+        sem = self._sems.get(key)
+        if sem is None:
+            sem = self._sems[key] = asyncio.Semaphore(self.size)
+        self._users[key] = self._users.get(key, 0) + 1
+        try:
+            async with sem:
+                yield
+        finally:
+            self._users[key] -= 1
+            if not self._users[key]:
+                del self._users[key]
+                del self._sems[key]
+
+
+class RenderStats:
+    """Counters for /metrics (§16): renders by target and outcome, and how long they took."""
+
+    def __init__(self):
+        self.totals: dict[tuple[str, str], int] = {}
+        self.durations: dict[str, list] = {}  # target -> [count per bucket..., sum, count]
+
+    def record(self, target: str, status: str, seconds: float) -> None:
+        self.totals[(target, status)] = self.totals.get((target, status), 0) + 1
+        hist = self.durations.setdefault(target, [0] * len(DURATION_BUCKETS) + [0.0, 0])
+        for i, bound in enumerate(DURATION_BUCKETS):
+            if seconds <= bound:
+                hist[i] += 1
+        hist[-2] += seconds
+        hist[-1] += 1
 
 
 @dataclass
@@ -71,13 +130,101 @@ class Renderer:
         self.cfg = app.cfg
         self.worker = WorkerClient(app.cfg.worker_socket)
         self.renders_dir = app.cfg.data_dir / "renders"
-        self.sem = asyncio.Semaphore(max(1, min(app.cfg.render.concurrency, 4)))
+        self.configure()
+        self.stats = RenderStats()
+        self.queued = 0  # jobs waiting for a slot
+        self.rejections = 0
+        self._rate: TokenBucket | None = None
+        self._latex_today: dict[str, tuple[str, int]] = {}
         self._inflight: dict[str, asyncio.Future] = {}
         self._latest: dict[tuple, int] = {}
         self._seq = 0
         self._preview_tasks: dict[tuple, asyncio.Task] = {}
         self.tokens: dict[str, dict] = {}
         self.exports: dict[str, ExportJob] = {}
+
+    def configure(self) -> None:
+        """Size the slots from [render]: every job takes one of ``concurrency`` slots, and heavy
+        targets also one of the ``concurrency - fast_lane`` heavy ones."""
+        cfg = self.cfg.render
+        total = max(1, cfg.concurrency)
+        fast = max(0, min(cfg.fast_lane, total - 1))
+        self.sem = asyncio.Semaphore(total)
+        self.heavy = asyncio.Semaphore(total - fast)
+        self.previews = _PerKey(cfg.user_previews)
+
+    @contextlib.asynccontextmanager
+    async def slot(self, target: str):
+        """Wait for a render slot. Heavy jobs first take a heavy slot, so they queue among themselves
+        and the fast lane stays free for the rest."""
+        self.queued += 1
+        waiting = True
+        try:
+            async with self.heavy if target in HEAVY_TARGETS else contextlib.nullcontext():
+                async with self.sem:
+                    self.queued -= 1
+                    waiting = False
+                    yield
+        finally:
+            if waiting:
+                self.queued -= 1
+
+    # -- limits --------------------------------------------------------------
+    def _bucket(self) -> TokenBucket | None:
+        rpm = self.cfg.render.per_user_rpm
+        if rpm <= 0:
+            return None
+        if self._rate is None or self._rate.capacity != rpm:
+            self._rate = TokenBucket(rpm, rpm / 60)
+        return self._rate
+
+    def _limited(self, code: str, message: str) -> HTTPError:
+        self.rejections += 1
+        return HTTPError(429, code, message)
+
+    def charge_rate(self, actor: str | None) -> None:
+        bucket = self._bucket()
+        if actor and bucket is not None and not bucket.allow(actor):
+            raise self._limited("render_limited", RATE_MESSAGE)
+
+    def _latex_used(self, actor: str) -> tuple[str, int]:
+        day = time.strftime("%Y-%m-%d", time.gmtime())
+        used_day, n = self._latex_today.get(actor, (day, 0))
+        return day, n if used_day == day else 0
+
+    def check_latex_quota(self, actor: str | None, *, charge: bool) -> None:
+        limit = self.cfg.render.latex_daily_limit
+        if not actor:
+            return
+        day, n = self._latex_used(actor)
+        if 0 < limit <= n:
+            raise self._limited("latex_limit", LATEX_DAILY_MESSAGE)
+        if charge:  # counted without a limit too, so one set during the day applies right away
+            if len(self._latex_today) > 100_000:
+                self._latex_today.clear()
+            self._latex_today[actor] = (day, n + 1)
+
+    async def owner_policy(self, project_id: str) -> dict:
+        """What the project's owner may render: LaTeX or not, and the time limit."""
+        row = await self.app.db.fetchone(
+            "SELECT u.instance_role, u.allow_latex, u.render_timeout_seconds, u.email_verified_at FROM projects p"
+            " JOIN users u ON u.id = p.owner_id WHERE p.id = ?", (project_id,))
+        cfg = self.cfg.render
+        if row is None:
+            return {"latex": cfg.allow_latex, "timeout": cfg.timeout_seconds, "unverified": False}
+        return {"latex": cfg.allow_latex if row["allow_latex"] is None else bool(row["allow_latex"]),
+                "timeout": row["render_timeout_seconds"] or cfg.timeout_seconds,
+                "unverified": bool(self.app.policy("require_email_verification") and row["instance_role"] != "admin"
+                                   and row["email_verified_at"] is None)}
+
+    @staticmethod
+    def check_latex_allowed(policy: dict) -> None:
+        if not policy["latex"]:
+            raise HTTPError(403, "latex_disabled", "LaTeX builds aren't available for this project. Use the PDF "
+                                                   "made with Typst instead, or ask an admin.")
+        if policy["unverified"]:
+            raise HTTPError(403, "email_unverified", "LaTeX builds start once the project's owner has confirmed "
+                                                     "their email address.")
 
     # -- lifecycle ---------------------------------------------------------
     async def start(self) -> None:
@@ -173,7 +320,10 @@ class Renderer:
 
     # -- rendering -----------------------------------------------------------
     async def render(self, project: dict, target: str, *, doc_path: str | None = None, options: dict | None = None,
-                     layout_id: str | None = None, slot: tuple | None = None) -> RenderResult | None:
+                     layout_id: str | None = None, slot: tuple | None = None, actor: str | None = None,
+                     charge: bool = True) -> RenderResult | None:
+        """Render, or return the cached result. *actor* ("u12", "g3") is who asked: renders that
+        actually run count against their limits (*charge* False: the rate was charged already)."""
         if target not in jobs.TARGETS:
             raise HTTPError(400, "bad_target", "Unknown output format.")
         layout = self.resolve_layout(project, layout_id)
@@ -201,6 +351,11 @@ class Renderer:
             return cached
         if key in self._inflight:
             return await asyncio.shield(self._inflight[key])
+        policy = await self.owner_policy(project["id"])
+        if target in HEAVY_TARGETS:
+            self.check_latex_allowed(policy)
+        if key in self._inflight:  # started while the policy was read
+            return await asyncio.shield(self._inflight[key])
         seq = None
         if slot is not None:
             self._seq += 1
@@ -209,11 +364,16 @@ class Renderer:
         fut = asyncio.get_running_loop().create_future()
         self._inflight[key] = fut
         try:
-            async with self.sem:
+            async with self.slot(target):
                 if slot is not None and self._latest.get(slot) != seq:
                     fut.set_result(None)
                     return None  # a newer request for the same build replaced this one
-                result = await self._run(key, project["id"], target, layout, inputs, options, snap, lang=lang)
+                if charge:
+                    self.charge_rate(actor)
+                if target in HEAVY_TARGETS:
+                    self.check_latex_quota(actor, charge=True)
+                result = await self._timed(target, self._run(key, project["id"], target, layout, inputs, options,
+                                                             snap, lang=lang, timeout=policy["timeout"]))
             result.version = version
             fut.set_result(result)
             return result
@@ -274,10 +434,11 @@ class Renderer:
         fut = asyncio.get_running_loop().create_future()
         self._inflight[key] = fut
         try:
-            async with self.sem:
+            async with self.slot(target):
                 # Drafts get a copy of their own, removed afterwards, so the cache doesn't fill up with them.
-                result = await self._run(key, sample.SAMPLE_PROJECT, target, layout, inputs, {}, snap,
-                                         layout_folder=f"layout-drafts/{secrets.token_hex(8)}")
+                result = await self._timed(target, self._run(
+                    key, sample.SAMPLE_PROJECT, target, layout, inputs, {}, snap,
+                    layout_folder=f"layout-drafts/{secrets.token_hex(8)}"))
             fut.set_result(result)
             return result
         except BaseException as exc:
@@ -287,6 +448,19 @@ class Renderer:
             raise
         finally:
             self._inflight.pop(key, None)
+
+    async def _timed(self, target: str, run) -> RenderResult:
+        started = time.monotonic()
+        status = "error"
+        try:
+            result = await run
+            status = result.status
+            return result
+        except asyncio.CancelledError:
+            status = "cancelled"
+            raise
+        finally:
+            self.stats.record(target, status, time.monotonic() - started)
 
     def _cached(self, key: str, target: str) -> RenderResult | None:
         meta_path = self.renders_dir / key / "meta.json"
@@ -300,7 +474,7 @@ class Renderer:
 
     async def _run(self, key: str, project_id: str, target: str, layout: Layout, inputs: list[str],
                    options: dict, snap: jobs.ProjectSnapshot, layout_folder: str = "layouts",
-                   lang: str | None = None) -> RenderResult:
+                   lang: str | None = None, timeout: int | None = None) -> RenderResult:
         dest = self.renders_dir / key
         output = jobs.OUTPUTS[target]
         if target == "md-source":
@@ -319,8 +493,8 @@ class Renderer:
         approved = self.app.layouts.filters_approved(layout)
         steps, copies = jobs.pandoc_steps(layout, layout_dir, target, inputs, options, approved)
         meta = jobs.metadata(layout, options, inputs, layout_dir, lang=lang)
-        limits = {"cpu_seconds": self.cfg.render.timeout_seconds, "memory_mb": self.cfg.render.memory_mb,
-                  "wall_seconds": self.cfg.render.timeout_seconds}
+        seconds = timeout or self.cfg.render.timeout_seconds
+        limits = {"cpu_seconds": seconds, "memory_mb": self.cfg.render.memory_mb, "wall_seconds": seconds}
         job = {"id": job_id, "kind": "render", "inputs": inputs, "target": target, "layout": layout.content_sha256,
                "options": options, "limits": limits, "steps": steps,
                "lua_path": f"{layout_dir}/_builtin/?.lua" + (f";{layout_dir}/filters/?.lua" if approved else "")}
@@ -398,7 +572,7 @@ class Renderer:
 
         try:
             await asyncio.to_thread(prepare)
-            async with self.sem:
+            async with self.slot("md-import"):
                 try:
                     reply = await self.worker.run(job_id, limits["wall_seconds"])
                 except WorkerUnavailable as exc:
@@ -459,6 +633,7 @@ class Renderer:
         except ValueError as exc:
             raise HTTPError(400, "bad_options", str(exc)) from None
         slot = (room.project_id, room.path if room.path.endswith((".md", ".markdown")) else "", target)
+        actor = f"u{conn.user.id}" if conn.user is not None else f"g{conn.guest.id}" if conn.guest is not None else None
         task_key = (conn.key, room.doc_id, target)
         old = self._preview_tasks.get(task_key)
         if old is not None and not old.done():
@@ -466,10 +641,12 @@ class Renderer:
 
         async def run():
             try:
-                result = await self.render(project, target, doc_path=room.path, options=options,
-                                           layout_id=layout.id, slot=slot)
+                async with self.previews.hold(actor):
+                    result = await self.render(project, target, doc_path=room.path, options=options,
+                                               layout_id=layout.id, slot=slot, actor=actor)
             except HTTPError as exc:
                 conn.send({"t": "rendered", "doc": room.doc_id, "target": target, "url": None,
+                           "status": "limited" if exc.status == 429 else "error", "code": exc.code,
                            "diagnostics": [{"severity": "error", "message": exc.message}]})
                 return
             except asyncio.CancelledError:
@@ -503,13 +680,21 @@ class Renderer:
         for jid, job in list(self.exports.items()):
             if now - job.created > 3600:
                 del self.exports[jid]
+        limit = self.cfg.render.user_exports
+        active = sum(1 for j in self.exports.values() if j.user_id == user_id and j.status in ("queued", "running"))
+        if limit > 0 and active >= limit:
+            raise self._limited("export_limit", EXPORT_LIMIT_MESSAGE)
+        if target in HEAVY_TARGETS:
+            self.check_latex_quota(user_id, charge=False)
+        self.charge_rate(user_id)
         job = ExportJob("x_" + secrets.token_hex(12), project["id"], user_id, target)
         self.exports[job.id] = job
 
         async def run():
             job.status = "running"
             try:
-                job.result = await self.render(project, target, doc_path=doc_path, options=options)
+                job.result = await self.render(project, target, doc_path=doc_path, options=options, actor=user_id,
+                                               charge=False)
                 job.status = job.result.status if job.result else "error"
             except HTTPError as exc:
                 job.status = "error"

@@ -42,6 +42,27 @@ ALLOWED_TOOLS = {"pandoc", "typst", "latexmk"}
 JOB_ID = re.compile(r"^j_[0-9a-f]{32}$")
 PR_SET_NO_NEW_PRIVS = 38
 MAX_DIAG = 50
+# Job directories older than this at startup belong to jobs a restart interrupted.
+ORPHAN_AGE = 60
+# kpathsea settings for TeX (§9.6), in a texmf.cnf of the job's own that kpathsea reads before the
+# system one: no reading or writing outside the job directory (TEXMFOUTPUT) or of dot files, and no
+# shell escape. The same values are also set in the environment, which takes precedence.
+TEXMF_CNF = "% Written by the DocWizard render worker for this job.\nopenin_any = p\nopenout_any = p\nshell_escape = f\n"
+SHARED_FONTS_DIR = "/usr/local/share/docwizard/fonts"
+# Removes symlinks that lead out of the job directory, run as the job's user before Typst and TeX
+# read the files: Typst's --root and kpathsea's paranoid mode check paths, not where links go.
+SCRUB_LINKS = """
+import os, sys
+root = os.path.realpath(sys.argv[1])
+for base, dirs, files in os.walk(root):
+    for name in dirs + files:
+        path = os.path.join(base, name)
+        if os.path.islink(path):
+            target = os.path.realpath(path)
+            if target != root and not target.startswith(root + os.sep):
+                os.unlink(path)
+                print(os.path.relpath(path, root))
+"""
 # Upstream pandoc embeds lpeg; distro packages that exclude it load lpeg.so and re.lua via LUA_*PATH.
 _SYS_LUA_RE = "/usr/share/lua/5.4/re.lua"
 _SYS_LUA_CPATHS = (
@@ -145,6 +166,53 @@ def _kill_user(uid: int) -> None:
                        user=uid, group=uid, extra_groups=[], timeout=10, capture_output=True)
     except (OSError, subprocess.SubprocessError):
         pass
+
+
+def _remove_tree(path: Path, root: bool) -> None:
+    """Delete a job directory a job's user may still own. As root without CAP_DAC_OVERRIDE the
+    supervisor first takes every directory over (CAP_CHOWN, CAP_FOWNER) so it can list and empty it."""
+    if root:
+        def take(p: str) -> None:
+            os.lchown(p, 0, 0)
+            os.chmod(p, 0o700)
+            with os.scandir(p) as entries:
+                for entry in entries:
+                    if entry.is_dir(follow_symlinks=False):
+                        take(entry.path)
+
+        try:
+            take(str(path))
+        except OSError:
+            pass
+    shutil.rmtree(path, ignore_errors=True)
+
+
+def _scrub_links(job_dir: Path, uid: int | None) -> list[str]:
+    """Remove symlinks leading out of *job_dir*; returns the ones removed."""
+    try:
+        res = subprocess.run([sys.executable, "-I", "-c", SCRUB_LINKS, str(job_dir)], capture_output=True,
+                             text=True, timeout=30, **({"user": uid, "group": uid, "extra_groups": []} if uid else {}))
+    except (OSError, subprocess.SubprocessError):
+        return ["?"]
+    if res.returncode != 0:
+        return ["?"]
+    return [line for line in res.stdout.splitlines() if line]
+
+
+def _inside(path: str, roots: list[str]) -> bool:
+    real = os.path.realpath(path)
+    return any(real == r or real.startswith(r.rstrip(os.sep) + os.sep) for r in roots)
+
+
+def _links_out(folder: str) -> bool:
+    """Whether a font folder has a symlink leading outside it."""
+    top = os.path.realpath(folder)
+    for base, dirs, files in os.walk(top):
+        for name in dirs + files:
+            path = os.path.join(base, name)
+            if os.path.islink(path) and not _inside(path, [top]):
+                return True
+    return False
 
 
 def _clean_tmp(uid: int) -> None:
@@ -260,10 +328,17 @@ class Worker:
             except (OSError, ValueError) as exc:
                 return {"done": job_id, "status": "error",
                         "diagnostics": [{"severity": "error", "message": str(exc)}]}
-            for d in ("home", "tmp", "out"):
+            for d in ("home", "tmp", "out", "texmf-cnf"):
                 (job_dir / d).mkdir(exist_ok=True)
+            cnf = job_dir / "texmf-cnf" / "texmf.cnf"
+            cnf.unlink(missing_ok=True)
+            cnf.write_text(TEXMF_CNF)
             if self.root:
                 _chown_tree(job_dir, uid, uid)
+                # The job's own texmf.cnf stays the supervisor's: readable, not writable, by the job.
+                for p, mode in ((job_dir / "texmf-cnf", 0o755), (cnf, 0o644)):
+                    os.lchown(p, 0, 0)
+                    os.chmod(p, mode)
                 os.chmod(job_dir, 0o700)
             return await self._steps(job_id, job_dir, job, run_uid)
         finally:
@@ -288,7 +363,9 @@ class Worker:
             "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8",
             "LUA_PATH": lua_path, "LUA_PATH_5_4": lua_path,
             "LUA_CPATH": lua_cpath, "LUA_CPATH_5_4": lua_cpath,
-            "openin_any": "p", "openout_any": "p",
+            "openin_any": "p", "openout_any": "p", "shell_escape": "f",
+            # The job's texmf.cnf first; the trailing colon adds the system's default search path.
+            "TEXMFCNF": f"{job_dir}/texmf-cnf:",
             "TYPST_PACKAGE_CACHE_PATH": str(self.cache_dir / "typst-packages"),
             "TEXMFOUTPUT": str(job_dir),
         }
@@ -308,6 +385,16 @@ class Worker:
             if rel_cwd.is_absolute() or ".." in rel_cwd.parts:
                 return {"done": job_id, "status": "error",
                         "diagnostics": [{"severity": "error", "message": "bad working directory"}]}
+            if tool == "typst":
+                problem = self._check_typst(job_dir, cwd, args)
+                if problem:
+                    return {"done": job_id, "status": "error", "diagnostics": [{"severity": "error", "message": problem}]}
+            if tool in ("typst", "latexmk"):
+                if uid is not None:
+                    _kill_user(uid)  # nothing left over from an earlier step can plant links meanwhile
+                removed = await asyncio.to_thread(_scrub_links, job_dir, uid)
+                if removed:
+                    log(level="warning", msg="removed links leading out of the job", job=job_id, links=removed[:20])
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return {"done": job_id, "status": "timeout", "diagnostics": diagnostics}
@@ -341,6 +428,25 @@ class Worker:
                                         "message": f"{tool} failed with exit code {proc.returncode}"})
                 return {"done": job_id, "status": "error", "diagnostics": diagnostics[:MAX_DIAG]}
         return {"done": job_id, "status": "ok", "diagnostics": diagnostics[:MAX_DIAG]}
+
+    def _check_typst(self, job_dir: Path, cwd: Path, args: list[str]) -> str | None:
+        """Typst reads only inside its --root, which must be in the job, and fonts from the job, the
+        render cache (layout fonts) or the shared font folder, none of them linking elsewhere."""
+        if "--root" not in args[:-1]:
+            return "Typst runs need --root."
+        root = args[args.index("--root") + 1]
+        if not _inside(str(cwd / root), [os.path.realpath(job_dir)]):
+            return "Typst's --root must be inside the job."
+        allowed = [os.path.realpath(p) for p in (job_dir, self.cache_dir, os.environ.get("DOCWIZARD_FONTS_DIR")
+                                                 or SHARED_FONTS_DIR)]
+        for i, a in enumerate(args[:-1]):
+            if a == "--font-path":
+                folder = str(cwd / args[i + 1])
+                if not _inside(folder, allowed):
+                    return "Typst font folders must be in the job, the render cache or the shared fonts."
+                if os.path.isdir(folder) and _links_out(folder):
+                    return "A font folder links to files outside it."
+        return None
 
     def cancel(self, job_id: str) -> None:
         proc = self.running.get(job_id)
@@ -394,24 +500,44 @@ class Worker:
                 await asyncio.gather(*tasks, return_exceptions=True)
             writer.close()
 
+    def clean_orphans(self) -> int:
+        """Delete job directories a restart left behind. Ones younger than ORPHAN_AGE may be a job the
+        app is about to send: they are only handed back to the app, which removes them after use."""
+        run_dir = self.jobs_dir / "run"
+        owner = run_dir.stat()
+        if self.root:
+            try:
+                os.lchown(run_dir, 0, 0)  # to list and change it without CAP_DAC_OVERRIDE
+                names = os.listdir(run_dir)
+            except OSError:
+                os.lchown(run_dir, owner.st_uid, owner.st_gid)
+                return 0
+        else:
+            names = os.listdir(run_dir)
+        removed = 0
+        try:
+            for name in names:
+                path = run_dir / name
+                try:
+                    old = time.time() - os.lstat(path).st_mtime > ORPHAN_AGE
+                    if old and not path.is_symlink():
+                        _remove_tree(path, self.root)
+                        removed += 1
+                    elif self.root and not path.is_symlink():
+                        _chown_tree(path, owner.st_uid, owner.st_gid)
+                except OSError:
+                    pass
+        finally:
+            if self.root:
+                os.lchown(run_dir, owner.st_uid, owner.st_gid)
+        if removed:
+            log(level="info", msg="removed job directories left by a restart", count=removed)
+        return removed
+
     async def serve(self) -> None:
         self.socket_path.parent.mkdir(parents=True, exist_ok=True)
         (self.jobs_dir / "run").mkdir(parents=True, exist_ok=True)
-        if self.root:
-            # Jobs interrupted by a restart still belong to their job users: hand them
-            # back to the app so it can delete them.
-            run_dir = self.jobs_dir / "run"
-            owner = run_dir.stat()
-            try:
-                os.lchown(run_dir, 0, 0)  # to list it without CAP_DAC_OVERRIDE
-                names = os.listdir(run_dir)
-            finally:
-                os.lchown(run_dir, owner.st_uid, owner.st_gid)
-            for name in names:
-                try:
-                    _chown_tree(run_dir / name, owner.st_uid, owner.st_gid)
-                except OSError:
-                    pass
+        self.clean_orphans()
         try:
             self.socket_path.unlink()
         except FileNotFoundError:

@@ -8,11 +8,15 @@ from tests.asgi_client import Client, WebSocket
 from tests.integration.test_collab import connect, new_project, open_editor
 
 
+# The password every test user from make_user() gets (a fixture, not a credential).
+USER_PASSWORD = "a long enough password"
+
+
 async def make_user(app, name):
-    pw = passwords.hash_password("a long enough password")
+    pw = passwords.hash_password(USER_PASSWORD)
     await app.db.write(lambda c: users.create(c, name, pw, display_name=name.title()))
     cl = Client(app)
-    await cl.login(name, "a long enough password")
+    await cl.login(name, USER_PASSWORD)
     return cl
 
 

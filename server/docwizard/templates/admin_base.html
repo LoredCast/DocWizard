@@ -4,7 +4,7 @@
 {% block content %}
 <section class="admin">
   <nav class="tabs" aria-label="{{ _("Admin sections") }}">
-    {% for key, href, label in [("health", "/admin", "Health"), ("users", "/admin/users", "Users"), ("settings", "/admin/settings", "Settings"), ("layouts", "/admin/layouts", "Layouts"), ("audit", "/admin/audit", "Audit log")] %}
+    {% for key, href, label in [("health", "/admin", "Health"), ("users", "/admin/users", "Users"), ("settings", "/admin/settings", "Settings"), ("layouts", "/admin/layouts", "Layouts"), ("publications", "/admin/publications", "Publications"), ("audit", "/admin/audit", "Audit log")] %}
     <a href="{{ href }}" {% if tab == key %}aria-current="page"{% endif %}>{{ _(label) }}</a>
     {% endfor %}
   </nav>

@@ -265,6 +265,9 @@
   .table-wrap { overflow-x: auto; }
   .badge { display: inline-block; padding: 0 6px; border: 1px solid var(--edge); border-radius: 999px; font-size: .85em; color: var(--muted); }
   .ok { color: var(--ok); }
+  .storage { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 8px 0; }
+  .storage meter { width: min(100%, 16rem); height: 10px; }
+  .storage .error { flex-basis: 100%; margin: 0; }
   .callout { border: 1px solid var(--edge); border-radius: var(--radius); padding: 12px; margin: 8px 0 16px; }
   .searchbar { margin: 8px 0; max-width: 40rem; }
   .searchbar input { flex: 1; }

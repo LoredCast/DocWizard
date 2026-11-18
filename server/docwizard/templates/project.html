@@ -14,7 +14,8 @@
 </div>
 <div class="table-wrap">
 <table>
-  <thead><tr><th>{{ _("Name") }} ▴</th><th class="opt">{{ _("Kind") }}</th><th>{{ _("Modified") }}</th><th class="num">{{ _("Size") }}</th></tr></thead>
+  {% set may_edit = can(role, "edit") %}
+  <thead><tr><th>{{ _("Name") }} ▴</th><th class="opt">{{ _("Kind") }}</th><th>{{ _("Modified") }}</th><th class="num">{{ _("Size") }}</th>{% if may_edit %}<th><span class="visually-hidden">{{ _("Actions") }}</span></th>{% endif %}</tr></thead>
   <tbody>
   {% for e in tree %}
   <tr data-href="{{ doc_url(project.id, e.path) }}">
@@ -22,9 +23,31 @@
     <td class="opt">{{ _(e.kind) if e.type == "document" else _("file") }}</td>
     <td title="{{ e.updatedAt }}">{{ e.updatedAt|reltime }}</td>
     <td class="num">{{ e.size|filesize }}</td>
+    {% if may_edit %}
+    <td class="num">
+      <details class="menu file-menu">
+        <summary aria-label="{{ _('Rename or delete {name}', name=e.path) }}">{{ _("Edit") }}</summary>
+        <div class="menu-body">
+          <form method="post" class="form">
+            <input type="hidden" name="_csrf" value="{{ csrf }}">
+            <input type="hidden" name="action" value="rename-file">
+            <input type="hidden" name="path" value="{{ e.path }}">
+            <label>{{ _("New name") }} <input name="new_path" value="{{ e.path }}" required></label>
+            <div><button type="submit">{{ _("Rename") }}</button></div>
+          </form>
+          <form method="post" data-confirm="{{ _('Move {name} to the trash?', name=e.path) }}">
+            <input type="hidden" name="_csrf" value="{{ csrf }}">
+            <input type="hidden" name="action" value="delete-file">
+            <input type="hidden" name="path" value="{{ e.path }}">
+            <button type="submit" class="danger">{{ _("Delete") }}</button>
+          </form>
+        </div>
+      </details>
+    </td>
+    {% endif %}
   </tr>
   {% else %}
-  <tr><td colspan="4">{{ _("No files yet.") }}</td></tr>
+  <tr><td colspan="{{ 5 if may_edit else 4 }}">{{ _("No files yet.") }}</td></tr>
   {% endfor %}
   </tbody>
 </table>
@@ -67,6 +90,41 @@
     <button type="submit">{{ _("Change language") }}</button>
   </form>
   <p class="muted hint">{{ _("Dates, quotation marks, hyphenation and generated headings follow it. A document can set its own with lang: in its front matter.") }}</p>
+  <h2 id="build">{{ _("Build inputs") }}</h2>
+  <form method="post" class="form">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="build-inputs">
+    <label>{{ _("Files that make up the document, one per line, in order") }}
+      <textarea name="inputs" rows="3" placeholder="main.tex&#10;chapters/01.md">{{ build_inputs|join("\n") }}</textarea></label>
+    <p class="muted hint">{{ _("Empty: each document previews and exports on its own. A root file (main.tex) or a list of Markdown chapters renders as one document, whichever of them you edit.") }}</p>
+    <div><button type="submit">{{ _("Save build inputs") }}</button></div>
+  </form>
+</section>
+{% endif %}
+{% if trash %}
+<section id="trash">
+  <h2>{{ _("Trash") }}</h2>
+  <p class="muted">{{ _("Deleted files stay here for 30 days and still count towards the owner's storage.") }}</p>
+  <ul class="plain">
+    {% for t in trash %}
+    <li><span class="spacer">{{ t.path }} <span class="muted">{{ t.size|filesize }} · {{ t.deleted_at|reltime }}</span></span>
+      <form method="post" class="inline">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <input type="hidden" name="action" value="restore-file">
+        {% if t.type == "document" %}<input type="hidden" name="doc_id" value="{{ t.id }}">
+        {% else %}<input type="hidden" name="path" value="{{ t.path }}"><input type="hidden" name="deleted_at" value="{{ t.deleted_at }}">{% endif %}
+        <button type="submit" class="link">{{ _("Restore") }}</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  {% if can(role, "delete_project") %}
+  <form method="post" data-confirm="{{ _('Delete everything in the trash for good? This can\'t be undone.') }}">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="empty-trash">
+    <button type="submit" class="danger">{{ _("Empty trash permanently") }}</button>
+  </form>
+  {% endif %}
 </section>
 {% endif %}
 {% if not guest %}

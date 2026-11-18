@@ -17,7 +17,8 @@
   </label>
   <label>{{ _("Minimum password length") }} <input name="min_password_length" type="number" min="8" max="128" value="{{ values.min_password_length }}"></label>
   <label class="choice"><input type="checkbox" name="require_totp_for_admins" value="1" {% if values.require_totp_for_admins %}checked{% endif %}> {{ _("Admins must use two-step login") }}</label>
-  <label class="choice"><input type="checkbox" name="scratch_projects" value="1" {% if values.scratch_projects %}checked{% endif %}> {{ _("Allow scratch projects without an account") }}</label>
+  <label class="choice"><input type="checkbox" name="require_email_verification" value="1" {% if values.require_email_verification %}checked{% endif %} {% if not smtp.enabled and not values.require_email_verification %}disabled{% endif %}> {{ _("New accounts must confirm an email address before publishing or syncing") }}</label>
+  {% if not smtp.enabled %}<p class="muted">{{ _("Needs mail: confirmation links are sent by email.") }}</p>{% endif %}
   <h2>{{ _("Guests") }}</h2>
   <label class="choice"><input type="checkbox" name="guests" value="1" {% if values.guests %}checked{% endif %}> {{ _("People without an account can join through share links") }}</label>
   <label>{{ _("Highest role for guests") }}
