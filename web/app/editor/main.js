@@ -18,6 +18,7 @@ import { CommentsPanel } from "./comments.js";
 import { FieldsPanel, LayoutFields, fieldsExtension } from "./fields.js";
 import { GrammarChecker, grammarExtension, showMatches } from "./grammar.js";
 import { ImageInserter } from "./images.js";
+import { RichPaste } from "./paste.js";
 import { documentLanguage } from "../workers/grammar-text.js";
 import { ReferencesPanel } from "./references.js";
 import { SelectionBubble, reviewFrontMatter } from "./review.js";
@@ -134,6 +135,8 @@ const flashField = StateField.define({
 const images = !readOnly && !review && !offlineRecord && (isMarkdown || kind === "latex") && snap.can.upload !== false
   ? new ImageInserter({ projectId, kind })
   : null;
+// Formatted text from Word, Google Docs and web pages is pasted as Markdown.
+const richPaste = isMarkdown && !readOnly && !review ? new RichPaste() : null;
 let layoutOptions = { ...snap.layoutOptions };
 // The front matter fields the layout prints (§9.4): autocomplete and hover help in the
 // front matter, and the Fields panel below.
@@ -146,7 +149,8 @@ const session = new DocSession({
   socket, docId, clientID: snap.clientID, text: snap.text, version: snap.version,
   makeState: (text, version) => EditorState.create({ doc: text, extensions: [
     base, peersField, anchorsField, conflictGutter((id) => openConflicts(id)), markClicks,
-    review ? reviewFrontMatter : [], images ? images.extension() : [], flashField,
+    review ? reviewFrontMatter : [], richPaste ? richPaste.extension() : [], images ? images.extension() : [],
+    flashField,
     layoutFields ? fieldsExtension(layoutFields) : [], isScript ? characterCompletion(() => characters) : [],
     grammar ? grammarExtension({ ignore: (m, w) => { grammar.ignore(m, w); checkGrammar(); },
                                  addWord: (w) => { grammar.addWord(w); checkGrammar(); } }) : [],

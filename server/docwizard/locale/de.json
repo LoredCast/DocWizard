@@ -1110,5 +1110,10 @@
  "{n} documents in this browser": "{n} Dokumente in diesem Browser",
  "Saving for offline use…": "Wird für die Offline-Nutzung gespeichert …",
  "1 document": "1 Dokument",
- "{n} documents": "{n} Dokumente"
+ "{n} documents": "{n} Dokumente",
+ "Pasted with formatting.": "Mit Formatierung eingefügt.",
+ "Paste as plain text": "Als reinen Text einfügen",
+ "Ctrl+Shift+V pastes plain text right away": "Strg+Umschalt+V fügt gleich reinen Text ein",
+ "A picture in the pasted text was left out. Paste or drop it on its own to add it.": "Ein Bild im eingefügten Text wurde ausgelassen. Füg es einzeln ein oder zieh es in den Text.",
+ "{n} pictures in the pasted text were left out. Paste or drop each one on its own to add it.": "{n} Bilder im eingefügten Text wurden ausgelassen. Füg sie einzeln ein oder zieh sie in den Text."
 }

@@ -571,6 +571,14 @@
   #editor .cm-jump-flash { background: var(--sel); animation: jump-flash 1.6s ease-out forwards; }
   @keyframes jump-flash { 60% { background: var(--sel); } to { background: transparent; } }
   @media (prefers-reduced-motion: reduce) { #editor .cm-jump-flash { animation: none; } }
+  /* After a formatted paste: undo the formatting (§6.3). */
+  .paste-note {
+    position: absolute; right: 16px; bottom: 12px; z-index: 4; display: flex; align-items: center; gap: 12px;
+    max-width: calc(100% - 32px); padding: 4px 4px 4px 12px; background: var(--bg); border: 1px solid var(--line);
+    border-radius: var(--radius); box-shadow: 0 2px 8px rgb(0 0 0 / .2); font-size: 13px;
+  }
+  .paste-note .paste-note-close { color: var(--muted); padding: 0 6px; min-height: 24px; font-size: 16px; }
+  @media (pointer: coarse) { .paste-note button { min-height: var(--control); } }
   #editor .cm-image-upload {
     border: 1px dashed var(--edge); border-radius: var(--radius); padding: 0 6px; margin: 0 2px;
     color: var(--muted); font-size: 0.9em; white-space: nowrap;
