@@ -5,10 +5,12 @@
 //   recent:    {owner, items, savedAt}, a mirror of the home page's recent list
 //   citations: {projectId, owner, etag, items}
 //   layouts:   {id, owner, layout}
+//   projects:  {projectId, owner, name, savedAt}: projects kept available offline as a whole;
+//              their documents' records carry kept: projectId and aren't pruned
 // Everything here is best effort: private windows and full disks just mean no offline copy.
 
 const DB_NAME = "docwizard";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const KEEP = 50;
 const OWNER_KEY = "dw.owner";
 let dbPromise = null;
@@ -33,6 +35,7 @@ function open() {
         if (!db.objectStoreNames.contains("recent")) db.createObjectStore("recent", { keyPath: "owner" });
         if (!db.objectStoreNames.contains("citations")) db.createObjectStore("citations", { keyPath: "projectId" });
         if (!db.objectStoreNames.contains("layouts")) db.createObjectStore("layouts", { keyPath: "id" });
+        if (!db.objectStoreNames.contains("projects")) db.createObjectStore("projects", { keyPath: "projectId" });
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => resolve(null);
@@ -93,7 +96,8 @@ export const deleteDoc = (docId) => run("docs", "readwrite", (s) => s.delete(doc
 
 export const hasPendingEdits = (r) => r.text !== r.baseText || (r.merges?.length ?? 0) > 0;
 
-// Keep the newest KEEP records, all pinned ones and all with edits not yet on the server.
+// Keep the newest KEEP records, all pinned ones, those of projects kept offline and all with
+// edits not yet on the server.
 export async function prune() {
   await run("docs", "readwrite", (store) => {
     const req = store.index("updatedAt").openCursor(null, "prev");
@@ -102,7 +106,7 @@ export async function prune() {
       const cursor = req.result;
       if (!cursor) return;
       const r = cursor.value;
-      if (!r.pinned && !hasPendingEdits(r) && ++seen > KEEP) cursor.delete();
+      if (!r.pinned && !r.kept && !hasPendingEdits(r) && ++seen > KEEP) cursor.delete();
       cursor.continue();
     };
     return null;
@@ -137,6 +141,33 @@ export const putCitations = (projectId, etag, items) => run("citations", "readwr
 export const putLayout = (layout) => run("layouts", "readwrite",
   (s) => s.put({ id: layout.id, owner: currentOwner(), layout }));
 
+// -- Projects kept offline ------------------------------------------------------
+
+export const listKeptProjects = () => run("projects", "readonly", (s) => s.getAll())
+  .then((rows) => (rows ?? []).filter(mine));
+
+export const getKeptProject = (projectId) => run("projects", "readonly", (s) => s.get(projectId)).then(mine);
+
+export const putKeptProject = (project) => run("projects", "readwrite",
+  (s) => s.put({ ...project, owner: currentOwner() }));
+
+// Stops keeping a project: its documents become ordinary recent copies again.
+export async function dropKeptProject(projectId) {
+  await run("projects", "readwrite", (s) => s.delete(projectId));
+  await run("docs", "readwrite", (store) => {
+    const req = store.openCursor();
+    req.onsuccess = () => {
+      const cursor = req.result;
+      if (!cursor) return;
+      const r = cursor.value;
+      if (mine(r) && r.kept === projectId) cursor.update({ ...r, kept: null });
+      cursor.continue();
+    };
+    return null;
+  });
+  await prune();
+}
+
 // -- Logging out ----------------------------------------------------------------
 
 // Drops everything except documents with edits that haven't reached the server:
@@ -152,5 +183,5 @@ export async function forgetAccount() {
     };
     return null;
   });
-  for (const name of ["recent", "citations", "layouts"]) await run(name, "readwrite", (s) => s.clear());
+  for (const name of ["recent", "citations", "layouts", "projects"]) await run(name, "readwrite", (s) => s.clear());
 }

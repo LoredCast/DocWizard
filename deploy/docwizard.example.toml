@@ -23,6 +23,8 @@ min_password_length = 12
 [sync]
 default_poll_seconds = 60
 max_files_per_target = 5000
+# folder_roots = ["/srv/docwizard-folders"]       # folders on this server that projects may sync with
+# git = true                                      # git repositories over HTTPS; needs git on the PATH
 
 # One block per login provider (§13.4). The redirect URI to register at the
 # provider is <public_url>/login/oidc/<id>/callback.
