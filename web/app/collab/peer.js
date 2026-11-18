@@ -4,6 +4,7 @@
 // merge path after long offline periods, pruned history or a rejected update (§8.6).
 import { ChangeSet, ViewPlugin, collab, getSyncedVersion, receiveUpdates, sendableUpdates } from "codemirror";
 import { putDoc } from "../store/idb.js";
+import { holdDocLock } from "../store/outbox.js";
 
 const REBASE_LIMIT = 5 * 60 * 1000;
 const MAX_PUSH = 100;
@@ -60,6 +61,7 @@ export class DocSession {
   start(view) {
     this.view = view;
     this.synced = view.state.doc;
+    holdDocLock(this.docId); // this tab sends this document's edits; the background outbox leaves it alone
     this.unregister = this.socket.register(this.docId, {
       onOpen: () => this.sendOpen(),
       onMessage: (msg) => this.receive(msg),
@@ -77,6 +79,7 @@ export class DocSession {
   // Edits restored from this browser after a reload are sent as a merge (§6.5).
   restore(record) {
     if (!record) return false;
+    if (record.kept) this.keep.kept = record.kept; // still part of a project kept offline
     this.merges = Array.isArray(record.merges) ? record.merges : [];
     if (record.text !== record.baseText && record.text !== this.initialText) {
       this.merges.push({ mergeId: randomId("m_"), baseVersion: record.syncedVersion, base: record.baseText,
@@ -91,7 +94,7 @@ export class DocSession {
   resume(record) {
     this.merges = Array.isArray(record.merges) ? record.merges : [];
     this.offlineSince = record.offlineSince ?? Date.now();
-    this.keep = { url: record.url, meta: record.meta, pinned: record.pinned };
+    this.keep = { url: record.url, meta: record.meta, pinned: record.pinned, kept: record.kept };
     const base = record.baseText;
     const text = record.text;
     if (text !== base) {
@@ -326,8 +329,8 @@ export class DocSession {
   // Every open document is kept, not only ones with waiting edits, so it opens offline (§6.5).
   persistNow() {
     clearTimeout(this.persistTimer);
-    if (!this.view) return;
-    putDoc({
+    if (!this.view) return Promise.resolve();
+    return putDoc({
       ...this.keep,
       docId: this.docId,
       clientID: this.clientID,

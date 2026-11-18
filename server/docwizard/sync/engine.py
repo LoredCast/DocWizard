@@ -23,11 +23,13 @@ from ..netpolicy import FetchError, PolicyError
 from ..projects import files
 from ..projects import service as svc
 from ..secretbox import SecretError, context_for
+from .folder import FolderRemote
+from .git import GitError, GitRemote
 from .webdav import DavError, Entry, WebDav
 
 log = logging.getLogger("docwizard.sync")
 
-KIND_LABELS = {"nextcloud": "Nextcloud", "seafile": "Seafile", "webdav": "WebDAV"}
+KIND_LABELS = {"nextcloud": "Nextcloud", "seafile": "Seafile", "webdav": "WebDAV", "folder": "Folder", "git": "Git"}
 MAX_BACKOFF = 3600
 SETTLE_SECONDS = 5.0
 
@@ -107,7 +109,7 @@ class SyncEngine:
             started = time.time()
             try:
                 report = await _Run(self.app, target).run()
-            except (DavError, FetchError, PolicyError, SecretError, SyncError, OSError) as exc:
+            except (DavError, FetchError, PolicyError, SecretError, SyncError, GitError, OSError) as exc:
                 failures = target["failures"] + 1
                 delay = min(MAX_BACKOFF, target["poll_seconds"] * 2 ** min(failures, 12))
                 await self.app.db.execute(
@@ -123,10 +125,33 @@ class SyncEngine:
             return report
 
 
-def client_for(app, target: dict) -> WebDav:
+def git_workdir(app, target_id: int):
+    return app.cfg.data_dir / "sync-git" / str(target_id)
+
+
+def git_author(target: dict) -> tuple[str, str]:
+    return (target.get("author_name") or "DocWizard", target.get("author_email") or "docwizard@localhost")
+
+
+def client_for(app, target: dict):
+    """The remote side of a target: a WebDAV server, a folder on this server (§12.6) or a git clone (§12.7)."""
+    if target["kind"] == "folder":
+        from pathlib import Path
+
+        from .folder import allowed_root
+        try:
+            base, prefix = allowed_root(app.cfg.sync.folder_roots, str(Path(target["base_url"]) / target["remote_path"]))
+        except ValueError as exc:
+            raise SyncError(str(exc)) from None
+        return FolderRemote(base, prefix)
     password = ""
     if target.get("secret_enc"):
         password = app.secrets.open(target["secret_enc"], context_for("sync_targets", target["id"]))
+    if target["kind"] == "git":
+        if not app.cfg.sync.git:
+            raise SyncError("Git sync is turned off on this server.")
+        return GitRemote(app.net, git_workdir(app, target["id"]), target["base_url"], target["branch"],
+                         username=target["username"], token=password, author=git_author(target))
     root = target["base_url"].rstrip("/")
     if target["remote_path"]:
         root += "/" + quote(target["remote_path"].strip("/"), safe="/")
@@ -296,7 +321,37 @@ class _Run:
 
     # -- the run --------------------------------------------------------------
     async def run(self) -> dict:
+        if isinstance(self.dav, GitRemote):
+            return await self.run_git()
         await self.ensure_root()
+        return await self.run_files()
+
+    async def run_git(self) -> dict:
+        """Fetch, sync with the clone like a folder, then commit and push (§12.7).
+
+        If the push fails, the bases go back to what they were, so the next run compares
+        both sides with the last state that really reached the repository.
+        """
+        await self.dav_call(self.dav.begin)
+        if self.dav.fresh:
+            await self.db.execute("DELETE FROM sync_state WHERE target_id = ?", (self.tid,))
+        saved = await self.db.fetchall("SELECT * FROM sync_state WHERE target_id = ?", (self.tid,))
+        report = await self.run_files()
+        try:
+            await self.dav_call(self.dav.finish, commit_message(report))
+        except Exception:
+            def restore(c):
+                c.execute("DELETE FROM sync_state WHERE target_id = ?", (self.tid,))
+                c.executemany(
+                    "INSERT INTO sync_state(target_id, path, item_id, base_sha256, remote_etag, remote_fileid,"
+                    " updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    [(r["target_id"], r["path"], r["item_id"], r["base_sha256"], r["remote_etag"],
+                      r["remote_fileid"], r["updated_at"]) for r in saved])
+            await self.db.write(restore)
+            raise
+        return report
+
+    async def run_files(self) -> dict:
         base = await self.load_base()
         dir_etags = {p: r["remote_etag"] for p, r in base.items() if p.endswith("/") and r["remote_etag"]}
         remote_files, folders, skipped = await self.dav_call(self.dav.walk, dir_etags)
@@ -326,6 +381,9 @@ class _Run:
         return self.report
 
     async def ensure_root(self) -> None:
+        if isinstance(self.dav, FolderRemote):
+            await self.dav_call(self.dav.ensure_root)
+            return
         remote_path = self.target["remote_path"].strip("/")
         if not remote_path:
             return
@@ -529,3 +587,17 @@ class _Run:
 
 async def _text(room) -> str:
     return room.text()
+
+
+def commit_message(report: dict) -> str:
+    """A commit message that says what DocWizard changed, e.g. "Update paper.md and 2 other files"."""
+    changed = report["uploaded"] + report["deleted_remote"] + [r.split(" -> ")[-1] for r in report["renamed"]]
+    if not changed:
+        return "Update from DocWizard"
+    verb = "Delete" if not report["uploaded"] and not report["renamed"] and report["deleted_remote"] else "Update"
+    first = changed[0]
+    rest = len(set(changed)) - 1
+    head = f"{verb} {first}" + ("" if rest == 0 else f" and {rest} other file" + ("s" if rest > 1 else ""))
+    lines = [f"- {p}" for p in report["uploaded"]] + [f"- {p} (deleted)" for p in report["deleted_remote"]] \
+        + [f"- {r} (renamed)" for r in report["renamed"]]
+    return head + "\n\nFrom DocWizard:\n" + "\n".join(lines) + "\n"

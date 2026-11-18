@@ -578,3 +578,18 @@
   #editor .cm-conflict-gutter { width: 4px; }
   #editor .cm-conflict-gutter .cm-gutterElement { padding: 0; }
   #editor .cm-conflict-bar { display: block; width: 2px; height: 100%; background: var(--danger); cursor: pointer; }
+
+/* Local-first (§6.5, §12.6–12.7): the project bar, the sync choice and the offline badge. */
+@layer components {
+  .project-bar { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; min-height: 36px; padding: 4px 16px; border-bottom: 1px solid var(--line); }
+  .project-bar .spacer-left { margin-left: auto; }
+  .project-bar [data-offline-state]:empty { display: none; }
+  label.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+  label.switch input { margin: 0; }
+  label.field { display: flex; flex-direction: column; gap: 4px; max-width: 40rem; margin: 8px 0 12px; }
+  #sync form[hidden] { display: none; }
+  #sync strong { overflow-wrap: anywhere; }
+  .net-state { display: inline-flex; align-items: center; min-height: 22px; padding: 0 8px; border: 1px solid var(--edge); border-radius: 11px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+  .net-state[hidden] { display: none; }
+  ul.plain.kept-list { margin: 0 16px 8px; }
+}

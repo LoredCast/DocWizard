@@ -86,6 +86,11 @@ class SyncConfig:
     enabled: bool = True  # tests turn the background poller off and run syncs directly
     default_poll_seconds: int = 60
     max_files_per_target: int = 5000
+    # Folders on this server that projects may sync with (§12.6), for example one that Syncthing,
+    # Dropbox or a mounted share also uses. Empty: folder sync is off.
+    folder_roots: list[str] = field(default_factory=list)
+    # Git repositories over HTTPS (§12.7). Needs the git command on the app's PATH.
+    git: bool = True
 
 
 @dataclass
