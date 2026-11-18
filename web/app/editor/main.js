@@ -1,5 +1,6 @@
 // The editor page: wires the editor, collaboration, preview, export, layout options and versions.
-import { Decoration, EditorSelection, EditorState, EditorView, StateEffect, StateField, redo, undo } from "codemirror";
+import { Decoration, EditorSelection, EditorState, EditorView, StateEffect, StateField, closeSearchPanel, openSearchPanel,
+         redo, searchPanelOpen, undo } from "codemirror";
 import { DocSession } from "../collab/peer.js";
 import { PresenceSender, PresenceView, peersField } from "../collab/presence.js";
 import { Socket } from "../collab/socket.js";
@@ -10,14 +11,16 @@ import { $, api, confirmDialog, el, t, toast, wireCommon } from "../ui/dom.js";
 import { AnchorLoader, anchorsField, conflictGutter } from "./anchors.js";
 import { setCiteHooks, setLibrary } from "./citations.js";
 import {
-  activeFormatting, cycleHeading, insertCitation, insertFootnote, insertLink,
+  activeFormatting, cycleHeading, insertCitation,
   toggleBold, toggleBulletList, toggleCode, toggleInlineMath, toggleItalic,
   toggleOrderedList, toggleQuote, toggleStrike, toggleTaskList,
 } from "./commands.js";
 import { CommentsPanel } from "./comments.js";
 import { FieldsPanel, LayoutFields, fieldsExtension } from "./fields.js";
 import { GrammarChecker, grammarExtension, showMatches } from "./grammar.js";
+import { figures } from "./figures.js";
 import { ImageInserter } from "./images.js";
+import { InsertTools } from "./insert-tools.js";
 import { RichPaste } from "./paste.js";
 import { documentLanguage } from "../workers/grammar-text.js";
 import { ReferencesPanel } from "./references.js";
@@ -26,6 +29,9 @@ import { characterCompletion, openOutline } from "./script.js";
 import { access, accessExtensions, baseExtensions } from "./setup.js";
 import { setSuggestMode, suggestField, suggestMode } from "./suggest-mode.js";
 import { TitleCardEditor, refreshCard } from "./title-card.js";
+import { ChaptersDrawer } from "./chapters.js";
+import { addColumn, addRow, cycleAlign, deleteColumn, deleteRow, deleteTable, tableAt } from "./tables.js";
+import { setWriterMode, writerField, writerMode } from "./writer-mode.js";
 
 wireCommon();
 
@@ -47,7 +53,7 @@ if (!snap) {
   document.title = `${snap.doc.path} · ${snap.project.name} · DocWizard`;
   $("#crumb-project").textContent = snap.project.name;
   $("#crumb-project").href = `/p/${snap.project.id}`;
-  $("#crumb-doc").textContent = snap.doc.path;
+  $("#crumb-doc .crumb-name").textContent = snap.doc.path;
   $("#doc-kind").textContent = snap.doc.kind === "markdown" ? "Markdown"
     : snap.doc.kind.charAt(0).toUpperCase() + snap.doc.kind.slice(1);
   for (const node of document.querySelectorAll("[data-layout-name]")) node.textContent = snap.layout?.name ?? "";
@@ -154,14 +160,37 @@ const titleCard = isMarkdown && !review ? new TitleCardEditor({
   yaml: stored(yamlKey, "off") === "on",
   onYaml: (on) => store(yamlKey, on ? "on" : "off"),
 }) : null;
+// Links, footnotes, tables and cross-references through popovers; pictures as figures; writer mode.
+const tools = isMarkdown ? new InsertTools({ view: null, host: $("#editor").closest(".pane"),
+                                             readOnly: (state) => state.readOnly }) : null;
+const marksKey = "dw.marks";
+const figureField = isMarkdown ? figures({ projectId: offlineRecord ? null : projectId,
+                                           locked: (state) => state.readOnly }) : null;
+
+// The search panel in the app's colours (CodeMirror's own are light grey gradients).
+const searchTheme = EditorView.theme({
+  ".cm-panel .cm-textfield, .cm-panel .cm-button": {
+    background: "var(--bg)", backgroundImage: "none", color: "var(--fg)", border: "1px solid var(--line)",
+    borderRadius: "var(--radius)", font: "inherit", fontSize: "14px", padding: "2px 8px",
+  },
+  ".cm-panel .cm-button:hover, .cm-panel .cm-button:active": { background: "var(--hover)", backgroundImage: "none" },
+  ".cm-panel button[name=close]": { color: "var(--muted)", fontSize: "18px" },
+});
+
+// The search panel's words, in the interface language.
+const searchPhrases = EditorState.phrases.of(Object.fromEntries(
+  ["Find", "Replace", "next", "previous", "all", "match case", "regexp", "by word", "replace", "replace all", "close",
+   "current match", "on line", "Go to line", "go"].map((w) => [w, t(w)])));
 
 const session = new DocSession({
   socket, docId, clientID: snap.clientID, text: snap.text, version: snap.version,
   makeState: (text, version) => EditorState.create({ doc: text, extensions: [
-    base, peersField, anchorsField, conflictGutter((id) => openConflicts(id)), markClicks,
+    base, searchPhrases, searchTheme, peersField, anchorsField, conflictGutter((id) => openConflicts(id)), markClicks,
     review ? reviewFrontMatter : [], richPaste ? richPaste.extension() : [], images ? images.extension() : [],
     flashField,
-    layoutFields ? fieldsExtension(layoutFields) : [], titleCard ? titleCard.extension() : [], isScript ? characterCompletion(() => characters) : [],
+    layoutFields ? fieldsExtension(layoutFields) : [], titleCard ? titleCard.extension() : [],
+    isMarkdown ? writerField.init(() => !review && stored(marksKey, "on") === "off") : [],
+    figureField ?? [], tools ? tools.extension({ writer: writerMode }) : [], isScript ? characterCompletion(() => characters) : [],
     grammar ? grammarExtension({ ignore: (m, w) => { grammar.ignore(m, w); checkGrammar(); },
                                  addWord: (w) => { grammar.addWord(w); checkGrammar(); } }) : [],
     suggest ? suggest.extension : [],
@@ -196,37 +225,91 @@ const { text: _text, version: _version, clientID: _clientID, ...meta } = snap;
 session.keep = { url: location.pathname, meta, pinned: Boolean(snap.doc.pinned) };
 session.start(view);
 view.focus();
+if (tools) {
+  tools.view = view;
+  tools.listen(view.dom);
+}
 
 // -- Formatting bar and mobile actions menu -------------------------------
 const formatBar = $("#format-bar");
+// Commands that open a popover return "popover", so the popover keeps the focus.
+const POPOVER = "popover";
 const FORMAT_CMDS = {
   undo, redo,
   bold: toggleBold, italic: toggleItalic, strike: toggleStrike, code: toggleCode,
   heading: cycleHeading, quote: toggleQuote, bullet: toggleBulletList,
   ordered: toggleOrderedList, task: toggleTaskList,
-  link: insertLink, math: toggleInlineMath, cite: insertCitation, footnote: insertFootnote,
+  link: (v, btn) => { tools.link(btn); return POPOVER; },
+  footnote: (v, btn) => { tools.note({ anchor: btn }); return POPOVER; },
+  table: (v, btn) => { tools.table(btn); return POPOVER; },
+  insert: (v, btn) => {
+    tools.menu(btn, [
+      [t("Footnote"), "", (a) => tools.note({ anchor: a })],
+      [t("Cross-reference"), t("Figure 1, Table 2"), (a) => tools.crossRef(a)],
+      [t("Citation"), "[@]", () => { insertCitation(view); view.focus(); }],
+      [t("Math"), "$", () => { toggleInlineMath(view); view.focus(); }],
+      [t("Table"), "", (a) => tools.table(a)],
+    ]);
+    return POPOVER;
+  },
+  math: toggleInlineMath, cite: insertCitation,
   refs: () => references?.toggle(),
   image: (v) => images?.pick(v),
+  marks: () => setMarks(writerMode(view.state)),
+  find: (v) => toggleFind(v),
 };
+
+// Find and replace (Ctrl+F) from a button too; the panel opens below the text.
+function toggleFind(v = view) {
+  if (searchPanelOpen(v.state)) closeSearchPanel(v);
+  else openSearchPanel(v);
+  return POPOVER; // the panel takes the focus
+}
+const TABLE_CMDS = { row: addRow, column: addColumn, align: cycleAlign, "delete-row": deleteRow,
+                     "delete-column": deleteColumn, delete: deleteTable };
+const tableBar = $("#table-bar");
+
+// "Show Markdown marks" on (the line with the cursor shows its source) or off (writer mode).
+function setMarks(on) {
+  store(marksKey, on ? "on" : "off");
+  view.dispatch({ effects: setWriterMode.of(!on) });
+  updateFormatBar();
+}
+
 if (formatBar) {
   formatBar.hidden = readOnly || !isMarkdown || review;
-  formatBar.addEventListener("mousedown", (event) => {
-    if (event.target.closest("[data-cmd]")) event.preventDefault();
-  });
+  for (const bar of [formatBar, tableBar]) {
+    bar?.addEventListener("mousedown", (event) => {
+      if (event.target.closest("[data-cmd], [data-table]")) event.preventDefault();
+    });
+  }
   formatBar.addEventListener("click", (event) => {
     const btn = event.target.closest("[data-cmd]");
     if (!btn || readOnly || !isMarkdown || review) return;
     const cmd = FORMAT_CMDS[btn.dataset.cmd];
     if (cmd) {
-      cmd(view);
-      view.focus();
+      if (cmd(view, btn) !== POPOVER) view.focus();
       updateFormatBar();
     }
+  });
+  tableBar?.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-table]");
+    const cmd = btn && TABLE_CMDS[btn.dataset.table];
+    if (!cmd || readOnly) return;
+    cmd(view);
+    view.focus();
+    updateFormatBar();
   });
 }
 
 function updateFormatBar() {
-  if (!formatBar || formatBar.hidden) return;
+  if (!formatBar || formatBar.hidden) {
+    if (tableBar) tableBar.hidden = true;
+    return;
+  }
+  if (tableBar) tableBar.hidden = !tableAt(view.state, view.state.selection.main.head);
+  const marks = formatBar.querySelector('[data-cmd="marks"]');
+  marks?.setAttribute("aria-pressed", String(!writerMode(view.state)));
   const active = activeFormatting(view.state);
   for (const btn of formatBar.querySelectorAll("[data-cmd]")) {
     const cmd = btn.dataset.cmd;
@@ -650,18 +733,23 @@ function showRendered(msg) {
 // One-way scroll sync: the heading above the cursor (§6.4).
 let lastHeading = null;
 function cursorMoved() {
-  if (!isMarkdown || target !== "html" || !outline.length || !previewVisible()) return;
+  if (!isMarkdown || !outline.length || !previewVisible()) return;
   const line = view.state.doc.lineAt(view.state.selection.main.head).number;
   let current = null;
   for (const h of outline) {
-    if (h.scene) continue; // scene headings aren't headings in the HTML preview
+    if (h.scene) continue; // scene headings aren't headings in the preview
     if (h.line > line) break;
     current = h;
   }
+  // Which of the headings with this title it is, for the PDF.
+  const nth = current ? outline.filter((o) => !o.scene && o.line < current.line && o.title === current.title).length : 0;
   const id = current ? headingId(current.title) : "";
-  if (id === lastHeading) return;
-  lastHeading = id;
-  html.scrollTo(id);
+  const key = `${target}:${id}:${nth}`;
+  if (key === lastHeading) return;
+  lastHeading = key;
+  // The PDF follows along too: it scrolls to the heading's page once that page has text.
+  if (target === "html") html.scrollTo(id);
+  else pdf.scrollToHeading(current?.title ?? "", nth).then((done) => { if (!done && lastHeading === key) lastHeading = null; });
 }
 
 // From the PDF preview back to the source (§6.4): double-click (double-tap) a spot. LaTeX answers
@@ -728,10 +816,13 @@ $("#open-export").addEventListener("click", () => {
 $("#export-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const status = $("#export-status");
-  const button = event.submitter ?? $("#export-form button[type=submit]");
-  const targetName = new FormData(event.target).get("target");
-  status.textContent = t("Exporting…");
-  button.disabled = true;
+  const button = event.submitter ?? $('#export-form button[value="export"]');
+  const how = button.value; // "pdf", "print" or "export"
+  const targetName = button.dataset.target ?? new FormData(event.target).get("target");
+  if (!targetName) return;
+  status.textContent = how === "print" ? t("Preparing to print…") : t("Exporting…");
+  const buttons = [...event.target.querySelectorAll("button[type=submit]")];
+  for (const b of buttons) b.disabled = true;
   try {
     const { job } = await api("POST", `/api/projects/${projectId}/export`,
                               { target: targetName, doc: docId, options: layoutOptions });
@@ -740,10 +831,17 @@ $("#export-form").addEventListener("submit", async (event) => {
       const s = await api("GET", `/api/jobs/${job}`);
       if (s.status === "queued" || s.status === "running") continue;
       status.replaceChildren();
-      if (s.url) {
-        status.append(el("a", { href: s.url, download: "" }, t("Download")), " ");
+      if (s.url && how === "print") {
+        status.append(t("The print dialog opens."), " ",
+                      el("a", { href: s.url, target: "_blank", rel: "noopener" }, t("Open the PDF")), " ");
+        printPdf(s.url);
+      } else if (s.url) {
+        // The download starts by itself; the link stays for another copy.
+        const link = el("a", { href: s.url, download: "" }, t("Download again"));
+        status.append(t("Downloaded."), " ", link, " ");
+        link.click();
       } else {
-        status.append("The export failed. ");
+        status.append(t("The export failed."), " ");
       }
       const message = s.diagnostics?.find((d) => d.severity === "error")?.message;
       if (message) status.append(el("span", { class: "error" }, message));
@@ -753,9 +851,30 @@ $("#export-form").addEventListener("submit", async (event) => {
   } catch (err) {
     status.textContent = err.message;
   } finally {
-    button.disabled = false;
+    for (const b of buttons) b.disabled = false;
   }
 });
+
+// Printing: the browser's PDF viewer prints from a hidden frame on this page. Phones can't print
+// a frame, so there the PDF opens on its own, with the system's print and share.
+function printPdf(url) {
+  const old = $("#print-frame");
+  if (old) old.replaceWith();
+  if (/iPhone|iPad|Android/i.test(navigator.userAgent)) {
+    window.open(url, "_blank", "noopener");
+    return;
+  }
+  const frame = el("iframe", { id: "print-frame", class: "print-frame", src: url, title: t("Print"), "aria-hidden": "true", tabindex: "-1" });
+  frame.addEventListener("load", () => {
+    try {
+      frame.contentWindow.focus();
+      frame.contentWindow.print();
+    } catch {
+      window.open(url, "_blank", "noopener");
+    }
+  }, { once: true });
+  document.body.append(frame);
+}
 
 // -- Layout and its options -------------------------------------------------
 // The dialog shows the project's layout and the options it offers authors. Each option
@@ -1033,6 +1152,7 @@ function setSuggesting(on, { quiet = false } = {}) {
   if (reviewBanner) reviewBanner.hidden = on; // one banner at a time
   // The banner takes the formatting bar's place: formatting doesn't apply to suggestions.
   if (formatBar) formatBar.hidden = on || readOnly || !isMarkdown || review;
+  updateFormatBar();
   bubble?.hide();
   if (on && !quiet) view.focus();
 }
@@ -1105,6 +1225,22 @@ fieldsPanel = layoutFields && fieldsEl ? new FieldsPanel({
   },
 }) : null;
 $("#open-fields")?.addEventListener("click", () => fieldsPanel?.toggle());
+
+$("#open-find")?.addEventListener("click", () => toggleFind());
+
+// -- Chapters and files ------------------------------------------------------
+const chapters = new ChaptersDrawer({
+  host: split, projectId, docId, docPath: snap.doc.path, files: snap.files ?? [],
+  canEdit: Boolean(snap.can.edit), canBuild: Boolean(snap.can.change_layout), offline: Boolean(offlineRecord),
+  // Edits still on their way go first, so nothing is lost by leaving the page.
+  settle: async () => { for (let i = 0; i < 50 && session.unconfirmed() > 0; i++) await new Promise((r) => setTimeout(r, 100)); },
+  onBuild: () => { shown = { html: -1, "pdf-typst": -1, "pdf-latex": -1 }; requestPreview(0); },
+  openReferences: references ? () => references.show() : null,
+});
+for (const button of document.querySelectorAll("[data-open-chapters]")) {
+  // From the Actions menu, focus goes back to the menu's button, as the menu closes.
+  button.addEventListener("click", () => chapters.toggle(button.closest("#toolbar-buttons") ? moreBtn : button));
+}
 
 // -- Conflicts (§12.3) ------------------------------------------------------
 let conflicts = [];

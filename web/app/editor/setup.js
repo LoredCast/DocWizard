@@ -10,6 +10,7 @@ import { markdownKeymap } from "./commands.js";
 import { latexLanguage } from "./latex-mode.js";
 import { livePreview } from "./live-preview.js";
 import { pandocExtensions, pandocTags } from "./pandoc-syntax.js";
+import { nextCell, previousCell } from "./tables.js";
 
 const markdownData = defineLanguageFacet({
   commentTokens: { block: { open: "<!--", close: "-->" } },
@@ -75,6 +76,8 @@ export function languageFor(kind) {
       headingFold,
       libraryField,
       keymap.of(markdownKeymap),
+      // In a table, Tab and Shift+Tab move between cells; elsewhere they keep their usual job.
+      keymap.of([{ key: "Tab", run: nextCell }, { key: "Shift-Tab", run: previousCell }]),
     ];
   }
   if (kind === "latex") return [latexLanguage, syntaxHighlighting(latexHighlight)];

@@ -1,10 +1,26 @@
 // Live preview (ARCHITECTURE.md §6.3): on every line except those with the
-// cursor, hide syntax marks, style content, show citations as chips and math
-// as MathML. The cursor line always shows raw source.
+// cursor, hide syntax marks, style content, show citations as chips, math
+// as MathML and footnotes as numbers. The cursor line shows raw source, except
+// in writer mode, where the marks stay hidden there too.
 import { Decoration, EditorView, StateEffect, ViewPlugin, WidgetType, syntaxTree } from "codemirror";
 import { chipText, libraryField, setLibrary } from "./citations.js";
 import { loadTemml, onTemmlReady, renderMath, temmlReady } from "./math.js";
 import { t } from "../ui/dom.js";
+import { crossRefTargets } from "./figures.js";
+import { writerMode } from "./writer-mode.js";
+
+// Cross-references ([@fig:map]) as what they print: "Figure 1". Numbered per document text.
+const XREF = /^(fig|tbl|eq|sec):/;
+const xrefCache = new WeakMap();
+function xrefsOf(doc) {
+  let map = xrefCache.get(doc);
+  if (!map) {
+    map = new Map(crossRefTargets(doc.toString()).map((x) => [x.id, x]));
+    xrefCache.set(doc, map);
+  }
+  return map;
+}
+const XREF_NAMES = { fig: "Figure", tbl: "Table", eq: "Equation", sec: "Section" };
 
 export const refreshDecorations = StateEffect.define();
 
@@ -40,6 +56,25 @@ class MathWidget extends WidgetType {
   ignoreEvent() { return false; }
 }
 
+// A footnote as its number; a click opens it to read and edit (editor/insert-tools.js).
+class NoteWidget extends WidgetType {
+  constructor(n, from, to, text) { super(); this.n = n; this.from = from; this.to = to; this.text = text; }
+  eq(other) { return other.n === this.n && other.from === this.from && other.to === this.to && other.text === this.text; }
+  toDOM() {
+    const sup = document.createElement("sup");
+    sup.className = "cm-note-chip";
+    sup.textContent = String(this.n);
+    sup.title = this.text.length > 160 ? `${this.text.slice(0, 160)}…` : this.text;
+    sup.setAttribute("role", "button");
+    sup.setAttribute("aria-label", t("Footnote {n}", { n: this.n }));
+    sup.addEventListener("mousedown", (e) => e.preventDefault());
+    sup.addEventListener("click", () => sup.dispatchEvent(new CustomEvent("dw:note", {
+      bubbles: true, detail: { from: this.from, to: this.to } })));
+    return sup;
+  }
+  ignoreEvent() { return true; }
+}
+
 class TaskWidget extends WidgetType {
   constructor(checked, pos) { super(); this.checked = checked; this.pos = pos; }
   eq(other) { return other.checked === this.checked && other.pos === this.pos; }
@@ -71,8 +106,15 @@ function cursorLines(state) {
 function build(view, enabled, reading = false) {
   const { state } = view;
   const out = [];
-  // Reading (the review view, §14.1): no line ever shows its source.
-  const active = reading ? new Set() : cursorLines(state);
+  // Reading (the review view, §14.1) and writer mode: no line shows its marks.
+  const active = reading || writerMode(state) ? new Set() : cursorLines(state);
+  // Footnotes are numbered in order; the ones before the visible text count too.
+  const notes = [];
+  const lastVisible = view.visibleRanges.length ? view.visibleRanges[view.visibleRanges.length - 1].to : 0;
+  syntaxTree(state).iterate({ from: 0, to: lastVisible, enter(node) {
+    if (node.name === "InlineNote") { notes.push(node.from); return false; }
+    return undefined;
+  } });
   const library = state.field(libraryField, false) ?? new Map();
   const onActive = (from, to) => {
     const a = state.doc.lineAt(from).number, b = state.doc.lineAt(to).number;
@@ -128,6 +170,22 @@ function build(view, enabled, reading = false) {
           return false;
         } else if (name === "FencedCode" || name === "CodeBlock") {
           linesOf(node.from, node.to, "cm-md-code");
+        } else if (name === "Table") {
+          // Monospaced, so padded columns line up.
+          linesOf(node.from, node.to, "cm-md-table");
+        } else if (name === "InlineNote") {
+          if (live) {
+            const n = notes.indexOf(node.from) + 1 || notes.length + 1;
+            const text = state.sliceDoc(node.from + 2, Math.max(node.from + 2, node.to - 1));
+            out.push(Decoration.replace({ widget: new NoteWidget(n, node.from, node.to, text) }).range(node.from, node.to));
+            return false;
+          }
+        } else if (name === "Attributes") {
+          // {#fig:map}, {#sec:method .unnumbered}: labels for cross-references, out of the way.
+          if (live) {
+            const start = state.sliceDoc(node.from - 1, node.from) === " " ? node.from - 1 : node.from;
+            hide(start, node.to);
+          }
         } else if (name === "FrontMatter") {
           linesOf(node.from, node.to, "cm-md-frontmatter");
           return false;
@@ -137,6 +195,18 @@ function build(view, enabled, reading = false) {
             if (c.name === "CitationKey") keys.push(c);
           }
           const ids = keys.map((k) => state.sliceDoc(k.from, k.to).replace(/^@/, ""));
+          if (ids.length && ids.every((id) => XREF.test(id))) {
+            const xrefs = xrefsOf(state.doc);
+            const found = ids.map((id) => xrefs.get(id));
+            if (live && found.every(Boolean) && state.doc.lineAt(node.from).number === state.doc.lineAt(node.to).number) {
+              const label = found.map((x) => `${t(XREF_NAMES[x.kind])} ${x.n}`).join(", ");
+              const title = found.map((x) => x.caption || x.id).join("\n");
+              out.push(Decoration.replace({ widget: new CiteWidget(label, title) }).range(node.from, node.to));
+            } else {
+              keys.forEach((k, i) => { if (!found[i]) out.push(marks.unknown.range(k.from, k.to)); });
+            }
+            return false;
+          }
           const allKnown = ids.length > 0 && ids.every((id) => library.has(id));
           if (live && allKnown && state.doc.lineAt(node.from).number === state.doc.lineAt(node.to).number) {
             const source = state.sliceDoc(node.from, node.to);
@@ -183,7 +253,8 @@ export function livePreview({ enabled = true, reading = false } = {}) {
     }
     update(update) {
       const refresh = update.transactions.some((tr) => tr.effects.some((e) => e.is(setLibrary) || e.is(refreshDecorations)));
-      if (update.docChanged || update.viewportChanged || update.selectionSet || refresh
+      const writer = writerMode(update.startState) !== writerMode(update.state);
+      if (update.docChanged || update.viewportChanged || update.selectionSet || refresh || writer
           || syntaxTree(update.startState) !== syntaxTree(update.state)) {
         this.decorations = build(update.view, this.enabled, reading);
       }

@@ -148,7 +148,7 @@ export class FieldsPanel {
     this.body = el("div", { class: "panel-body" });
     panel.replaceChildren(
       el("div", { class: "pane-head" },
-        el("span", {}, t("Fields")), el("span", { class: "spacer" }),
+        el("span", {}, t("Document details")), el("span", { class: "spacer" }),
         el("button", { type: "button", onclick: () => this.hide() }, t("Close"))),
       this.body);
   }
@@ -248,8 +248,8 @@ export class FieldsPanel {
       list(fields.general, { shown: false })));
     if (this.hasOptions) {
       parts.push(el("p", { class: "muted field-note" },
-        t("Settings for the whole project, such as line spacing or the title page, are layout options."), " ",
-        el("button", { type: "button", class: "link", onclick: () => this.openOptions() }, t("Layout options"))));
+        t("Settings for the whole project, such as line spacing or the title page, are in Page setup."), " ",
+        el("button", { type: "button", class: "link", onclick: () => this.openOptions() }, t("Page setup"))));
     }
     this.body.replaceChildren(...parts);
   }

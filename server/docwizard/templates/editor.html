@@ -7,7 +7,7 @@
 <link rel="modulepreload" href="{{ static }}/app/editor/main.js">
 <meta name="csp-nonce" content="{{ nonce }}">
 {% endblock %}
-{% block crumbs %}<a class="wordmark" href="/">DocWizard</a><span>/</span><a href="/p/{{ project.id }}" id="crumb-project">{{ project.name }}</a><span>/</span><span id="crumb-doc">{{ doc.path }}</span>{% endblock %}
+{% block crumbs %}<a class="wordmark" href="/">DocWizard</a><span>/</span><a href="/p/{{ project.id }}" id="crumb-project">{{ project.name }}</a><span>/</span><button type="button" class="crumb-doc" id="crumb-doc" data-open-chapters aria-expanded="false" aria-controls="chapters" title="{{ _('Chapters and files') }}"><span class="crumb-name">{{ doc.path }}</span></button>{% endblock %}
 {% block actions %}
 <span class="presence" id="presence" aria-label="{{ _('Also here') }}"></span>
 <span class="status" id="save-state" role="status">{{ _("Saved") }}</span>
@@ -16,14 +16,16 @@
   <button type="button" id="more-actions" aria-expanded="false" aria-controls="toolbar-buttons">{{ _("Actions") }}</button>
   <div class="toolbar-buttons" id="toolbar-buttons">
     <span class="status menu-status" id="menu-save-state" aria-hidden="true">{{ _("Saved") }}</span>
+    <button type="button" id="open-chapters" data-open-chapters aria-expanded="false" aria-controls="chapters">{{ _("Chapters") }}</button>
+    <button type="button" id="open-find" title="{{ _('Find and replace (Ctrl+F)') }}">{{ _("Find and replace") }}</button>
     <button type="button" id="new-comment" title="{{ _('Comment on the selection (Ctrl+Alt+M)') }}">{{ _("Comment") }}</button>
-    <button type="button" id="new-suggestion" aria-pressed="false" title="{{ _('Suggest changes: what you type becomes suggestions (Ctrl+Alt+G)') }}">{{ _("Suggest") }}</button>
+    <button type="button" id="new-suggestion" aria-pressed="false" title="{{ _('Suggest changes: what you type becomes suggestions (Ctrl+Alt+G)') }}">{{ _("Track changes") }}</button>
     <button type="button" id="open-comments" aria-pressed="false">{{ _("Comments") }}</button>
     {% if doc.kind == "markdown" %}<button type="button" id="open-refs" aria-pressed="false" title="{{ _('References (Ctrl+Alt+R)') }}">{{ _("References") }}</button>{% endif %}
-    {% if doc.kind == "markdown" %}<button type="button" id="open-fields" aria-pressed="false" title="{{ _('Front matter fields this layout prints') }}">{{ _("Fields") }}</button>{% endif %}
-    {% if doc.kind == "markdown" %}<a class="button" id="switch-view" href="?view={{ 'source' if review else 'review' }}">{{ _("Edit the source") if review else _("Review view") }}</a>{% endif %}
-    <button type="button" id="open-export">{{ _("Export") }}</button>
-    <button type="button" id="open-versions">{{ _("Versions") }}</button>
+    {% if doc.kind == "markdown" %}<button type="button" id="open-fields" aria-pressed="false" title="{{ _('Title, author and the other details this template prints') }}">{{ _("Document details") }}</button>{% endif %}
+    {% if doc.kind == "markdown" %}<a class="button" id="switch-view" title="{{ _('Edit the Markdown') if review else _('Read the document as it prints, without Markdown, to comment and suggest') }}" href="?view={{ 'source' if review else 'review' }}">{{ _("Edit the source") if review else _("Review view") }}</a>{% endif %}
+    <button type="button" id="open-export" title="{{ _('PDF, Word, e-book and more (Ctrl+E)') }}">{{ _("Download or print") }}</button>
+    <button type="button" id="open-versions">{{ _("Version history") }}</button>
     {% if can(role, "share", project) and not guest %}<button type="button" id="open-share">{{ _("Share") }}</button>{% endif %}
     {% if can(role, "publish", project) and not guest %}<button type="button" id="open-publish">{{ _("Publish") }}</button>{% endif %}
     {% if can(role, "edit", project) %}<button type="button" id="rename-doc">{{ _("Rename") }}</button>
@@ -41,10 +43,11 @@
 <div class="split" id="split">
   <section class="pane editor-pane" aria-label="{{ _('Editor') }}">
     {% if review %}<p class="review-banner" id="review-banner">{{ _("You're reviewing {path}. Select text, then choose Comment or Suggest change.", path=doc.path) if can(role, "comment", project) else _("You're reading {path}.", path=doc.path) }}</p>{% endif %}
-    <p class="suggest-banner" id="suggest-banner" role="status" hidden><strong>{{ _("Suggesting") }}</strong> <span class="muted">{{ _("What you type becomes suggestions to accept or reject.") }}</span> <button type="button" class="link" id="suggest-off">{{ _("Stop") }}</button></p>
+    <p class="suggest-banner" id="suggest-banner" role="status" hidden><strong>{{ _("Tracking changes") }}</strong> <span class="muted">{{ _("What you type becomes suggestions to accept or reject.") }}</span> <button type="button" class="link" id="suggest-off">{{ _("Stop") }}</button></p>
     <div class="format-bar" id="format-bar" role="toolbar" aria-label="{{ _('Formatting') }}"{% if doc.kind != "markdown" or not can(role, "edit", project) %} hidden{% endif %}>
       <button type="button" data-cmd="undo" aria-label="{{ _('Undo') }}" title="{{ _('Undo (Ctrl+Z)') }}">↶</button>
       <button type="button" data-cmd="redo" aria-label="{{ _('Redo') }}" title="{{ _('Redo (Ctrl+Y)') }}">↷</button>
+      <button type="button" data-cmd="find" aria-label="{{ _('Find and replace') }}" title="{{ _('Find and replace (Ctrl+F)') }}"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="6.5" cy="6.5" r="4.5"/><path d="M10 10l4.5 4.5"/></svg></button>
       <span class="format-sep" aria-hidden="true"></span>
       <button type="button" data-cmd="bold" aria-pressed="false" aria-label="{{ _('Bold') }}" title="{{ _('Bold (Ctrl+B)') }}"><strong>B</strong></button>
       <button type="button" data-cmd="italic" aria-pressed="false" aria-label="{{ _('Italic') }}" title="{{ _('Italic (Ctrl+I)') }}"><span class="fmt-italic">I</span></button>
@@ -57,12 +60,22 @@
       <button type="button" data-cmd="ordered" aria-pressed="false" aria-label="{{ _('Numbered list') }}" title="{{ _('Numbered list') }}">1.</button>
       <button type="button" data-cmd="task" aria-pressed="false" aria-label="{{ _('Task list') }}" title="{{ _('Task list') }}">[ ]</button>
       <span class="format-sep" aria-hidden="true"></span>
-      <button type="button" data-cmd="link" aria-pressed="false" aria-label="{{ _('Link') }}" title="{{ _('Link') }}">{{ _("Link") }}</button>
-      <button type="button" data-cmd="math" aria-pressed="false" aria-label="{{ _('Inline math') }}" title="{{ _('Inline math') }}">$</button>
+      <button type="button" data-cmd="link" aria-pressed="false" aria-label="{{ _('Link') }}" title="{{ _('Link (Ctrl+K)') }}">{{ _("Link") }}</button>
       <button type="button" data-cmd="image" aria-label="{{ _('Image') }}" title="{{ _('Image (or paste or drop one into the text)') }}">{{ _("Image") }}</button>
-      <button type="button" data-cmd="cite" aria-label="{{ _('Citation') }}" title="{{ _('Citation') }}">[@]</button>
+      <button type="button" data-cmd="table" aria-label="{{ _('Table') }}" title="{{ _('Insert a table') }}">{{ _("Table") }}</button>
+      <button type="button" data-cmd="insert" aria-haspopup="menu" aria-label="{{ _('More to insert') }}" title="{{ _('Footnote, cross-reference, citation, math') }}">{{ _("Insert") }} ▾</button>
+      <span class="format-sep" aria-hidden="true"></span>
       <button type="button" data-cmd="refs" aria-pressed="false" aria-label="{{ _('References') }}" title="{{ _('References (Ctrl+Alt+R)') }}">{{ _("Refs") }}</button>
-      <button type="button" data-cmd="footnote" aria-pressed="false" aria-label="{{ _('Footnote') }}" title="{{ _('Footnote') }}">[^]</button>
+      <button type="button" data-cmd="marks" aria-pressed="true" aria-label="{{ _('Show Markdown marks') }}" title="{{ _('Show Markdown marks on the line you edit. Off: writer mode, the marks stay hidden and the toolbar formats.') }}">¶</button>
+    </div>
+    <div class="table-bar" id="table-bar" role="toolbar" aria-label="{{ _('Table') }}" hidden>
+      <span class="muted">{{ _("Table") }}</span>
+      <button type="button" data-table="row" title="{{ _('Add a row below') }}">+ {{ _("Row") }}</button>
+      <button type="button" data-table="column" title="{{ _('Add a column to the right') }}">+ {{ _("Column") }}</button>
+      <button type="button" data-table="align" title="{{ _('Align the column: left, centered, right') }}">{{ _("Align") }}</button>
+      <button type="button" data-table="delete-row" title="{{ _('Delete the row') }}">− {{ _("Row") }}</button>
+      <button type="button" data-table="delete-column" title="{{ _('Delete the column') }}">− {{ _("Column") }}</button>
+      <button type="button" data-table="delete" class="danger-text" title="{{ _('Delete the table') }}">{{ _("Delete table") }}</button>
     </div>
     <div id="editor"></div>
   </section>
@@ -73,7 +86,7 @@
       <label class="choice"><input type="radio" name="preview-target" value="html" checked> HTML</label>
       <label class="choice"><input type="radio" name="preview-target" value="pdf"> PDF</label>
       <label class="choice"><input type="checkbox" id="dark-paper"> {{ _("Dark paper") }}</label>
-      <button type="button" id="open-options" title="{{ _('Layout options') }}">{{ _("Layout") }}</button>
+      <button type="button" id="open-options" title="{{ _('Template and page setup') }}">{{ _("Page setup") }}</button>
     </div>
     <div class="preview-empty" id="preview-error" role="alert" hidden></div>
     <iframe id="preview" title="{{ _('Preview') }}" sandbox referrerpolicy="no-referrer"></iframe>
@@ -83,7 +96,7 @@
     <div class="panel-body" id="comments-list"></div>
   </aside>
   <aside class="pane side-panel refs-panel" id="refs-panel" aria-label="{{ _('References') }}" hidden></aside>
-  <aside class="pane side-panel fields-panel" id="fields-panel" aria-label="{{ _('Fields') }}" hidden></aside>
+  <aside class="pane side-panel fields-panel" id="fields-panel" aria-label="{{ _('Document details') }}" hidden></aside>
 </div>
 <dialog id="rename-dialog" aria-labelledby="rename-title">
   <form method="dialog" class="form" id="rename-form">
@@ -93,34 +106,38 @@
   </form>
 </dialog>
 <dialog id="export-dialog" aria-labelledby="export-title">
-  <form method="dialog" class="form" id="export-form">
-    <h2 id="export-title">{{ _("Export") }}</h2>
-    <label>{{ _("Format") }}
-      <select name="target">
-        {% if doc.kind == "latex" %}
-        <option value="pdf-latex">PDF</option>
-        <option value="md-source">{{ _("Project source (zip)") }}</option>
-        {% else %}
-        <option value="pdf-typst">PDF</option>
-        <option value="pdf-latex">{{ _("PDF via LaTeX") }}</option>
-        <option value="docx">Word (DOCX)</option>
-        <option value="odt">OpenDocument (ODT)</option>
-        <option value="html">HTML</option>
-        <option value="epub">{{ _("E-book (EPUB)") }}</option>
-        <option value="md-resolved">{{ _("Markdown with citations resolved") }}</option>
-        <option value="md-gfm">GitHub Markdown</option>
-        <option value="typ-source">{{ _("Typst source") }}</option>
-        <option value="tex-source">{{ _("LaTeX source") }}</option>
-        {% if layout.public is defined and layout.public().script %}<option value="fountain">{{ _("Fountain screenplay") }}</option>{% endif %}
-        <option value="md-source">{{ _("Project source (zip)") }}</option>
+  <form method="dialog" class="form export-form" id="export-form">
+    <h2 id="export-title">{{ _("Download or print") }}</h2>
+    <div class="export-quick">
+      <button type="submit" class="primary" value="pdf" data-target="{{ 'pdf-latex' if doc.kind == 'latex' else 'pdf-typst' }}">{{ _("Download PDF") }}</button>
+      <button type="submit" value="print" data-target="{{ 'pdf-latex' if doc.kind == 'latex' else 'pdf-typst' }}" title="{{ _('Print the PDF, or save it from the print dialog') }}">{{ _("Print") }}</button>
+    </div>
+    <fieldset class="export-formats">
+      <legend>{{ _("Other formats") }}</legend>
+      {% if doc.kind != "latex" %}
+      <label class="choice"><input type="radio" name="target" value="docx" checked> Word (DOCX)</label>
+      <label class="choice"><input type="radio" name="target" value="odt"> OpenDocument (ODT)</label>
+      <label class="choice"><input type="radio" name="target" value="html"> {{ _("Web page (HTML)") }}</label>
+      <label class="choice"><input type="radio" name="target" value="epub"> {{ _("E-book (EPUB)") }}</label>
+      {% if layout.public is defined and layout.public().script %}<label class="choice"><input type="radio" name="target" value="fountain"> {{ _("Fountain screenplay") }}</label>{% endif %}
+      {% endif %}
+      <details class="export-tech"{% if doc.kind == "latex" %} open{% endif %}>
+        <summary>{{ _("Source & technical formats") }}</summary>
+        {% if doc.kind != "latex" %}
+        <label class="choice"><input type="radio" name="target" value="pdf-latex"> {{ _("PDF via LaTeX") }}</label>
+        <label class="choice"><input type="radio" name="target" value="md-resolved"> {{ _("Markdown with citations resolved") }}</label>
+        <label class="choice"><input type="radio" name="target" value="md-gfm"> GitHub Markdown</label>
+        <label class="choice"><input type="radio" name="target" value="typ-source"> {{ _("Typst source") }}</label>
+        <label class="choice"><input type="radio" name="target" value="tex-source"> {{ _("LaTeX source") }}</label>
         {% endif %}
-      </select>
-    </label>
+        <label class="choice"><input type="radio" name="target" value="md-source"{% if doc.kind == "latex" %} checked{% endif %}> {{ _("Project source (zip)") }}</label>
+      </details>
+    </fieldset>
     <p id="export-conflicts" class="error"></p>
     <p id="export-status" class="muted" role="status"></p>
     <div class="buttons">
       <button type="button" data-close-dialog>{{ _("Close") }}</button>
-      <button type="submit" class="primary" value="export">{{ _("Export") }}</button>
+      <button type="submit" value="export">{{ _("Download") }}</button>
     </div>
   </form>
 </dialog>
@@ -177,9 +194,9 @@
 {% endif %}
 <dialog id="options-dialog" aria-labelledby="options-title">
   <form method="dialog" class="form" id="options-form">
-    <h2 id="options-title">{{ _("Layout") }}</h2>
-    <label hidden>{{ _("Layout") }} <select id="options-layout" name="layout-id"></select></label>
-    <p class="muted">{{ _("Options you change here apply to this project. The rest follow the layout.") }}</p>
+    <h2 id="options-title">{{ _("Page setup") }}</h2>
+    <label hidden>{{ _("Template") }} <select id="options-layout" name="layout-id"></select></label>
+    <p class="muted">{{ _("Settings you change here apply to this project. The rest follow the template.") }}</p>
     <div id="options-fields" class="design-fields"></div>
     <div class="buttons">
       {% if not guest %}<a id="options-edit-layout" class="spacer" href="/layouts{% if layout.id is defined %}/{{ layout.id }}{% endif %}">{{ _("Edit layouts") }}</a>{% endif %}
