@@ -13,6 +13,8 @@ if (recentData) {
 }
 
 for (const form of $$("form[data-upload]")) {
+  // Choosing files uploads them; there is no second button to press.
+  form.querySelector('input[type="file"]')?.addEventListener("change", () => form.requestSubmit());
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const project = form.dataset.upload;
@@ -33,6 +35,7 @@ for (const form of $$("form[data-upload]")) {
       }
       location.reload();
     } catch (err) {
+      input.value = ""; // so the same file can be chosen again
       if (status) status.textContent = "";
       toast(err.message, { error: true });
     }

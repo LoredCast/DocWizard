@@ -103,7 +103,8 @@ export function baseExtensions({ kind, readOnly, live = true, lang = "", reading
     indentOnInput(),
     closeBrackets(),
     rectangularSelection(),
-    highlightSelectionMatches(),
+    // Reading (the review view), other occurrences of a selection are only noise.
+    reading ? [] : highlightSelectionMatches(),
     autocompletion({ activateOnTyping: true, icons: false }),
     EditorView.lineWrapping,
     access.of(accessExtensions(readOnly, editable)),

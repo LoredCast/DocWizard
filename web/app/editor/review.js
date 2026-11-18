@@ -54,15 +54,20 @@ export const reviewFrontMatter = StateField.define({
   provide: (field) => [EditorView.decorations.from(field), EditorView.atomicRanges.of((view) => view.state.field(field))],
 });
 
-// A small toolbar by the selection: Comment and Suggest change.
+// A small toolbar for the selection: Comment and Suggest change. With a mouse it sits by the
+// selection. On touch screens it is a bar at the bottom of the text instead: the phone's own
+// selection handles and menu sit by the selection, and a bar that doesn't move can't lag
+// behind them while the selection is dragged.
 export class SelectionBubble {
   constructor(view, { onComment, onSuggest }) {
     this.view = view;
-    this.node = el("div", { class: "review-bubble", role: "toolbar", "aria-label": t("Selection"), hidden: true },
+    this.docked = window.matchMedia("(pointer: coarse)").matches;
+    this.node = el("div", { class: this.docked ? "review-bubble docked" : "review-bubble", role: "toolbar",
+                            "aria-label": t("Selection"), hidden: true },
       el("button", { type: "button", onmousedown: (e) => e.preventDefault(), onclick: () => { this.hide(); onComment(); } }, t("Comment")),
       el("button", { type: "button", onmousedown: (e) => e.preventDefault(), onclick: () => { this.hide(); onSuggest(); } }, t("Suggest change")));
-    view.dom.append(this.node);
-    view.scrollDOM.addEventListener("scroll", () => this.update());
+    (this.docked ? view.dom.closest(".pane") ?? view.dom : view.dom).append(this.node);
+    if (!this.docked) view.scrollDOM.addEventListener("scroll", () => this.update());
   }
 
   hide() { this.node.hidden = true; }
@@ -70,6 +75,7 @@ export class SelectionBubble {
   update() {
     const sel = this.view.state.selection.main;
     if (sel.empty) { this.hide(); return; }
+    if (this.docked) { this.node.hidden = false; return; }
     const end = this.view.coordsAtPos(sel.to, -1) ?? this.view.coordsAtPos(sel.head);
     if (!end) { this.hide(); return; }
     const box = this.view.dom.getBoundingClientRect();
