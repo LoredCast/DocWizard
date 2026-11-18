@@ -101,6 +101,15 @@ pytest
 
 The suite covers unit, property, adversarial collaboration protocol, and integration tests. Pandoc, Typst, LaTeX, and CodeMirror/frontend cross-check tests run automatically when `pandoc`, `typst`, `latexmk`, and `node` are available (set `DOCWIZARD_TEST_TOOLS_PATH` to point at specific `pandoc`/`typst` binaries).
 
+Browser smoke tests start a throwaway server and drive headless Chromium at phone (390×844) and desktop (1280×800) sizes: registration and login, creating, renaming and deleting a file, the formatting toolbar, the HTML and PDF preview with the phone's Edit/Preview switch, and the storage-quota message. They also fail on horizontal overflow, failed asset requests and page errors. They need the Node `playwright` package with Chromium, plus pandoc and Typst:
+
+```sh
+npm install --no-save playwright && npx playwright install chromium
+node --test tests/e2e/
+```
+
+CI runs `pytest`, the browser tests and the linters (`ruff check`, `node --check` on the frontend, template compilation) on every pull request into `main` and `nightly`.
+
 ## Repository
 
 | Path | Purpose |
