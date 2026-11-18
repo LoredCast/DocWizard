@@ -6,6 +6,8 @@
 
 DocWizard is a self-hosted writing app for papers, theses, and other long-form documents. Write in Pandoc Markdown or LaTeX, collaborate in your browser, and export to PDF, Word, or the web. Layouts handle formatting separately, so you can change how a document looks without rewriting it.
 
+![](preview.png)
+
 ## Features
 
 - **Write and revise.** Edit online or offline, search across a project, and compare or restore previous versions. Projects are stored as plain files on disk.
