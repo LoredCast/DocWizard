@@ -1,0 +1,117 @@
+{
+  "id": "oxford",
+  "name": "University of Oxford",
+  "version": "1.0.0",
+  "extends": "default",
+  "description": "After the University of Oxford Style Guide 2026: Noto Serif, British English, single quotation marks, small footnotes with a rule, Oxford Guide to Style notes and bibliography.",
+  "design": {
+    "text.font": "Noto Serif",
+    "text.size": 11,
+    "text.leading": 1.3,
+    "text.lang": "en-GB",
+    "text.justify": false,
+    "text.paragraph-spacing": "0.7em",
+    "page.margin-top": "2.5cm",
+    "page.margin-bottom": "2.5cm",
+    "page.margin-left": "2.5cm",
+    "page.margin-right": "2.5cm",
+    "heading.numbering": "",
+    "heading.1.size": 1.35,
+    "heading.2.size": 1.15,
+    "heading.3.size": 1,
+    "heading.3.style": "italic",
+    "heading.3.weight": "regular",
+    "cover.align": "left",
+    "cover.title-size": 1.8,
+    "cover.title-weight": "bold",
+    "cover.fields": [
+      {
+        "key": "author",
+        "style": "bold"
+      },
+      {
+        "key": "affiliation"
+      },
+      {
+        "key": "department"
+      },
+      {
+        "key": "course"
+      },
+      {
+        "key": "date"
+      }
+    ],
+    "quote.indent-left": "1.5em",
+    "quote.indent-right": "0",
+    "quote.size": 0.95,
+    "footnote.size": 0.8,
+    "footnote.rule": true,
+    "cite.style": "oxford-guide-to-style-notes",
+    "bib.hanging": "1.5em",
+    "caption.separator": " – ",
+    "page.number-position": "bottom-right",
+    "bib.heading": "bibliography",
+    "text.quotes": "single"
+  },
+  "variables": {
+    "papersize": {
+      "type": "enum",
+      "values": [
+        "a4",
+        "us-letter"
+      ],
+      "label": "Paper size"
+    },
+    "fontsize": {
+      "type": "enum",
+      "values": [
+        "10pt",
+        "11pt",
+        "12pt"
+      ],
+      "label": "Font size"
+    },
+    "linestretch": {
+      "type": "number",
+      "min": 1,
+      "max": 2,
+      "step": 0.1,
+      "label": "Line spacing"
+    },
+    "section-numbering": {
+      "type": "enum",
+      "values": [
+        "",
+        "1.1"
+      ],
+      "label": "Section numbering"
+    },
+    "titlepage": {
+      "type": "boolean",
+      "label": "Title page"
+    },
+    "toc": {
+      "type": "boolean",
+      "label": "Table of contents"
+    },
+    "citation-style": {
+      "type": "enum",
+      "values": [
+        "oxford-guide-to-style-notes",
+        "chicago-notes-bibliography",
+        "harvard-cite-them-right",
+        "modern-language-association",
+        "apa"
+      ],
+      "labels": {
+        "oxford-guide-to-style-notes": "Oxford Guide to Style (notes)",
+        "chicago-notes-bibliography": "Chicago notes and bibliography",
+        "harvard-cite-them-right": "Harvard (Cite Them Right)",
+        "modern-language-association": "MLA 9th edition",
+        "apa": "APA 7th edition"
+      },
+      "label": "Citation style"
+    }
+  }
+}

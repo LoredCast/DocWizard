@@ -1,0 +1,103 @@
+{
+  "id": "aps",
+  "name": "Physical Review (APS)",
+  "version": "1.0.0",
+  "extends": "default",
+  "description": "After the APS style basics for Physical Review: two columns on US Letter, sections numbered I., A., 1., numbered references in square brackets, FIG. and TABLE captions with Roman table numbers.",
+  "design": {
+    "page.paper": "us-letter",
+    "page.columns": "2",
+    "page.column-gap": "0.25in",
+    "page.margin-top": "0.75in",
+    "page.margin-bottom": "0.9in",
+    "page.margin-left": "0.65in",
+    "page.margin-right": "0.65in",
+    "text.font": "Tinos",
+    "text.size": 10,
+    "text.leading": 1,
+    "text.paragraph-spacing": "0",
+    "text.indent": "1em",
+    "text.lang": "en-US",
+    "heading.numbering": "I.A.1",
+    "heading.1.size": 1,
+    "heading.1.weight": "bold",
+    "heading.1.case": "upper",
+    "heading.1.align": "center",
+    "heading.1.above": "1.4em",
+    "heading.1.below": "0.8em",
+    "heading.2.size": 1,
+    "heading.2.weight": "bold",
+    "heading.2.align": "center",
+    "heading.2.above": "1.2em",
+    "heading.2.below": "0.6em",
+    "heading.3.size": 1,
+    "heading.3.weight": "regular",
+    "heading.3.style": "italic",
+    "heading.3.align": "center",
+    "cover.title-size": 1.4,
+    "cover.subtitle-size": 1.1,
+    "cover.fields": [
+      {
+        "key": "author"
+      },
+      {
+        "key": "affiliation",
+        "style": "italic"
+      },
+      {
+        "key": "email",
+        "style": "small"
+      },
+      {
+        "key": "date",
+        "label": "Dated:",
+        "style": "small"
+      }
+    ],
+    "cover.abstract-title": "",
+    "footnote.size": 0.85,
+    "cite.style": "american-physics-society",
+    "bib.size": 0.9,
+    "bib.hanging": "0",
+    "bib.spacing": "0.1em",
+    "caption.figure": "FIG.",
+    "caption.table": "TABLE",
+    "caption.table-numbering": "I",
+    "caption.separator": ". ",
+    "caption.size": 0.9,
+    "page.number-position": "bottom-center"
+  },
+  "variables": {
+    "columns": {
+      "type": "enum",
+      "values": [
+        "1",
+        "2"
+      ],
+      "labels": {
+        "1": "One column (preprint)",
+        "2": "Two columns"
+      },
+      "label": "Columns"
+    },
+    "linestretch": {
+      "type": "number",
+      "min": 1,
+      "max": 2,
+      "step": 0.5,
+      "label": "Line spacing"
+    },
+    "citation-style": {
+      "type": "enum",
+      "values": [
+        "american-physics-society",
+        "ieee"
+      ],
+      "labels": {
+        "american-physics-society": "American Physical Society",
+        "ieee": "IEEE"
+      },
+      "label": "Citation style"
+    }
+  }
+}

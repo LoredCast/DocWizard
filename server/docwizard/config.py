@@ -86,6 +86,11 @@ class SyncConfig:
     enabled: bool = True  # tests turn the background poller off and run syncs directly
     default_poll_seconds: int = 60
     max_files_per_target: int = 5000
+    # Folders on this server that projects may sync with (§12.6), for example one that Syncthing,
+    # Dropbox or a mounted share also uses. Empty: folder sync is off.
+    folder_roots: list[str] = field(default_factory=list)
+    # Git repositories over HTTPS (§12.7). Needs the git command on the app's PATH.
+    git: bool = True
 
 
 @dataclass
@@ -98,6 +103,15 @@ class CollabConfig:
     snapshot_idle_seconds: float = 60.0
     disk_poll_seconds: float = 5.0
     room_idle_seconds: float = 600.0
+
+
+@dataclass
+class GrammarConfig:
+    """Grammar checking in the editor (§6.8)."""
+    harper: bool = True  # Harper runs in the browser, when its files are installed (deploy/fetch_tools.py)
+    languagetool_url: str = ""  # a LanguageTool server, e.g. http://languagetool:8010; empty: none
+    languagetool_api_key: str = ""
+    languagetool_username: str = ""
 
 
 @dataclass
@@ -127,6 +141,7 @@ class Config:
     collab: CollabConfig = field(default_factory=CollabConfig)
     sync: SyncConfig = field(default_factory=SyncConfig)
     smtp: SMTPConfig = field(default_factory=SMTPConfig)
+    grammar: GrammarConfig = field(default_factory=GrammarConfig)
     oidc: list[OIDCProvider] = field(default_factory=list)
 
     # -- derived values -------------------------------------------------
@@ -177,6 +192,11 @@ class Config:
 def origin_of(url: str) -> str:
     parts = urlsplit(url)
     return f"{parts.scheme}://{parts.netloc}".lower()
+
+
+def _is_loopback_url(url: str) -> bool:
+    host = (urlsplit(url).hostname or "").lower()
+    return host in ("", "localhost", "127.0.0.1", "::1")
 
 
 _SECTIONS = {f.name: f.type for f in dataclasses.fields(Config)}
@@ -256,4 +276,6 @@ def load(path: str | os.PathLike | None = None, env: dict[str, str] | None = Non
         raise ValueError("accounts.registration must be open, invite, oidc-only or closed")
     if cfg.server.durability not in ("full", "normal"):
         raise ValueError("server.durability must be 'full' or 'normal'")
+    if not _is_loopback_url(cfg.server.public_url) and _is_loopback_url(cfg.server.preview_url):
+        cfg.server.preview_url = f"{cfg.app_origin}/_preview"
     return cfg

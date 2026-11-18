@@ -31,7 +31,10 @@ export async function api(method, url, body, { raw = false } = {}) {
   try { data = await res.json(); } catch { /* empty body */ }
   if (!res.ok) {
     const message = data?.error?.message ?? t("The request failed ({status}).", { status: res.status });
-    throw new Error(message);
+    const error = new Error(message);
+    error.code = data?.error?.code;
+    error.status = res.status;
+    throw error;
   }
   return data;
 }
@@ -81,7 +84,11 @@ export function confirmDialog(message, actionLabel = t("Delete")) {
 // Shared behaviour: dialogs, clickable rows, confirmations.
 export function wireCommon(root = document) {
   registerServiceWorker();
+  wireNetState();
   root.addEventListener("click", (event) => {
+    for (const d of root.querySelectorAll("details.menu[open]")) {
+      if (!d.contains(event.target)) d.open = false;
+    }
     const open = event.target.closest("[data-open-dialog]");
     if (open) {
       document.getElementById(open.dataset.openDialog)?.showModal();
@@ -95,6 +102,11 @@ export function wireCommon(root = document) {
     const row = event.target.closest("tr[data-href]");
     if (row && !event.target.closest("a, button, input")) {
       location.href = row.dataset.href;
+    }
+  });
+  root.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      for (const d of root.querySelectorAll("details.menu[open]")) d.open = false;
     }
   });
   root.addEventListener("focusin", (event) => {
@@ -121,6 +133,30 @@ export function wireCommon(root = document) {
       }
     }
   });
+}
+
+// The header says when the connection is gone (the editor has its own save state). Once it's
+// back, edits made offline are sent, also for documents that aren't open (§6.5).
+function wireNetState() {
+  const slot = document.getElementById("net-state");
+  if (slot && !document.getElementById("save-state")) {
+    const update = () => { slot.hidden = navigator.onLine; };
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    update();
+  }
+  if (!csrfToken() || !document.querySelector('meta[name="dw-user"]')) return; // offline shells, logged out
+  document.addEventListener("dw:outbox", ({ detail }) => {
+    if (!detail.sent) return;
+    let message = detail.sent === 1 ? t("Edits made offline were sent for 1 document.")
+      : t("Edits made offline were sent for {n} documents.", { n: detail.sent });
+    if (detail.conflicts) {
+      message += " " + (detail.conflicts === 1 ? t("1 passage needs a look.")
+        : t("{n} passages need a look.", { n: detail.conflicts }));
+    }
+    toast(message);
+  });
+  import("../store/outbox.js").then((m) => m.startBackgroundSync()).catch(() => { /* best effort */ });
 }
 
 // Signed-in pages install the service worker that keeps the app usable offline (§6.5).

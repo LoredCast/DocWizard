@@ -1,0 +1,74 @@
+{
+  "id": "drehbuch",
+  "name": "Drehbuch",
+  "version": "1.0.0",
+  "extends": "screenplay",
+  "description": "Deutsches Drehbuch nach der Handreichung „Drehbuch schreiben“ des Landesmedienzentrums Baden-Württemberg: nummerierte Szenen mit Ort links und innen/außen und Tageszeit rechts, Rollennamen mittig in Versalien, Dialog eingerückt, „ENDE“ am Schluss. A4, 12 pt Cousine.",
+  "design": {
+    "page.paper": "a4",
+    "page.margin-left": "3.5cm",
+    "page.margin-right": "2.5cm",
+    "page.margin-top": "2.5cm",
+    "page.margin-bottom": "2.5cm",
+    "page.number-format": "1",
+    "text.lang": "de-DE",
+    "script.scene-numbers": true,
+    "script.scene-split": true,
+    "script.scene-weight": "bold",
+    "script.character-align": "center",
+    "script.dialogue-indent": "2.5cm",
+    "script.dialogue-width": "9cm",
+    "script.parenthetical-indent": "3.5cm",
+    "script.parenthetical-width": "6cm",
+    "script.end-mark": "ENDE",
+    "script.more": "(WEITER)",
+    "script.contd": "(FORTS.)",
+    "cover.title-case": "normal",
+    "cover.title-weight": "bold",
+    "cover.title-size": 1.3,
+    "cover.fields": [
+      {
+        "key": "genre"
+      },
+      {
+        "space": "2em"
+      },
+      {
+        "key": "byline"
+      },
+      {
+        "space": "fill"
+      },
+      {
+        "key": "draft",
+        "style": "left"
+      },
+      {
+        "key": "contact",
+        "style": "left"
+      },
+      {
+        "key": "address",
+        "style": "left"
+      },
+      {
+        "key": "phone",
+        "style": "left"
+      },
+      {
+        "key": "email",
+        "style": "left"
+      }
+    ]
+  },
+  "variables": {
+    "papersize": {
+      "type": "enum",
+      "values": [
+        "a4",
+        "us-letter"
+      ],
+      "label": "Paper size"
+    }
+  }
+}

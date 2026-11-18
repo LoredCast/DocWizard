@@ -11,6 +11,7 @@ from ..http.request import HTTPError, Request, bad_request, not_found
 from ..http.response import Response, guess_type, json_response, user_content
 from ..projects import files
 from ..projects import service as svc
+from ..render import synctex
 from .projects import document_access, project_access
 
 _KEY = re.compile(r"^[0-9a-f]{64}$")
@@ -20,7 +21,10 @@ DARK_CSS = (b"html{filter:invert(1) hue-rotate(180deg);background:#fff}"
             b"img,video,svg image,picture{filter:invert(1) hue-rotate(180deg)}")
 
 
-def preview_csp(app_origin: str) -> str:
+def preview_csp(app_origin: str, *, same_origin: bool = False) -> str:
+    if same_origin:
+        return ("sandbox; default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+                "font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'")
     return ("default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; "
             f"base-uri 'none'; form-action 'none'; frame-ancestors {app_origin}")
 
@@ -110,7 +114,8 @@ def register(app) -> None:
         if ctype.startswith("text/") or ctype == "image/svg+xml":
             ctype += "; charset=utf-8"
         resp = Response(body, 200, ctype)
-        resp.set_header("content-security-policy", preview_csp(app.cfg.app_origin))
+        same_origin = app.cfg.preview_origin == app.cfg.app_origin
+        resp.set_header("content-security-policy", preview_csp(app.cfg.app_origin, same_origin=same_origin))
         resp.set_header("referrer-policy", "no-referrer")
         resp.set_header("x-content-type-options", "nosniff")
         resp.set_header("cross-origin-resource-policy", "cross-origin")
@@ -128,11 +133,73 @@ def register(app) -> None:
         resp.set_header("cache-control", "private, no-cache")
         return resp
 
+    async def source_at(req: Request) -> Response:
+        """Where a point in the PDF preview comes from (§6.4): SyncTeX for LaTeX, else the words
+        around it, found in the build's source files."""
+        project, _ = await project_access(app, req, req.param("id"), "read")
+        body = await req.json_object()
+        key = body.get("key")
+        if not isinstance(key, str) or not _KEY.match(key):
+            raise bad_request("Unknown preview.")
+        base = renderer.renders_dir / key
+        try:
+            meta = json.loads((base / "meta.json").read_text())
+        except (OSError, ValueError):
+            raise not_found("This preview is no longer available.") from None
+        if meta.get("project_id") != project["id"]:
+            raise not_found("This preview is no longer available.")
+        try:
+            page, pages = int(body.get("page") or 0), int(body.get("pages") or 0)
+            x, y = float(body.get("x") or 0), float(body.get("y") or 0)
+            at = int(body.get("at") or 0)
+        except (TypeError, ValueError):
+            raise bad_request("Give the page and the point.") from None
+        words = body.get("words") if isinstance(body.get("words"), list) else []
+        words = [str(w)[:64] for w in words[:80]]
+        doc_path = None
+        if isinstance(body.get("doc"), str):
+            doc, _, _ = await document_access(app, req, body["doc"], "read")
+            if doc["project_id"] == project["id"]:
+                doc_path = doc["path"]
+        snap, _ = await renderer.snapshot(project["id"])
+
+        found = None
+        index = base / "synctex.json"
+        if index.is_file():
+            try:
+                hit = synctex.lookup(json.loads(index.read_text()), page, x, y)
+            except (OSError, ValueError):
+                hit = None
+            if hit and hit[0] in snap.texts:
+                found = (hit[0], hit[1], 0)
+        if found is None and words:
+            try:
+                inputs = renderer.inputs_for(dict(project), doc_path, snap)
+            except HTTPError:
+                inputs = []
+            if inputs and inputs[0].endswith(".tex"):
+                # A LaTeX root pulls in other files with \input and \include.
+                inputs += sorted(p for p in snap.texts if p.endswith(".tex") and p not in inputs)
+            texts = [(p, snap.texts[p]) for p in inputs if p in snap.texts]
+            hint = (page - 0.5) / pages if pages > 0 and page > 0 else 0.5
+            hit = synctex.match_words(texts, words, at, hint)
+            if hit:
+                path, offset = hit
+                line, col = synctex.line_col(snap.texts[path], offset)
+                found = (path, line, col)
+        if found is None:
+            raise not_found("This spot couldn't be found in the source.")
+        path, line, col = found
+        doc = await app.db.read(lambda c: svc.get_document_by_path(c, project["id"], path))
+        return json_response({"path": path, "line": line, "column": col, "doc": doc["id"] if doc else None})
+
+    r.add("POST", "/api/projects/{id}/source-at", source_at, guest=True)
     r.add("POST", "/api/projects/{id}/export", export, guest=True)
     r.add("GET", "/api/jobs/{id}", job_status, guest=True)
     r.add("GET", "/api/renders/{key}/{file}", rendered_file, guest=True)
     r.add("GET", "/api/projects/{id}/citations", citations, guest=True)
-    r.add("GET", "/_preview/{token}/{key}/{path:path}", preview, auth=False, no_session=True, preview_host=True)
+    r.add("GET", "/_preview/{token}/{key}/{path:path}", preview, auth=False, no_session=True,
+          preview_host=True, same_origin_preview=True)
 
 
 def _safe_child(base: Path, rel: str) -> Path | None:

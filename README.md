@@ -10,12 +10,14 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design reference.
 
 ## Features
 
-- **Writing & Crash Safety**: CodeMirror 6 editor with Pandoc Markdown support (front matter, citations, math rendered with Temml, footnotes, attributes, fenced divs), formatting toolbar, live syntax preview, heading folding, word count, LaTeX mode, named versions, and SQLite FTS5 full-text search. Every edit is committed to SQLite (`synchronous=FULL`) and materialized to plain files on disk; external edits are reconciled with visible conflict markers instead of silent overwrites.
-- **Collaboration & Offline**: Real-time multi-user editing via OT (`@codemirror/collab`) with live cursors and presence, anchored comment threads, role-based share links (`owner`, `editor`, `commenter`, `viewer`), optional guest access, and offline editing via service worker + IndexedDB.
-- **Previews, Layouts & Citations**: Sandboxed HTML previews and PDF previews (native viewer on desktop, lazy-loaded PDF.js on mobile/unsupported browsers). Ships `default`, `term-paper`, and `article` layouts, seven CSL styles (Chicago author-date/notes, APA, MLA, Harvard, IEEE, DIN 1505-2), Zotero/BibTeX/RIS/CSL-JSON citation autocomplete, multi-file LaTeX builds (`latexmk`), static site publishing, and exports to PDF (Typst or LaTeX), DOCX, ODT, HTML, Markdown, Typst/LaTeX source, and ZIP.
-- **Sync, Auth & Administration**: Two-way WebDAV sync (Nextcloud, Seafile, generic WebDAV), local accounts with TOTP two-step login, OpenID Connect (`[[oidc]]`), AES-256-GCM encrypted credentials, `/admin` dashboard with Prometheus `/metrics`, and English/German UI.
+- **Writing & Crash Safety**: CodeMirror 6 editor with Pandoc Markdown support (front matter, citations, math rendered with Temml, footnotes, attributes, fenced divs), formatting toolbar, live syntax preview, heading folding, word count, LaTeX mode, and SQLite FTS5 full-text search. Named versions plus an automatic history (hourly, daily, then weekly), compared word by word and restorable. Grammar and spelling checks with [Harper](https://writewithharper.com) in the browser for English, and optionally a LanguageTool server for other languages. Every edit is committed to SQLite (`synchronous=FULL`) and materialized to plain files on disk; external edits are reconciled with visible conflict markers instead of silent overwrites.
+- **Collaboration & Offline**: Real-time multi-user editing via OT (`@codemirror/collab`) with live cursors and presence, anchored comment threads with `@mentions` and notifications, suggested changes to accept or reject (with a suggest mode where typing itself becomes suggestions, as with tracked changes), role-based share links (`owner`, `editor`, `commenter`, `viewer`), review links that show the text set like a page for people who don't write Markdown, optional guest access, and offline editing via service worker + IndexedDB: a whole project can be kept in the browser and edited without a connection, and edits are merged when it's back, even for documents that aren't open. DocWizard installs as an app. Uploaded `.docx` files keep their comments and tracked changes, and DOCX exports carry open comment threads back to Word.
+- **Previews & Exports**: Sandboxed HTML previews and PDF previews (native viewer on desktop, lazy-loaded PDF.js on mobile/unsupported browsers), multi-file LaTeX builds (`latexmk`), static site publishing, and exports to PDF (Typst or LaTeX), DOCX, ODT, HTML, EPUB, Markdown, Typst/LaTeX source, and ZIP. Documents declare their language (`lang: de-AT`), and dates, quotation marks, hyphenation and generated headings follow it.
+- **Layouts**: `default`, `term-paper`, `article` and `thesis`; layouts after real style guides (`oxford`, `uni-wien-philosophie`, `aps`, `turabian`, `mla`, `apa-student`, `mhra`, `ieee`, `wuerzburg-germanistik`, `goettingen-vcm`); journal formats (`acm`, `springer-lncs`, `elsevier`); manuscripts (`manuscript-story`, `manuscript-novel`, `normseite`, `book-manuscript`); and scripts in plain Markdown (`screenplay`, `drehbuch`, `av-script`, with Fountain import and export). The editor's Fields panel shows which front matter fields a layout prints. The **layout editor** at `/layouts` copies any layout and changes fonts, margins, spacing, headings, captions, footnotes, citations, the title page, a declaration page and more, with a live PDF preview; custom layouts can be shared on the server.
+- **Citations**: CSL-JSON, BibTeX, RIS or Zotero libraries (zotero.org or Zotero desktop's local API), with `@` autocomplete, a References panel that browses your libraries, DOI/ISBN/arXiv lookup, and a page finder that searches a source's PDF for the quoted passage. Bundled styles include Chicago (18th and 17th editions), APA, MLA, MHRA, Harvard, IEEE, American Physical Society, Oxford Guide to Style, DIN 1505-2 and university styles. Cross-references to figures, tables and equations.
+- **Sync, Auth & Administration**: Two-way sync with WebDAV (Nextcloud, Seafile, generic WebDAV), a git repository over HTTPS (DocWizard commits and pulls) or a folder on the server, and projects download as a zip of plain files; local accounts with TOTP two-step login, OpenID Connect (`[[oidc]]`), AES-256-GCM encrypted credentials, `/admin` dashboard with Prometheus `/metrics`, and English/German UI.
 
-*Not yet implemented:* SyncTeX jump-to-source in PDFs and EPUB export.
+*Not yet implemented:* SyncTeX jump-to-source in PDFs.
 
 ## Quick Start (Docker)
 
@@ -57,7 +59,7 @@ By default, Caddy listens on `127.0.0.1:8080` (app) and `127.0.0.1:8081` (publis
 
 ## Development
 
-Prerequisites: Python 3.12+, [Pandoc](https://pandoc.org/installing.html) 3.9+, [Typst](https://github.com/typst/typst/releases) 0.14+, and optionally TeX Live (`latexmk` and LuaLaTeX) for LaTeX projects.
+Prerequisites: Python 3.12+, [Pandoc](https://pandoc.org/installing.html) 3.9+, [Typst](https://github.com/typst/typst/releases) 0.14+, and optionally TeX Live (`latexmk` and LuaLaTeX) for LaTeX projects. The layouts' fonts install to `/usr/local/share/docwizard/fonts` with `sudo python3 -I deploy/fetch_tools.py --fonts-only` (or anywhere with `--fonts DIR` and `DOCWIZARD_FONTS_DIR=DIR`); without them, Typst falls back to its own fonts.
 
 ```sh
 python -m venv .venv
@@ -78,9 +80,11 @@ Run `python -m docwizard check` to verify tools and directories.
 Settings are read from `docwizard.toml` (see [deploy/docwizard.example.toml](deploy/docwizard.example.toml)) and can be overridden with `DOCWIZARD_<SECTION>_<KEY>` environment variables.
 
 - **Mail (`[smtp]`)**: Enables password-reset and invitation emails. Without it, admins copy one-time links directly from `/admin/users`.
+- **Grammar checking**: `python3 -I deploy/fetch_tools.py --harper web/vendor/harper` installs Harper for English (the container images include it). For other languages, set `[grammar] languagetool_url` to a LanguageTool server.
 - **OIDC (`[[oidc]]`)**: Register `<public_url>/login/oidc/<id>/callback` as the redirect URI at your provider.
 - **Secret key**: Created automatically at `<data_dir>/secret.key` (or set `security.secret_key_file`). Back it up separately from your database; rotate keys with `python -m docwizard rotate-key`.
-- **Private LAN sync hosts**: List internal WebDAV/Nextcloud hosts in `security.allow_private_outbound` (or in `/admin/settings`).
+- **Private LAN sync hosts**: List internal WebDAV/Nextcloud/git hosts in `security.allow_private_outbound` (or in `/admin/settings`).
+- **Folder and git sync**: List the folders projects may sync with in `[sync] folder_roots`, for example one that Syncthing also shares. Git sync needs `git` on the `PATH` (the container image includes it).
 - **Backups**: Back up and restore consistent snapshots with:
 
   ```sh
@@ -104,7 +108,7 @@ The suite covers unit, property, adversarial collaboration protocol, and integra
 | `server/docwizard/locale/` | Interface translations (`de.json`) |
 | `worker/` | Isolated render worker (Python stdlib only) |
 | `web/` | Stylesheet, ES modules, service worker, and vendored CodeMirror / Temml / PDF.js |
-| `layouts/` | Built-in layouts (`default`, `term-paper`, `article`) |
+| `layouts/` | Built-in layouts, each a folder with `layout.json` and its README |
 | `csl/` | Bundled CSL citation styles |
 | `filters/` | Built-in Lua filters (`crossref`, `pagebreak`, `wordcount`, `zotero`) |
 | `deploy/` | Dockerfiles, Compose files, Caddyfiles, and systemd units |

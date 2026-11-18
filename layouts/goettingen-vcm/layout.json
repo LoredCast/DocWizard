@@ -1,0 +1,105 @@
+{
+  "id": "goettingen-vcm",
+  "name": "Universität Göttingen · Value Chain Management",
+  "version": "1.0.0",
+  "extends": "default",
+  "description": "After the Formal Requirements for theses and term papers of the Professorship of Value Chain Management, Faculty of Business and Economics (01/2024): Tinos 12 pt (Times New Roman metrics), double spacing, 2.5 cm margins, justified and hyphenated, title page, Roman numbers for the contents, bibliography and appendix, Arabic for the text, APA 7th edition.",
+  "design": {
+    "page.paper": "a4",
+    "page.margin-top": "2.5cm",
+    "page.margin-bottom": "2.5cm",
+    "page.margin-left": "2.5cm",
+    "page.margin-right": "2.5cm",
+    "page.number-position": "bottom-center",
+    "page.number-distance": "1.25cm",
+    "page.front-numbering": "I",
+    "page.back-numbering": true,
+    "text.font": "Tinos",
+    "text.size": 12,
+    "text.leading": 2,
+    "text.paragraph-spacing": "0",
+    "text.indent": "1.25cm",
+    "text.justify": true,
+    "text.hyphenate": true,
+    "heading.numbering": "1",
+    "heading.1.size": 1.17,
+    "heading.2.size": 1.08,
+    "heading.3.size": 1,
+    "cover.page": true,
+    "cover.position": "top",
+    "cover.counted": false,
+    "cover.abstract": false,
+    "cover.fields": [
+      {
+        "key": "submission"
+      },
+      {
+        "space": "2em"
+      },
+      {
+        "key": "date",
+        "label": "Submitted:"
+      },
+      {
+        "space": "fill"
+      },
+      {
+        "key": "author",
+        "style": "bold"
+      },
+      {
+        "key": "birthplace",
+        "label": "Place of birth:"
+      },
+      {
+        "key": "student-id",
+        "label": "Matriculation number:"
+      },
+      {
+        "key": "address"
+      },
+      {
+        "key": "email"
+      },
+      {
+        "key": "phone"
+      },
+      {
+        "key": "semester",
+        "label": "Semester:"
+      },
+      {
+        "key": "supervisor",
+        "label": "Supervisor:"
+      }
+    ],
+    "toc.enabled": true,
+    "toc.page": true,
+    "toc.figures": true,
+    "toc.tables": true,
+    "footnote.size": 0.83,
+    "footnote.leading": 1,
+    "cite.style": "apa",
+    "bib.heading": "references",
+    "bib.page-break": true,
+    "bib.hanging": "0.5in",
+    "bib.leading": 0,
+    "caption.separator": ": "
+  },
+  "variables": {
+    "toc": {
+      "type": "boolean",
+      "label": "Table of contents"
+    },
+    "citation-style": {
+      "type": "enum",
+      "values": [
+        "apa"
+      ],
+      "labels": {
+        "apa": "APA 7th edition"
+      },
+      "label": "Citation style"
+    }
+  }
+}

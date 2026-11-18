@@ -1,9 +1,9 @@
 // Editor composition (ARCHITECTURE.md §6.3): languages, highlighting, keymaps and options.
 import {
-  EditorState, EditorView, HighlightStyle, Language, autocompletion, closeBrackets, closeBracketsKeymap,
+  Compartment, EditorState, EditorView, HighlightStyle, Language, autocompletion, closeBrackets, closeBracketsKeymap,
   completionKeymap, defaultKeymap, defineLanguageFacet, drawSelection, dropCursor, foldKeymap, foldService,
   highlightSelectionMatches, highlightSpecialChars, history, historyKeymap, indentOnInput, keymap, markdownParser,
-  GFM, rectangularSelection, searchKeymap, syntaxHighlighting, tags as t,
+  GFM, languageDataProp, rectangularSelection, searchKeymap, syntaxHighlighting, tags as t,
 } from "codemirror";
 import { citationCompletions, libraryField } from "./citations.js";
 import { markdownKeymap } from "./commands.js";
@@ -16,9 +16,11 @@ const markdownData = defineLanguageFacet({
   autocomplete: citationCompletions,
 });
 
+// The document node carries the language data, so citation autocomplete (and comment
+// tokens) apply; a bare Language doesn't attach it by itself.
 export const markdownLanguage = new Language(
   markdownData,
-  markdownParser.configure([GFM, ...pandocExtensions]),
+  markdownParser.configure([GFM, ...pandocExtensions, { props: [languageDataProp.add({ Document: markdownData })] }]),
   [],
   "markdown",
 );
@@ -83,8 +85,14 @@ function cspNonce() {
   return document.querySelector('meta[name="csp-nonce"]')?.content ?? "";
 }
 
+// Whether the text can be typed in; suggest mode (§8.10) opens it to commenters.
+export const access = new Compartment();
+export function accessExtensions(readOnly, editable = !readOnly) {
+  return [EditorState.readOnly.of(readOnly), EditorView.editable.of(editable)];
+}
+
 // Everything except collaboration, which the session adds per version.
-export function baseExtensions({ kind, readOnly, live = true, lang = "" }) {
+export function baseExtensions({ kind, readOnly, live = true, lang = "", reading = false, editable = !readOnly }) {
   return [
     EditorView.cspNonce.of(cspNonce()),
     highlightSpecialChars(),
@@ -95,15 +103,15 @@ export function baseExtensions({ kind, readOnly, live = true, lang = "" }) {
     indentOnInput(),
     closeBrackets(),
     rectangularSelection(),
-    highlightSelectionMatches(),
+    // Reading (the review view), other occurrences of a selection are only noise.
+    reading ? [] : highlightSelectionMatches(),
     autocompletion({ activateOnTyping: true, icons: false }),
     EditorView.lineWrapping,
-    EditorState.readOnly.of(readOnly),
-    EditorView.editable.of(!readOnly),
+    access.of(accessExtensions(readOnly, editable)),
     EditorView.contentAttributes.of({ spellcheck: "true", autocorrect: "on", autocapitalize: "sentences",
                                       ...(lang ? { lang } : {}) }),
     languageFor(kind),
-    kind === "markdown" && live ? livePreview() : [],
+    kind === "markdown" && live ? livePreview({ reading }) : [],
     keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap,
                ...completionKeymap]),
   ];

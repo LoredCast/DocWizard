@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from urllib.parse import urlsplit
 
 from ..auth import passwords, sessions, users
 from ..http.request import HTTPError, Request
@@ -109,6 +110,7 @@ def register(app) -> None:
     async def render_settings(req: Request, status: int = 200, **ctx) -> Response:
         rows = await app.db.fetchall(
             "SELECT s.id, s.name, s.library_type, s.library_id, s.collection, s.status, s.last_error, s.last_sync_at,"
+            " s.api_url, s.storage_enc IS NOT NULL AS has_storage,"
             " (SELECT COUNT(*) FROM citation_items i WHERE i.source_id = s.id) AS item_count"
             " FROM citation_sources s WHERE s.owner_id = ? ORDER BY s.name", (req.user.id,))
         ids = await app.db.fetchall("SELECT id, provider, email, last_login_at FROM identities WHERE user_id = ?"
@@ -118,6 +120,9 @@ def register(app) -> None:
                               if r["provider"] in app.oidc.by_id else r["provider"]} for r in ids]
         ctx["linkable"] = [p for p in app.oidc.list() if p.id not in linked]
         ctx.setdefault("zotero_error", None)
+        from ..api.grammar import available as grammar_available
+
+        ctx["grammar"] = grammar_available(app)
         ctx.setdefault("link_error", None)
         ctx.setdefault("zotero_values", {})
         ctx.setdefault("totp_setup", None)
@@ -133,7 +138,7 @@ def register(app) -> None:
             "SELECT password_hash IS NOT NULL AS p FROM users WHERE id = ?", (req.user.id,)))["p"]
         from ..i18n import LANGUAGES
 
-        return app.page(req, "settings.html", status, sources=[dict(r) for r in rows], languages=LANGUAGES, **ctx)
+        return app.page(req, "settings.html", status, sources=[{**dict(r), "api_host": urlsplit(r["api_url"]).netloc if r["api_url"] else ""} for r in rows], languages=LANGUAGES, **ctx)
 
     app.render_settings = render_settings
 
@@ -149,6 +154,14 @@ def register(app) -> None:
 
         if form.get("language") in LANGUAGES:
             prefs["language"] = form["language"]
+        from ..notifications import EMAIL_CHOICES
+
+        if form.get("notify_email") in EMAIL_CHOICES:
+            prefs["notify_email"] = form["notify_email"]
+        from ..api.grammar import CHOICES as GRAMMAR_CHOICES
+
+        if form.get("grammar") in GRAMMAR_CHOICES:
+            prefs["grammar"] = form["grammar"]
         if form.get("editor_size", "").isdigit() and 15 <= int(form["editor_size"]) <= 20:
             prefs["editor_size"] = int(form["editor_size"])
         name = form.get("display_name", "").strip()[:80] or user.display_name

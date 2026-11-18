@@ -1,0 +1,138 @@
+{
+  "id": "thesis",
+  "name": "Thesis",
+  "version": "1.0.0",
+  "extends": "default",
+  "starter": "thesis",
+  "description": "A bachelor's, master's or doctoral thesis: A4, 12 pt, 1.5 line spacing, 3 cm binding margin, title page with university, degree and supervisor, declaration, abstract, table of contents with lists of figures and tables, chapters on new pages, roman page numbers for the front matter.",
+  "design": {
+    "text.size": 12,
+    "text.leading": 1.5,
+    "text.paragraph-spacing": "0.5em",
+    "text.indent": "0",
+    "page.margin-left": "3cm",
+    "page.margin-right": "2.5cm",
+    "page.margin-top": "2.5cm",
+    "page.margin-bottom": "2.5cm",
+    "page.front-numbering": "i",
+    "page.header": "title",
+    "page.header-rule": true,
+    "heading.numbering": "1",
+    "heading.chapter-break": true,
+    "heading.chapter-drop": "2cm",
+    "heading.1.size": 1.6,
+    "heading.1.above": "1.5em",
+    "heading.1.below": "1.2em",
+    "heading.2.size": 1.25,
+    "heading.3.size": 1.1,
+    "cover.page": true,
+    "cover.position": "top",
+    "cover.counted": true,
+    "cover.title-size": 1.8,
+    "cover.fields": [
+      {
+        "key": "institution",
+        "style": "large"
+      },
+      {
+        "key": "faculty"
+      },
+      {
+        "key": "department"
+      },
+      {
+        "space": "fill"
+      },
+      {
+        "key": "paper-type",
+        "style": "large"
+      },
+      {
+        "key": "submission"
+      },
+      {
+        "key": "program"
+      },
+      {
+        "space": "2em"
+      },
+      {
+        "key": "byline"
+      },
+      {
+        "key": "student-id",
+        "label": "Student ID:"
+      },
+      {
+        "space": "fill"
+      },
+      {
+        "key": "supervisor",
+        "label": "Supervisor:"
+      },
+      {
+        "space": "1em"
+      },
+      {
+        "key": "place-date"
+      }
+    ],
+    "cover.abstract": true,
+    "cover.abstract-page": true,
+    "declaration.enabled": true,
+    "declaration.position": "front",
+    "declaration.title": "Declaration of Authorship",
+    "declaration.text": "I hereby declare that I wrote this thesis independently, that I used no sources or aids other than those I have named, and that I marked every passage taken from other works, word for word or in substance, as such. This thesis has not been submitted for assessment elsewhere.",
+    "toc.enabled": true,
+    "toc.page": true,
+    "toc.depth": 3,
+    "toc.figures": true,
+    "toc.tables": true,
+    "caption.by-chapter": true,
+    "caption.label-weight": "bold",
+    "bib.heading": "bibliography",
+    "bib.page-break": true,
+    "footnote.size": 0.83
+  },
+  "variables": {
+    "linestretch": {
+      "type": "number",
+      "min": 1,
+      "max": 2,
+      "step": 0.25,
+      "label": "Line spacing"
+    },
+    "fontsize": {
+      "type": "enum",
+      "values": [
+        "11pt",
+        "12pt"
+      ],
+      "label": "Font size"
+    },
+    "citation-style": {
+      "type": "enum",
+      "values": [
+        "chicago-author-date",
+        "apa",
+        "harvard-cite-them-right",
+        "ieee",
+        "chicago-notes-bibliography",
+        "din-1505-2"
+      ],
+      "labels": {
+        "chicago-author-date": "Chicago author-date",
+        "apa": "APA",
+        "harvard-cite-them-right": "Harvard (Cite Them Right)",
+        "ieee": "IEEE",
+        "chicago-notes-bibliography": "Chicago notes",
+        "din-1505-2": "DIN 1505-2"
+      },
+      "label": "Citation style"
+    },
+    "toc": {
+      "type": "boolean",
+      "label": "Table of contents"
+    }
+  }
+}

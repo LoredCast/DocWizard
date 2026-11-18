@@ -10,6 +10,7 @@ $endfor$
 $for(css)$
 <link rel="stylesheet" href="$css$">
 $endfor$
+$options()$
 $if(paper-dark)$
 <link rel="stylesheet" href="_dark.css">
 $endif$
@@ -21,20 +22,14 @@ $endfor$
 <article>
 $if(title)$
 <header class="title-block">
+$cover-top()$
 <h1 class="title">$title$</h1>
 $if(subtitle)$
 <p class="subtitle">$subtitle$</p>
 $endif$
-$for(author)$
-<p class="author">$author$</p>
-$endfor$
-$if(date)$
-<p class="date">$date$</p>
-$endif$
-$if(abstract)$
-<div class="abstract">$abstract$</div>
-$endif$
+$cover()$
 </header>
+<p class="repeat-title" aria-hidden="true">$title$$if(subtitle)$: $subtitle$$endif$</p>
 $endif$
 $if(toc)$
 <nav id="$idprefix$TOC" role="doc-toc">

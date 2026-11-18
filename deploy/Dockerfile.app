@@ -10,6 +10,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/opt/docwizard/serve
 RUN groupadd --system --gid 10001 docwizard-app \
  && useradd --system --uid 10001 --gid 10001 --home-dir /var/lib/docwizard --shell /usr/sbin/nologin docwizard-app
 
+# git for syncing projects with git repositories (§12.7).
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /opt/docwizard
 COPY requirements.lock ./
 RUN pip install --no-cache-dir --require-hashes -r requirements.lock
@@ -19,7 +23,11 @@ COPY server ./server
 COPY worker ./worker
 COPY layouts ./layouts
 COPY filters ./filters
+COPY csl ./csl
 COPY web ./web
+# Harper, for setups where the app serves the static files itself (§6.8).
+COPY deploy/fetch_tools.py ./deploy/fetch_tools.py
+RUN python3 -I deploy/fetch_tools.py --harper web/vendor/harper
 RUN install -d -o 10001 -g 10001 /var/lib/docwizard /var/lib/docwizard-publish /var/lib/docwizard-jobs \
       /var/lib/docwizard-jobs/run \
       /var/lib/docwizard-cache /run/docwizard \

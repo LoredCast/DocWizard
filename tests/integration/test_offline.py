@@ -18,7 +18,8 @@ async def test_service_worker_lists_this_release(client, app):
     assert manifest["shells"] == ["/_shell/home", "/_shell/editor"]
     assets = set(manifest["assets"])
     prefix = app.static_prefix
-    for path in ("vendor/codemirror.js", "app/editor/main.js", "app/offline.js", "css/app.css"):
+    for path in ("vendor/codemirror.js", "vendor/pdfjs/pdf.min.mjs", "vendor/pdfjs/pdf.worker.min.mjs",
+                 "app/editor/main.js", "app/offline.js", "css/app.css"):
         assert f"{prefix}/{path}" in assets
     assert not any(a.endswith(("sw.js", "MANIFEST", "LICENSE")) for a in assets)
     # Every precached asset exists, or installing the worker would fail.
@@ -67,3 +68,19 @@ def test_static_urls_change_with_the_files(app, tmp_path, monkeypatch):
     # Behind the proxy the files live under the release name.
     monkeypatch.setattr(app.cfg.server, "serve_static", False)
     assert asgi.static_version(app.cfg) == app.cfg.release
+
+
+async def test_responsive_toolbar_and_markdown_bar_render(client):
+    pid = await new_project(client)
+    home = (await client.get("/")).text
+    assert 'class="menu account-menu"' in home and 'class="table-wrap"' in home
+    project = (await client.get(f"/p/{pid}")).text
+    assert 'class="menu account-menu"' in project and 'class="table-wrap"' in project
+    editor = (await client.get(f"/p/{pid}/paper.md")).text
+    for marker in ('id="mode-edit"', 'id="mode-preview"', 'id="more-actions"',
+                   'id="format-bar"', 'data-cmd="bold"', 'id="preview-error"'):
+        assert marker in editor
+    assert 'id="format-bar" role="toolbar" aria-label="Formatting" hidden' not in editor
+    await client.post(f"/api/projects/{pid}/documents", json={"path": "main.tex", "text": "\\documentclass{article}"})
+    tex = (await client.get(f"/p/{pid}/main.tex")).text
+    assert 'id="format-bar" role="toolbar" aria-label="Formatting" hidden' in tex

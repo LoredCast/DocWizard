@@ -1,9 +1,10 @@
 # The render worker: stdlib Python, pandoc, Typst and optionally LaTeX (ARCHITECTURE.md §9.2, §18.1).
 # It starts as root with five capabilities and runs every job as its own user.
-# Typst uses its embedded fonts plus each layout's fonts/ folder, never system fonts.
+# Typst uses its embedded fonts, the layout fonts fetch_tools.py installs and each layout's fonts/ folder,
+# never system fonts.
 FROM python:3.12-slim
 
-# Pinned pandoc and Typst releases, checked against their SHA-256.
+# Pinned pandoc and Typst releases and the layout fonts, checked against their SHA-256.
 COPY deploy/fetch_tools.py /tmp/fetch_tools.py
 RUN python3 -I /tmp/fetch_tools.py && rm /tmp/fetch_tools.py && pandoc --version | head -1 && typst --version
 

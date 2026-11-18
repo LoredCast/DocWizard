@@ -6,10 +6,13 @@ import asyncio
 import datetime as dt
 
 from ..auth import permissions
+from ..citations import lookup
+from ..netpolicy import FetchError, PolicyError
 from ..http.request import HTTPError, Request, bad_request, not_found
 from ..http.response import Response, json_response, user_content
-from ..projects import files
+from ..projects import docx_import, files, fountain, history, starters
 from ..projects import service as svc
+from ..render import fields, languages
 
 
 # Guests never manage a project or see who else is in it (§14.2).
@@ -61,15 +64,22 @@ async def document_access(app, req: Request, doc_id: str, capability: str):
 
 
 async def create_project_with_starter(app, user, name: str, layout: str, starter: bool = True,
-                                     lang: str = "en") -> tuple[str, str | None]:
+                                     lang: str = "en") -> tuple[str, str | None, str | None]:
+    """Create a project and, with *starter*, the files its layout starts with (projects/starters.py).
+    Returns the project id and the id and path of the document to open first."""
     today = dt.date.today().isoformat()
+    lay = app.layouts.get(layout) if app.layouts.exists(layout) else None
+    extra = fields.starter_lines(lay) if lay is not None else []
+    plan = starters.for_layout(lay, lang, user.display_name, today, extra) if starter else None
 
     def work(c):
         pid = svc.create_project(c, user.id, name, layout)
         main = None
-        if starter:
-            main = svc.create_document(c, pid, "paper.md", svc.starter(lang, user.display_name, today))
-            svc.create_document(c, pid, "references.json", svc.STARTER_REFS)
+        if plan is not None:
+            ids = [svc.create_document(c, pid, path, text) for path, text in plan.files]
+            main = ids[0]
+            if plan.build:
+                svc.update_project(c, pid, build_inputs=plan.build)
         return pid, main
 
     pid, main = await app.db.write(work)
@@ -77,7 +87,7 @@ async def create_project_with_starter(app, user, name: str, layout: str, starter
     for doc in await app.db.fetchall("SELECT id FROM documents WHERE project_id = ?", (pid,)):
         room = await app.rooms.get(doc["id"])
         await room.call(room.materialize)
-    return pid, main
+    return pid, main, plan.main if plan is not None else None
 
 
 def register(app) -> None:
@@ -94,11 +104,11 @@ def register(app) -> None:
         if not app.layouts.exists(layout):
             raise bad_request("Unknown layout.")
         try:
-            pid, main = await create_project_with_starter(app, req.user, str(body.get("name", "")), layout,
-                                                          bool(body.get("starter", True)), app.lang_of(req))
+            pid, main, main_path = await create_project_with_starter(
+                app, req.user, str(body.get("name", "")), layout, bool(body.get("starter", True)), app.lang_of(req))
         except ValueError as exc:
             raise bad_request(str(exc)) from None
-        return json_response({"id": pid, "mainDocument": main}, 201)
+        return json_response({"id": pid, "mainDocument": main, "mainPath": main_path}, 201)
 
     async def get_project(req: Request) -> Response:
         project, role = await project_access(app, req, req.param("id"), "read")
@@ -107,7 +117,7 @@ def register(app) -> None:
         p = dict(project)
         return json_response({"id": p["id"], "name": p["name"], "layout": p["layout_id"], "role": role,
                               "layoutOptions": _json(p["layout_options"]),
-                              "buildInputs": _json(p["build_inputs"]), "tree": tree})
+                              "buildInputs": _json(p["build_inputs"]), "lang": p.get("lang"), "tree": tree})
 
     async def patch_project(req: Request) -> Response:
         project, role = await project_access(app, req, req.param("id"), "change_layout")
@@ -126,6 +136,13 @@ def register(app) -> None:
                 kwargs["layout_options"] = layout.validate_options(body["layoutOptions"])
             except ValueError as exc:
                 raise bad_request(str(exc)) from None
+        if "lang" in body:
+            # The document language (§9.8): a language tag, or null for the layout's.
+            value = body["lang"]
+            tag = languages.normalize(value) if value not in (None, "") else None
+            if value not in (None, "") and tag is None:
+                raise bad_request("lang must be a language tag such as en-GB or de-AT.")
+            kwargs["lang"] = tag
         if "buildInputs" in body:
             inputs = body["buildInputs"]
             if inputs is not None:
@@ -206,6 +223,15 @@ def register(app) -> None:
         except files.PathError as exc:
             raise bad_request(str(exc)) from None
         data = await req.body(limits.max_upload_bytes)
+        if path.lower().endswith(".docx"):
+            return await import_docx(project, path, data, req)
+        if path.lower().endswith(".fountain"):
+            # Fountain screenplays become Markdown documents for the script layouts (§9.3).
+            try:
+                text = fountain.to_markdown(files.decode_text(data)[0])
+            except UnicodeDecodeError:
+                raise bad_request("Text files must be UTF-8.") from None
+            path, data = path[: -len(".fountain")] + ".md", text.encode()
         kind = files.kind_for(path)
         if kind is not None:
             # Text files become documents.
@@ -226,6 +252,9 @@ def register(app) -> None:
             await room.call(room.materialize)
             return json_response({"id": doc_id, "type": "document"}, 201)
         root = app.rooms.project_dir(project["id"])
+        if req.query.get("unique") == "1":
+            # Pasted and dropped images never replace a file: figures/figure.png becomes figure-2.png.
+            path = await app.db.read(lambda c: svc.free_path(c, project["id"], path))
 
         def store():
             digest = files.put_blob(app.cfg.data_dir, data)
@@ -238,6 +267,106 @@ def register(app) -> None:
         except ValueError as exc:
             raise bad_request(str(exc)) from None
         return json_response({"path": path, "type": "asset", "size": len(data)}, 201)
+
+    async def store_asset(project_id: str, path: str, data: bytes) -> None:
+        root = app.rooms.project_dir(project_id)
+
+        def store():
+            digest = files.put_blob(app.cfg.data_dir, data)
+            st = files.atomic_write(root, path, data)
+            return digest, st
+
+        digest, st = await asyncio.to_thread(store)
+        await app.db.write(lambda c: svc.put_asset(c, project_id, path, digest, len(data), st))
+
+    async def import_docx(project, path: str, data: bytes, req: Request) -> Response:
+        """A Word file becomes a Markdown document; its comments become threads and its tracked
+        changes suggestions (§8.11). Images go to a folder next to it."""
+        stem = path[: -len(".docx")]
+        markdown, media = await app.renderer.convert_docx(data)
+        folder = f"{stem}-media"
+        markdown = markdown.replace("../out/media/", folder + "/")
+        text, threads = docx_import.parse(markdown)
+
+        def free_path(c):
+            n = 1
+            while True:
+                candidate = f"{stem}.md" if n == 1 else f"{stem}-{n}.md"
+                if not svc.get_document_by_path(c, project["id"], candidate):
+                    return candidate
+                n += 1
+
+        doc_path = await app.db.read(free_path)
+        try:
+            for rel, blob in media.items():
+                await store_asset(project["id"], files.normalize(f"{folder}/{rel}"), blob)
+            doc_id = await app.db.write(lambda c: svc.create_document(c, project["id"], doc_path, text))
+        except (ValueError, files.PathError) as exc:
+            raise bad_request(str(exc)) from None
+        room = await app.rooms.get(doc_id)
+        await room.call(room.materialize)
+        made = {"comments": 0, "suggestions": 0}
+        for t in threads:
+            a = len(text[:t.start].encode("utf-16-le")) // 2
+            b = a + len(text[t.start:t.end].encode("utf-16-le")) // 2
+
+            def insert(c, frm, to, v, quote, t=t):
+                cid = c.execute(
+                    "INSERT INTO comments(doc_id, author_name, body, quote, anchor_from, anchor_to, anchor_version,"
+                    " suggestion) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (doc_id, f"{t.author} (Word)", t.body, quote if t.suggestion is not None else quote[:500],
+                     frm, to, v, t.suggestion)).lastrowid
+                c.execute("UPDATE comments SET thread_id = id WHERE id = ?", (cid,))
+                for author, body in t.replies:
+                    c.execute("INSERT INTO comments(doc_id, thread_id, author_name, body) VALUES (?, ?, ?, ?)",
+                              (doc_id, cid, f"{author} (Word)", body))
+                return cid
+
+            await room.call(lambda: room.add_thread(room.version, a, b, insert))
+            made["suggestions" if t.suggestion is not None else "comments"] += 1
+        return json_response({"id": doc_id, "type": "document", "path": doc_path, "imported": "docx", **made}, 201)
+
+    async def add_reference(req: Request) -> Response:
+        """Look up a DOI, ISBN or arXiv ID and add it to a CSL-JSON file of the project (§10.5)."""
+        project, _ = await project_access(app, req, req.param("id"), "edit")
+        body = await req.json_object()
+        target = str(body.get("file") or "references.json")
+        try:
+            target = files.normalize(target)
+        except files.PathError as exc:
+            raise bad_request(str(exc)) from None
+        if not target.endswith(".json"):
+            raise bad_request("References are added to a CSL-JSON file (.json).")
+        try:
+            item = await asyncio.to_thread(lookup.fetch_item, app.net, str(body.get("id", "")))
+        except lookup.IdentifierError as exc:
+            raise HTTPError(422, "not_found", str(exc)) from None
+        except (FetchError, PolicyError) as exc:
+            raise HTTPError(502, "lookup_failed", f"The lookup failed: {exc}") from None
+        existing = await app.db.read(lambda c: svc.get_document_by_path(c, project["id"], target))
+        if existing:
+            room = await app.rooms.get(existing["id"])
+
+            async def append():
+                try:
+                    text, key, added = lookup.add_to_file(room.text(), item)
+                except lookup.IdentifierError as exc:
+                    raise HTTPError(409, "bad_file", str(exc)) from None
+                if added:
+                    await room.apply_text(text, "system:reference", author_of(req))
+                return key, added
+
+            key, added = await room.call(append)
+        else:
+            text, key, added = lookup.add_to_file(None, item)
+            try:
+                doc_id = await app.db.write(lambda c: svc.create_document(c, project["id"], target, text))
+            except ValueError as exc:
+                raise bad_request(str(exc)) from None
+            room = await app.rooms.get(doc_id)
+            await room.call(room.materialize)
+        return json_response({"key": key, "file": target, "added": added, "item": {"id": key, **item}},
+                             201 if added else 200)
 
     async def get_asset(req: Request) -> Response:
         project, _ = await project_access(app, req, req.param("id"), "read")
@@ -284,7 +413,11 @@ def register(app) -> None:
 
     async def list_versions(req: Request) -> Response:
         doc, _, _ = await document_access(app, req, req.param("id"), "read")
-        return json_response({"versions": await app.db.read(lambda c: svc.list_versions(c, doc["id"]))})
+        def load(c):
+            return svc.list_versions(c, doc["id"]), history.list_history(c, doc["id"])
+
+        named, automatic = await app.db.read(load)
+        return json_response({"versions": named, "history": automatic})
 
     async def create_version(req: Request) -> Response:
         doc, _, _ = await document_access(app, req, req.param("id"), "versions")
@@ -323,8 +456,29 @@ def register(app) -> None:
             raise not_found("No such version.")
         return json_response(dict(row))
 
+    async def compare_version(req: Request) -> Response:
+        """A version compared with the current text, or with another version (?with=<id>) (§8.5)."""
+        doc, _, _ = await document_access(app, req, req.param("id"), "read")
+        snap_id = req.param("v")
+        row = await app.db.fetchone("SELECT text FROM doc_snapshots WHERE id = ? AND doc_id = ?",
+                                    (int(snap_id) if snap_id.isdigit() else -1, doc["id"]))
+        if row is None:
+            raise not_found("No such version.")
+        other = req.query.get("with", "current")
+        if other == "current":
+            room = await app.rooms.get(doc["id"])
+            newer = await room.call(lambda: _text(room))
+        else:
+            o = await app.db.fetchone("SELECT text FROM doc_snapshots WHERE id = ? AND doc_id = ?",
+                                      (int(other) if other.isdigit() else -1, doc["id"]))
+            if o is None:
+                raise not_found("No such version.")
+            newer = o["text"]
+        return json_response(await asyncio.to_thread(history.compare, row["text"], newer))
+
     r.add("GET", "/api/projects", list_projects)
     r.add("POST", "/api/projects", create_project)
+    r.add("POST", "/api/projects/{id}/references", add_reference)
     r.add("GET", "/api/projects/{id}", get_project, guest=True)
     r.add("PATCH", "/api/projects/{id}", patch_project, guest=True)
     r.add("DELETE", "/api/projects/{id}", delete_project)
@@ -341,7 +495,12 @@ def register(app) -> None:
     r.add("GET", "/api/documents/{id}/versions", list_versions, guest=True)
     r.add("POST", "/api/documents/{id}/versions", create_version, guest=True)
     r.add("GET", "/api/documents/{id}/versions/{v}", version_text, guest=True)
+    r.add("GET", "/api/documents/{id}/versions/{v}/compare", compare_version, guest=True)
     r.add("POST", "/api/documents/{id}/versions/{v}/restore", restore_version, guest=True)
+
+
+async def _text(room) -> str:
+    return room.text()
 
 
 def _json(value):

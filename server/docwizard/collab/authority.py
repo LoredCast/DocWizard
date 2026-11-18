@@ -26,9 +26,9 @@ from typing import Any
 
 from ..auth import permissions
 from ..logs import fields
-from ..projects import files
+from ..projects import files, history
 from ..projects import service as svc
-from .changeset import ChangeSet, InvalidChange, from_diff
+from .changeset import ChangeSet, InvalidChange, from_diff, u16len
 from .merge import reconcile
 from .text import Utf16Buffer
 
@@ -425,7 +425,7 @@ class Room:
             frm, to = map_range(cs, frm, to)
         if not (self.buf.is_boundary(frm) and self.buf.is_boundary(to)):
             raise PushError("bad_anchor", "The selection splits a character.")
-        quote = self.buf.slice(frm, to)[:500]
+        quote = self.buf.slice(frm, to)  # the insert keeps what it needs: 500 characters, all of it for suggestions
         current = self.version
         thread_id = await self.db.write(lambda c: insert(c, frm, to, current, quote))
         self.anchors[("comment", thread_id)] = [frm, to]
@@ -451,6 +451,36 @@ class Room:
                 self.anchors[key] = [min(frm, n), min(max(frm, to), n)]
                 self.anchors_dirty = True
         self.broadcast({"t": "comments" if kind == "comment" else "conflicts", "doc": self.doc_id})
+
+    async def accept_suggestion(self, thread_id: int, text: str, expected: str | None, author: int | str | None,
+                                update) -> int:
+        """Replace a thread's anchored passage with its suggestion (§8.10); *update(c)* records the decision.
+
+        With *expected*, the passage must still read that way, or PushError("changed")."""
+        key = ("comment", thread_id)
+        anchor = self.anchors.get(key)
+        if anchor is None:
+            raise PushError("gone", "The suggested passage is no longer in the document.")
+        frm, to = anchor
+        if expected is not None and self.buf.slice(frm, to) != expected:
+            raise PushError("changed", "The passage changed since the suggestion was made.")
+        n = len(self.buf)
+        cs = ChangeSet.of([(frm, to, text)], n)
+        if not cs.empty_changes:
+            if cs.new_length > self.rooms.cfg.limits.max_document_bytes:
+                raise PushError("too_large", "The document would exceed the size limit.")
+            # The thread is decided: its anchor goes before the edit, so it isn't orphaned by it.
+            self.anchors.pop(key, None)
+            try:
+                await self._commit([cs], [{"clientID": "system:suggestion", "changes": cs.to_json()}], author)
+            except BaseException:
+                self.anchors[key] = anchor
+                raise
+        else:
+            self.anchors.pop(key, None)
+        await self.db.write(lambda c: update(c, (frm, frm + u16len(text)), self.version))
+        self.broadcast({"t": "comments", "doc": self.doc_id})
+        return self.version
 
     async def apply_text(self, new_text: str, client_id: str, author: int | str | None = None) -> int:
         """Replace the text with *new_text* as one diff-based update (restores, merges)."""
@@ -517,13 +547,18 @@ class Room:
         retention = self.rooms.cfg.collab.op_retention_days * 86400
 
         def work(c):
-            c.execute("INSERT INTO doc_snapshots(doc_id, version, text, label, created_by) VALUES (?, ?, ?, ?, ?)",
-                      (self.doc_id, version, text, label, user_id))
+            authors = None
+            if label is None:
+                # Who edited since the previous automatic snapshot, for the history (§8.5).
+                prev = c.execute("SELECT max(version) FROM doc_snapshots WHERE doc_id = ? AND label IS NULL",
+                                 (self.doc_id,)).fetchone()[0]
+                authors = json.dumps(history.authors_since(c, self.doc_id, prev or 0, version))
+            c.execute("INSERT INTO doc_snapshots(doc_id, version, text, label, created_by, authors)"
+                      " VALUES (?, ?, ?, ?, ?, ?)", (self.doc_id, version, text, label, user_id, authors))
             if label is None:
                 c.execute("UPDATE documents SET snapshot_version = ? WHERE id = ?", (version, self.doc_id))
-                # Unlabelled snapshots older than the newest one are no longer needed.
-                c.execute("DELETE FROM doc_snapshots WHERE doc_id = ? AND label IS NULL AND version < ?",
-                          (self.doc_id, version))
+                # Older automatic snapshots are the history: thinned by age, never all dropped.
+                history.thin(c, self.doc_id, time.time())
                 c.execute("DELETE FROM doc_ops WHERE doc_id = ? AND version < ? AND created_at < ?",
                           (self.doc_id, version, time.time() - retention))
 

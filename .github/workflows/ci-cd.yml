@@ -2,10 +2,10 @@ name: CI & Container Releases
 
 on:
   push:
-    branches: [main]
+    branches: [main, nightly]
     tags: ["v*"]
   pull_request:
-    branches: [main]
+    branches: [main, nightly]
   workflow_dispatch: {}
 
 concurrency:
@@ -63,6 +63,8 @@ jobs:
             rel="${rel#v}"
           elif [[ "${GITHUB_REF}" == refs/heads/main ]]; then
             rel="sha-${GITHUB_SHA::7}"
+          elif [[ "${GITHUB_REF}" == refs/heads/nightly ]]; then
+            rel="nightly-${GITHUB_SHA::7}"
           else
             rel="pr-${{ github.event.pull_request.number || 'dev' }}"
           fi
@@ -92,6 +94,8 @@ jobs:
             latest=auto
           tags: |
             type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=nightly,enable=${{ github.ref == 'refs/heads/nightly' }}
+            type=raw,value=nightly-{{date 'YYYYMMDD'}},enable=${{ github.ref == 'refs/heads/nightly' }}
             type=sha,prefix=sha-
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}

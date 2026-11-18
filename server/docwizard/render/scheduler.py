@@ -22,8 +22,9 @@ from pathlib import Path
 from ..citations.zotero import referenced_sources
 from ..http.request import HTTPError
 from ..logs import fields
+from ..projects import docx_import, fountain
 from ..projects import service as svc
-from . import jobs
+from . import jobs, sample, synctex
 from .layouts import Layout, LayoutError
 from .worker_client import WorkerClient, WorkerUnavailable
 
@@ -63,6 +64,8 @@ class ExportJob:
 
 
 class Renderer:
+    SAMPLE_PROJECT = sample.SAMPLE_PROJECT
+
     def __init__(self, app):
         self.app = app
         self.cfg = app.cfg
@@ -185,7 +188,12 @@ class Renderer:
         if inputs and inputs[0].endswith(".tex") and target != "pdf-latex":
             raise HTTPError(400, "bad_target", "LaTeX documents build as PDF with LaTeX, or export as the "
                                                "project source.")
-        key = jobs.cache_key(project["id"], snap.digest(), layout, target, inputs, options, self.worker.versions)
+        if target == "docx" and inputs and inputs[0].endswith((".md", ".markdown")):
+            snap = await self._with_comments(project["id"], inputs[0], snap)
+        lang = project.get("lang") or None
+        # The project's document language changes the output, so it is part of the key (§9.8).
+        key_options = {**options, "@lang": lang} if lang else options
+        key = jobs.cache_key(project["id"], snap.digest(), layout, target, inputs, key_options, self.worker.versions)
         version = max(versions.values(), default=0)
         cached = self._cached(key, target)
         if cached is not None:
@@ -205,7 +213,7 @@ class Renderer:
                 if slot is not None and self._latest.get(slot) != seq:
                     fut.set_result(None)
                     return None  # a newer request for the same build replaced this one
-                result = await self._run(key, project["id"], target, layout, inputs, options, snap)
+                result = await self._run(key, project["id"], target, layout, inputs, options, snap, lang=lang)
             result.version = version
             fut.set_result(result)
             return result
@@ -213,6 +221,69 @@ class Renderer:
             if not fut.done():
                 fut.set_exception(exc)
                 fut.exception()  # mark retrieved
+            raise
+        finally:
+            self._inflight.pop(key, None)
+
+    async def _with_comments(self, project_id: str, path: str, snap: jobs.ProjectSnapshot) -> jobs.ProjectSnapshot:
+        """Word exports keep the open comment threads as Word comments (§8.11)."""
+        doc = await self.app.db.read(lambda c: svc.get_document_by_path(c, project_id, path))
+        if doc is None:
+            return snap
+        rows = await self.app.db.fetchall(
+            "SELECT c.id, c.thread_id, c.author_name, c.body, c.suggestion, c.created_at FROM comments c"
+            " JOIN comments t ON t.id = c.thread_id WHERE c.doc_id = ? AND t.resolved_at IS NULL"
+            " AND t.orphaned = 0 ORDER BY c.thread_id, c.id", (doc["id"],))
+        if not rows:
+            return snap
+        room = await self.app.rooms.get(doc["id"])
+        text, anchors = await room.call(
+            lambda: _now(room.text(), {k[1]: list(v) for k, v in room.anchors.items() if k[0] == "comment"}))
+        if text != snap.texts.get(path):
+            return snap  # changed in between: export without comments rather than misplace them
+        threads: dict[int, dict] = {}
+        for r in rows:
+            rng = anchors.get(r["thread_id"])
+            if rng is None:
+                continue
+            t = threads.setdefault(r["thread_id"], {"range": rng, "comments": []})
+            body = r["body"]
+            if r["id"] == r["thread_id"] and r["suggestion"] is not None:
+                body = (f"Suggested: “{r['suggestion']}”" if r["suggestion"] else "Suggested: delete this.") + \
+                    (f" {body}" if body else "")
+            t["comments"].append({"author": r["author_name"], "date": (r["created_at"] or "")[:19] + "Z",
+                                  "body": body})
+        flat = [o for t in threads.values() for o in t["range"]]
+        idx = docx_import.from_utf16(text, flat)
+        items = [{"start": idx[2 * i], "end": idx[2 * i + 1], "comments": t["comments"]}
+                 for i, t in enumerate(threads.values())]
+        out = jobs.ProjectSnapshot(snap.project_id, dict(snap.texts), dict(snap.assets))
+        out.texts[path] = docx_import.comment_markers(text, items)
+        return out
+
+    async def render_sample(self, layout: Layout, target: str = "pdf-typst") -> RenderResult:
+        """The layout editor's preview: the sample document with a draft layout (§9.3)."""
+        snap = sample.snapshot()
+        inputs = ["sample.md"]
+        key = jobs.cache_key(sample.SAMPLE_PROJECT, snap.digest(), layout, target, inputs, {}, self.worker.versions)
+        cached = self._cached(key, target)
+        if cached is not None:
+            return cached
+        if key in self._inflight:
+            return await asyncio.shield(self._inflight[key])
+        fut = asyncio.get_running_loop().create_future()
+        self._inflight[key] = fut
+        try:
+            async with self.sem:
+                # Drafts get a copy of their own, removed afterwards, so the cache doesn't fill up with them.
+                result = await self._run(key, sample.SAMPLE_PROJECT, target, layout, inputs, {}, snap,
+                                         layout_folder=f"layout-drafts/{secrets.token_hex(8)}")
+            fut.set_result(result)
+            return result
+        except BaseException as exc:
+            if not fut.done():
+                fut.set_exception(exc)
+                fut.exception()
             raise
         finally:
             self._inflight.pop(key, None)
@@ -228,18 +299,26 @@ class Renderer:
                             project_id=meta["project_id"])
 
     async def _run(self, key: str, project_id: str, target: str, layout: Layout, inputs: list[str],
-                   options: dict, snap: jobs.ProjectSnapshot) -> RenderResult:
+                   options: dict, snap: jobs.ProjectSnapshot, layout_folder: str = "layouts",
+                   lang: str | None = None) -> RenderResult:
         dest = self.renders_dir / key
         output = jobs.OUTPUTS[target]
         if target == "md-source":
             await asyncio.to_thread(_zip_snapshot, snap, dest, output)
             return self._finish(key, project_id, target, "ok", [], dest)
+        if target == "fountain":
+            def write_fountain():
+                dest.mkdir(parents=True, exist_ok=True)
+                (dest / output).write_text(fountain.from_markdown(snap.texts.get(inputs[0], "")))
+
+            await asyncio.to_thread(write_fountain)
+            return self._finish(key, project_id, target, "ok", [], dest)
         job_id = jobs.new_job_id()
         job_dir = self.cfg.jobs_dir / "run" / job_id
-        layout_dir = await asyncio.to_thread(self.app.layouts.cached_dir, layout)
+        layout_dir = await asyncio.to_thread(self.app.layouts.cached_dir, layout, layout_folder)
         approved = self.app.layouts.filters_approved(layout)
         steps, copies = jobs.pandoc_steps(layout, layout_dir, target, inputs, options, approved)
-        meta = jobs.metadata(layout, options, inputs, layout_dir)
+        meta = jobs.metadata(layout, options, inputs, layout_dir, lang=lang)
         limits = {"cpu_seconds": self.cfg.render.timeout_seconds, "memory_mb": self.cfg.render.memory_mb,
                   "wall_seconds": self.cfg.render.timeout_seconds}
         job = {"id": job_id, "kind": "render", "inputs": inputs, "target": target, "layout": layout.content_sha256,
@@ -276,7 +355,58 @@ class Renderer:
                 # Failed renders aren't cached, so fixing the document retries.
                 return RenderResult(key, status, target, output, diagnostics, project_id=project_id)
             await asyncio.to_thread(_move_outputs, job_dir / "out", dest)
+            if target == "pdf-latex":
+                await asyncio.to_thread(_index_synctex, job_dir, dest)
             return self._finish(key, project_id, target, status, diagnostics, dest)
+        finally:
+            await asyncio.to_thread(shutil.rmtree, job_dir, True)
+            if layout_folder != "layouts":
+                await asyncio.to_thread(shutil.rmtree, layout_dir.parent, True)
+
+    async def convert_docx(self, data: bytes) -> tuple[str, dict[str, bytes]]:
+        """Convert an uploaded Word file in the render worker (§8.11): pandoc keeps comments and
+        tracked changes, which filters/docx_import.lua marks. Returns the Markdown and the media
+        files (paths relative to the media folder)."""
+        job_id = jobs.new_job_id()
+        job_dir = self.cfg.jobs_dir / "run" / job_id
+        layout_dir = await asyncio.to_thread(self.app.layouts.cached_dir, self.app.layouts.get("default"), "layouts")
+        L = str(layout_dir)
+        limits = {"cpu_seconds": self.cfg.render.timeout_seconds, "memory_mb": self.cfg.render.memory_mb,
+                  "wall_seconds": self.cfg.render.timeout_seconds}
+        steps = [{"tool": "pandoc", "args": [
+            "upload.docx", "--from", "docx", "--track-changes=all", "--to", "markdown-simple_tables-multiline_tables",
+            "--wrap=none", "--standalone", "--extract-media=../out", "--lua-filter", f"{L}/_builtin/docx_import.lua",
+            "-o", "../out/document.md"]}]
+        job = {"id": job_id, "kind": "render", "inputs": ["upload.docx"], "target": "md-import", "layout": "",
+               "options": {}, "limits": limits, "steps": steps, "lua_path": f"{L}/_builtin/?.lua"}
+
+        def prepare():
+            (job_dir / "src").mkdir(parents=True)
+            (job_dir / "out").mkdir()
+            (job_dir / "src" / "upload.docx").write_bytes(data)
+            (job_dir / "options.json").write_text("{}")
+            (job_dir / "job.json").write_text(json.dumps(job))
+
+        def collect():
+            out = job_dir / "out"
+            text = (out / "document.md").read_text(encoding="utf-8")
+            media: dict[str, bytes] = {}
+            for p in sorted((out / "media").rglob("*")) if (out / "media").is_dir() else []:
+                if p.is_file() and not p.is_symlink():
+                    media[p.relative_to(out / "media").as_posix()] = p.read_bytes()
+            return text, media
+
+        try:
+            await asyncio.to_thread(prepare)
+            async with self.sem:
+                try:
+                    reply = await self.worker.run(job_id, limits["wall_seconds"])
+                except WorkerUnavailable as exc:
+                    raise HTTPError(503, "worker_unavailable", str(exc)) from None
+            if reply.get("status") != "ok" or not (job_dir / "out" / "document.md").is_file():
+                messages = "; ".join(d.get("message", "") for d in reply.get("diagnostics", []))[:500]
+                raise HTTPError(400, "bad_docx", "This Word file couldn't be read." + (f" {messages}" if messages else ""))
+            return await asyncio.to_thread(collect)
         finally:
             await asyncio.to_thread(shutil.rmtree, job_dir, True)
 
@@ -434,6 +564,10 @@ async def _text_version(room):
     return room.text(), room.version
 
 
+async def _now(*values):
+    return values
+
+
 def _move_outputs(src: Path, dest: Path) -> None:
     tmp = dest.with_name(dest.name + ".tmp-" + secrets.token_hex(4))
     shutil.copytree(src, tmp, symlinks=True, ignore=shutil.ignore_patterns(".*"))
@@ -445,6 +579,24 @@ def _move_outputs(src: Path, dest: Path) -> None:
         shutil.rmtree(tmp, ignore_errors=True)
         return
     tmp.rename(dest)
+
+
+def _index_synctex(job_dir: Path, dest: Path) -> None:
+    """Keep what SyncTeX recorded as synctex.json for clicks in the preview (§6.4). latexmk puts the
+    file next to the PDF; older versions leave it in the auxiliary directory."""
+    for src in (dest / "document.synctex.gz", job_dir / "tmp" / "latex" / "document.synctex.gz",
+                dest / "document.synctex"):
+        try:
+            if synctex.index(src, dest / "synctex.json"):
+                break
+        except (OSError, ValueError):
+            log.warning("synctex index failed", exc_info=True)
+            break
+    for leftover in ("document.synctex.gz", "document.synctex"):
+        try:
+            (dest / leftover).unlink()
+        except OSError:
+            pass
 
 
 def _zip_snapshot(snap: jobs.ProjectSnapshot, dest: Path, output: str) -> None:

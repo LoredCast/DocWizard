@@ -1,0 +1,81 @@
+{
+  "id": "manuscript-story",
+  "name": "Short story manuscript",
+  "version": "1.0.0",
+  "extends": "default",
+  "starter": "story",
+  "description": "William Shunn's Modern Manuscript Format for short fiction: US Letter, one-inch margins, 12 pt Tinos (Times New Roman metrics), double-spaced, half-inch indents, ragged right; contact block and rounded word count on the first page, the title a third down, “Surname / Title / 2” from page 2, # for scene breaks.",
+  "filters": [
+    "wordcount",
+    "crossref"
+  ],
+  "design": {
+    "page.paper": "us-letter",
+    "page.margin-top": "1in",
+    "page.margin-bottom": "1in",
+    "page.margin-left": "1in",
+    "page.margin-right": "1in",
+    "page.number-position": "top-right",
+    "page.number-distance": "0.5in",
+    "page.number-label": "surname-title",
+    "text.font": "Tinos",
+    "text.size": 12,
+    "text.leading": 2,
+    "text.paragraph-spacing": "0",
+    "text.indent": "0.5in",
+    "text.indent-first": true,
+    "text.justify": false,
+    "text.hyphenate": false,
+    "text.lang": "en-US",
+    "text.scene-break": "#",
+    "heading.numbering": "",
+    "heading.1.size": 1,
+    "heading.1.weight": "regular",
+    "heading.1.align": "center",
+    "heading.1.above": "1.3em",
+    "heading.1.below": "2.6em",
+    "heading.2.size": 1,
+    "heading.2.weight": "regular",
+    "heading.2.align": "center",
+    "heading.3.size": 1,
+    "heading.3.weight": "regular",
+    "cover.title-size": 1,
+    "cover.title-weight": "regular",
+    "cover.subtitle-size": 1,
+    "cover.abstract": false,
+    "cover.corner-left": [
+      {
+        "key": "author"
+      },
+      {
+        "key": "address"
+      },
+      {
+        "key": "phone"
+      },
+      {
+        "key": "email"
+      },
+      {
+        "key": "contact"
+      }
+    ],
+    "footnote.size": 1,
+    "page.number-first": false,
+    "cover.page": false,
+    "cover.offset": "2.2in",
+    "cover.field-spacing": "1.3em",
+    "cover.space-after": "2.6em",
+    "cover.corner-right": [
+      {
+        "key": "word-count"
+      }
+    ],
+    "cover.fields": [
+      {
+        "key": "byline"
+      }
+    ]
+  },
+  "variables": {}
+}

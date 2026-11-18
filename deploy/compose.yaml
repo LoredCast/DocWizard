@@ -1,6 +1,6 @@
 # docker compose -f deploy/compose.yaml up -d   (ARCHITECTURE.md §18.1)
 # Before the first start: copy deploy/docwizard.example.toml to deploy/docwizard.toml and edit the URLs.
-# Pulls rolling main images from GHCR by default (set DOCWIZARD_TAG for a pinned release, or pass --build).
+# Pulls rolling main images from GHCR by default (set DOCWIZARD_TAG=nightly or add -f deploy/compose.nightly.yaml for the nightly channel, set DOCWIZARD_TAG for a pinned release, or pass --build).
 # Listens on 127.0.0.1:8080 (app) and 127.0.0.1:8081 (publish/preview) over HTTP by default, for an
 # external reverse proxy that handles TLS and domains. Add -f deploy/compose.ssl.yaml to expose 80/443
 # with Caddy managing TLS directly.

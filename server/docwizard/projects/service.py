@@ -16,56 +16,6 @@ from dataclasses import dataclass
 from ..collab.changeset import ChangeSet
 from . import files
 
-STARTER = """---
-title: "Untitled"
-author: "{author}"
-date: {date}
-lang: en-US
-bibliography: references.json
----
-
-# Introduction
-
-Write here. Cite sources like this [@doe2020, p. 4], and add them to
-`references.json` or a `.bib` file in this project.
-
-# References
-"""
-
-STARTER_DE = """---
-title: "Ohne Titel"
-author: "{author}"
-date: {date}
-lang: de-DE
-bibliography: references.json
----
-
-# Einleitung
-
-Schreib hier. Quellen zitierst du so [@doe2020, S. 4]; trag sie in
-`references.json` oder eine `.bib`-Datei in diesem Projekt ein.
-
-# Literatur
-"""
-
-
-def starter(lang: str, author: str, date: str) -> str:
-    """The first paper of a new project, in the interface language."""
-    return (STARTER_DE if lang == "de" else STARTER).format(author=author, date=date)
-
-STARTER_REFS = """[
-  {
-    "id": "doe2020",
-    "type": "book",
-    "title": "An Example Book",
-    "author": [{"family": "Doe", "given": "Jane"}],
-    "issued": {"date-parts": [[2020]]},
-    "publisher": "Example Press",
-    "publisher-place": "Berlin"
-  }
-]
-"""
-
 
 def new_id(prefix: str) -> str:
     return f"{prefix}_{secrets.token_hex(8)}"
@@ -120,8 +70,11 @@ def create_project(conn: sqlite3.Connection, owner_id: int, name: str, layout_id
 
 def update_project(conn: sqlite3.Connection, project_id: str, *, name: str | None = None,
                    layout_id: str | None = None, layout_options: dict | None = None,
-                   build_inputs: list[str] | None | bool = False) -> None:
+                   build_inputs: list[str] | None | bool = False, lang: str | None | bool = False) -> None:
     sets, params = [], []
+    if lang is not False:
+        sets.append("lang = ?")
+        params.append(lang or None)
     if name is not None:
         name = name.strip()[:120]
         if not name:
@@ -168,6 +121,18 @@ def path_taken(conn: sqlite3.Connection, project_id: str, path: str) -> bool:
         "SELECT 1 FROM documents WHERE project_id = ? AND path = ? AND deleted_at IS NULL"
         " UNION ALL SELECT 1 FROM assets WHERE project_id = ? AND path = ? AND deleted_at IS NULL",
         (project_id, path, project_id, path)).fetchone())
+
+
+def free_path(conn: sqlite3.Connection, project_id: str, path: str) -> str:
+    """*path*, or the first of path-2, path-3, … (before the extension) that no file has."""
+    stem, dot, ext = path.rpartition(".")
+    if not dot or "/" in ext:
+        stem, dot, ext = path, "", ""
+    candidate, n = path, 1
+    while path_taken(conn, project_id, candidate):
+        n += 1
+        candidate = f"{stem}-{n}{dot}{ext}"
+    return candidate
 
 
 def create_document(conn: sqlite3.Connection, project_id: str, path: str, text: str = "",

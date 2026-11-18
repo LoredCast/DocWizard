@@ -3,18 +3,28 @@
 <button type="button" class="primary" data-open-dialog="new-project">{{ _("New project") }}</button>{% endblock %}
 {% block content %}
 {% if error %}<p class="error pad" role="alert">{{ _(error) }}</p>{% endif %}
+{% if inbox %}
+<h2 class="pad">{{ _("For you") }} <a class="muted" href="/notifications">{{ _("All notifications") }}</a></h2>
+<ul class="plain pad inbox">
+  {% for n in inbox %}
+  <li><a href="{{ doc_url(n.project_id, n.path) }}#comment-{{ n.thread_id }}"><strong>{{ n.actor }}</strong> {{ _("mentioned you") if n.kind == "mention" else (_("replied") if n.kind == "reply" else _("decided on a suggestion")) }} · {{ n.path }}</a>
+    <span class="spacer muted">“{{ n.excerpt }}”</span><span class="muted" title="{{ n.created_at }}">{{ n.created_at|reltime }}</span></li>
+  {% endfor %}
+</ul>
+{% endif %}
 <h2 class="pad">{{ _("Recent") }}</h2>
 <script type="application/json" id="recent-data">{{ recent_json|safe }}</script>
 {% if recent %}
+<div class="table-wrap">
 <table>
-  <thead><tr><th>{{ _("Name") }}</th><th>{{ _("Project") }}</th><th>{{ _("Opened") }}</th><th class="num">{{ _("Size") }}</th><th><span class="visually-hidden">{{ _("Pin") }}</span></th></tr></thead>
+  <thead><tr><th>{{ _("Name") }}</th><th>{{ _("Project") }}</th><th class="opt">{{ _("Opened") }}</th><th class="num opt">{{ _("Size") }}</th><th><span class="visually-hidden">{{ _("Pin") }}</span></th></tr></thead>
   <tbody>
   {% for d in recent %}
   <tr data-href="{{ doc_url(d.project_id, d.path) }}">
     <td><a href="{{ doc_url(d.project_id, d.path) }}">{% if d.pinned %}★ {% endif %}{{ d.path }}</a></td>
     <td>{{ d.project }}</td>
-    <td title="{{ d.opened_at }}">{{ d.opened_at|reltime }}</td>
-    <td class="num">{{ d.size|filesize }}</td>
+    <td class="opt" title="{{ d.opened_at }}">{{ d.opened_at|reltime }}</td>
+    <td class="num opt">{{ d.size|filesize }}</td>
     <td class="num">
       <form method="post" action="/d/{{ d.id }}/pin" class="inline">
         <input type="hidden" name="_csrf" value="{{ csrf }}">
@@ -26,24 +36,27 @@
   {% endfor %}
   </tbody>
 </table>
+</div>
 {% else %}
 <p class="pad muted">{{ _("Documents you open appear here.") }}</p>
 {% endif %}
 <h2 class="pad">{{ _("Projects") }}</h2>
 {% if projects %}
+<div class="table-wrap">
 <table>
-  <thead><tr><th>{{ _("Name") }} ▴</th><th>{{ _("Layout") }}</th><th>{{ _("Modified") }}</th><th class="num">{{ _("Members") }}</th></tr></thead>
+  <thead><tr><th>{{ _("Name") }} ▴</th><th class="opt">{{ _("Layout") }}</th><th>{{ _("Modified") }}</th><th class="num opt">{{ _("Members") }}</th></tr></thead>
   <tbody>
   {% for p in projects %}
   <tr data-href="/p/{{ p.id }}">
     <td><a href="/p/{{ p.id }}">{{ p.name }}</a></td>
-    <td>{{ p.layout_id }}</td>
+    <td class="opt">{{ p.layout_id }}</td>
     <td title="{{ p.updated_at }}">{{ p.updated_at|reltime }}</td>
-    <td class="num">{{ p.members }}</td>
+    <td class="num opt">{{ p.members }}</td>
   </tr>
   {% endfor %}
   </tbody>
 </table>
+</div>
 {% else %}
 <p class="pad">{{ _("No projects yet.") }} <button type="button" class="link" data-open-dialog="new-project">{{ _("New project") }}</button></p>
 {% endif %}
@@ -57,7 +70,7 @@
         {% for lay in layouts %}<option value="{{ lay.id }}" {% if lay.id == default_layout %}selected{% endif %}>{{ lay.name }}</option>{% endfor %}
       </select>
     </label>
-    <label class="choice"><input type="checkbox" name="starter" value="1" checked> {{ _("Start with a paper and a references file") }}</label>
+    <label class="choice"><input type="checkbox" name="starter" value="1" checked> {{ _("Start with sample files for the layout") }}</label>
     <div class="buttons">
       <button type="button" data-close-dialog>{{ _("Cancel") }}</button>
       <button type="submit" class="primary">{{ _("Create") }}</button>

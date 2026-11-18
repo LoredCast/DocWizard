@@ -2,13 +2,51 @@
 // Navigation uses location.replace(), which works across origins and adds no history
 // entries; a change of heading only changes the fragment, so the page doesn't reload.
 
+const LOAD_TIMEOUT_MS = 10000;
+
 export class HtmlPreview {
-  constructor(iframe) {
+  constructor(iframe, { onError, onLoad } = {}) {
     this.iframe = iframe;
+    this.onError = onError ?? null;
+    this.onLoad = onLoad ?? null;
     this.url = null;
     this.dark = false;
     this.heading = "";
     this.current = "";
+    this.loaded = false;
+    this.timer = null;
+
+    this.iframe.addEventListener("load", () => {
+      if (!this.current) return;
+      clearTimeout(this.timer);
+      this.timer = null;
+      this.loaded = true;
+      this.onLoad?.();
+    });
+
+    this.iframe.addEventListener("error", () => {
+      if (!this.current) return;
+      this.fail();
+    });
+
+    document.addEventListener("securitypolicyviolation", (event) => {
+      const directive = event.effectiveDirective || event.violatedDirective;
+      if (directive === "frame-src" && this.current) this.fail();
+    });
+  }
+
+  armTimeout() {
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => {
+      if (!this.loaded && this.current) this.fail();
+    }, LOAD_TIMEOUT_MS);
+  }
+
+  fail() {
+    clearTimeout(this.timer);
+    this.timer = null;
+    this.loaded = false;
+    this.onError?.(this.address());
   }
 
   address() {
@@ -22,7 +60,18 @@ export class HtmlPreview {
   navigate() {
     const next = this.address();
     if (!next || next === this.current) return;
+    const prevBase = this.current ? this.current.split("#", 1)[0] : "";
+    const nextBase = next.split("#", 1)[0];
+    const hashOnly = prevBase && prevBase === nextBase && this.loaded;
     this.current = next;
+    if (!hashOnly) {
+      this.loaded = false;
+      this.armTimeout();
+    }
+    if (!prevBase) {
+      this.iframe.src = next;
+      return;
+    }
     try {
       this.iframe.contentWindow.location.replace(next);
     } catch {
@@ -32,6 +81,12 @@ export class HtmlPreview {
 
   show(url) {
     this.url = url;
+    this.navigate();
+  }
+
+  reload() {
+    this.current = "";
+    this.loaded = false;
     this.navigate();
   }
 

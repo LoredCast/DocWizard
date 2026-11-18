@@ -180,7 +180,7 @@ async def test_anchors_survive_unload_and_reload(client, app):
     pid = await new_project(client)
     snap = await open_editor(client, pid)
     doc = snap["doc"]["id"]
-    pos = snap["text"].index("# References")
+    pos = snap["text"].index("# Introduction")
     r = await client.post(f"/api/documents/{doc}/comments",
                           json={"body": "Check", "from": pos, "to": pos + 12, "version": snap["version"]})
     assert r.status == 201
@@ -226,3 +226,33 @@ async def test_pins_on_home_page(client, app):
     assert r.status == 303
     page = await client.get("/")
     assert "Unpin" in page.text
+
+
+async def test_review_links_open_the_review_view(client, app):
+    """Review links (§14.1): the text as it reads, with comments and suggestions."""
+    pid = await new_project(client)
+    token = await share(client, pid, role="commenter", review=True)
+    links_ = (await client.get(f"/api/projects/{pid}/shares")).json()["links"]
+    assert links_[0]["review"] is True
+    guest = Client(app)
+    landing = await guest.get(f"/s/{token}")
+    assert "without Markdown" in landing.text
+    guest, location = await as_guest(app, token, name="Rita")
+    assert location == f"/p/{pid}/paper.md?view=review"
+    snap = await open_editor(guest, pid)
+    assert snap["review"] and snap["can"]["comment"] and not snap["can"]["edit"]
+    page = await guest.get(f"/p/{pid}/paper.md")
+    assert "review-mode" in page.text and "reviewing paper.md" in page.text
+    # The guest can still switch to the source; members choose the view with ?view=.
+    assert not (await open_editor(guest, pid, "paper.md?view=source"))["review"]
+    assert not (await open_editor(client, pid))["review"]
+    assert (await open_editor(client, pid, "paper.md?view=review"))["review"]
+    # A member joining through a review link lands in the review view too.
+    from tests.integration.test_sharing import make_user  # noqa: F401
+    rob = await make_user(app, "rob")
+    r = await rob.get(f"/s/{token}")
+    assert r.status == 303 and r.header("location") == f"/p/{pid}/paper.md?view=review"
+    # Ordinary links don't.
+    plain = await share(client, pid, role="commenter")
+    _, location = await as_guest(app, plain, name="Pia")
+    assert location == f"/p/{pid}/paper.md"

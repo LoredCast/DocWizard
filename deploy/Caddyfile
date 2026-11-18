@@ -15,10 +15,6 @@
 		file_server
 	}
 
-	handle /_preview/* {
-		respond 404
-	}
-
 	handle {
 		reverse_proxy unix//run/docwizard/app.sock
 	}

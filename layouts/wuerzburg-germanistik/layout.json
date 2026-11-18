@@ -1,0 +1,106 @@
+{
+  "id": "wuerzburg-germanistik",
+  "name": "Universität Würzburg · Germanistik (Hausarbeit)",
+  "version": "1.0.0",
+  "extends": "default",
+  "description": "Nach den „Hinweisen zur Anfertigung und zum formalen Aufbau einer Hausarbeit“ des Lehrstuhls für Didaktik der deutschen Sprache und Literatur: A4, 12 pt Tinos (wie Times), 1,5 Zeilen, Blocksatz mit Silbentrennung, Korrekturrand, Titelblatt, Inhaltsverzeichnis, eingerückte Langzitate in 10 pt, Kurzbelege (Autor Jahr, S.), Eigenständigkeitserklärung.",
+  "design": {
+    "page.paper": "a4",
+    "page.margin-top": "2.5cm",
+    "page.margin-bottom": "2cm",
+    "page.margin-left": "2.5cm",
+    "page.margin-right": "4cm",
+    "page.number-position": "bottom-center",
+    "text.font": "Tinos",
+    "text.size": 12,
+    "text.leading": 1.5,
+    "text.paragraph-spacing": "1em",
+    "text.indent": "0",
+    "text.justify": true,
+    "text.hyphenate": true,
+    "text.lang": "de-DE",
+    "heading.numbering": "1",
+    "heading.1.size": 1.17,
+    "heading.2.size": 1.08,
+    "heading.3.size": 1,
+    "cover.page": true,
+    "cover.position": "top",
+    "cover.counted": false,
+    "cover.abstract": false,
+    "cover.fields": [
+      {
+        "key": "paper-type"
+      },
+      {
+        "space": "fill"
+      },
+      {
+        "key": "author",
+        "style": "bold"
+      },
+      {
+        "key": "address"
+      },
+      {
+        "key": "student-id",
+        "label": "Matrikelnummer:"
+      },
+      {
+        "key": "program",
+        "label": "Studiengang:"
+      },
+      {
+        "key": "semester",
+        "label": "Fachsemester:"
+      },
+      {
+        "key": "email"
+      },
+      {
+        "space": "fill"
+      },
+      {
+        "key": "place-date"
+      }
+    ],
+    "declaration.enabled": true,
+    "declaration.title": "Eigenständigkeitserklärung",
+    "declaration.text": "Hiermit versichere ich, dass ich die vorliegende Hausarbeit eigenständig verfasst und keine anderen als die angegebenen Quellen und Hilfsmittel benutzt habe.",
+    "declaration.signature": "Ort, Datum, Unterschrift",
+    "toc.enabled": true,
+    "toc.page": true,
+    "quote.size": 0.83,
+    "quote.leading": 1,
+    "quote.indent-left": "1cm",
+    "quote.indent-right": "0",
+    "quote.spacing": "1.5em",
+    "footnote.size": 0.83,
+    "footnote.leading": 1,
+    "footnote.indent": "0",
+    "cite.style": "wuerzburg-germanistik",
+    "bib.heading": "bibliography",
+    "bib.page-break": true,
+    "bib.hanging": "1cm",
+    "caption.figure": "Abb.",
+    "caption.separator": ": ",
+    "declaration.position": "end"
+  },
+  "variables": {
+    "toc": {
+      "type": "boolean",
+      "label": "Inhaltsverzeichnis"
+    },
+    "citation-style": {
+      "type": "enum",
+      "values": [
+        "wuerzburg-germanistik",
+        "uni-wien-philosophie"
+      ],
+      "labels": {
+        "wuerzburg-germanistik": "Würzburg Germanistik (Kurzbelege)",
+        "uni-wien-philosophie": "Fußnoten (Wiener Stil)"
+      },
+      "label": "Belegsystem"
+    }
+  }
+}

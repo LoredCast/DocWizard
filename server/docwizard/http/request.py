@@ -68,11 +68,14 @@ class Request:
     # -- headers --------------------------------------------------------
     @property
     def host(self) -> str:
-        return self.headers.get("host", "")
+        return self.headers.get("host", "").split(",", 1)[0].strip()
 
     @property
     def scheme(self) -> str:
-        return self.headers.get("x-forwarded-proto") or self.scope.get("scheme", "http")
+        proto = self.headers.get("x-forwarded-proto", "")
+        if proto:
+            return proto.split(",", 1)[0].strip().lower()
+        return self.scope.get("scheme", "http")
 
     @property
     def origin(self) -> str:

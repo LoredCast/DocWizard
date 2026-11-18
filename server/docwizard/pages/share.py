@@ -29,7 +29,7 @@ def register(app) -> None:
         if req.user is not None:
             return await join(req, link)
         if req.guest is not None and req.guest.project_id == link["project_id"]:
-            return redirect(await start_url(link["project_id"]))
+            return redirect(await start_url(link["project_id"], link["review"]))
         return app.page(req, "share.html", link=link, token=token, error=None, guest_name="",
                         guests=app.policy("guests"))
 
@@ -49,15 +49,15 @@ def register(app) -> None:
                       (f"user:{uid}", link["project_id"], json.dumps({"link": link["id"], "role": role})))
 
         await app.db.write(work)
-        return redirect(await start_url(link["project_id"]))
+        return redirect(await start_url(link["project_id"], link["review"]))
 
-    async def start_url(project_id: str) -> str:
+    async def start_url(project_id: str, review: bool = False) -> str:
         docs = await app.db.fetchall("SELECT path FROM documents WHERE project_id = ? AND deleted_at IS NULL",
                                      (project_id,))
         paths = {d["path"] for d in docs}
         for name in MAIN_CANDIDATES:
             if name in paths:
-                return doc_url(project_id, name)
+                return doc_url(project_id, name) + ("?view=review" if review else "")
         return f"/p/{project_id}"
 
     async def enter(req: Request) -> Response:
@@ -94,7 +94,7 @@ def register(app) -> None:
             session_token = await app.db.write(work)
         except ValueError as exc:
             return app.page(req, "share.html", 400, error=str(exc), **ctx)
-        resp = redirect(await start_url(link["project_id"]))
+        resp = redirect(await start_url(link["project_id"], link["review"]))
         resp.set_cookie(cfg.cookie_name, session_token, max_age=idle, secure=cfg.secure_cookies)
         return resp
 

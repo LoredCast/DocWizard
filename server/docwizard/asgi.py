@@ -110,6 +110,9 @@ class App:
         from .search import Search
 
         self.mail = Mailer(self)
+        from .notifications import Notifier
+
+        self.notifier = Notifier(self)
         self.search = Search(self)
         from .maintenance import Maintenance
 
@@ -142,6 +145,20 @@ class App:
         approved = values.get("approved_filters")
         if isinstance(approved, list):
             self.layouts.approved_filters = {h for h in approved if isinstance(h, str)}
+        await self.load_custom_layouts()
+
+    async def load_custom_layouts(self) -> None:
+        """Layouts made in the layout editor live in the database (§9.3)."""
+        rows = await self.db.fetchall("SELECT id, owner_id, manifest_json, shared FROM custom_layouts")
+        custom = {}
+        for r in rows:
+            try:
+                manifest = json.loads(r["manifest_json"])
+            except ValueError:
+                continue
+            if isinstance(manifest, dict):
+                custom[r["id"]] = (manifest, r["owner_id"], bool(r["shared"]))
+        await asyncio.to_thread(self.layouts.set_custom, custom)
 
     async def save_filter_approvals(self) -> None:
         """Lua filter approvals by hash (§9.3), kept apart from the policy settings."""
@@ -201,6 +218,7 @@ class App:
         self.spawn(self._render_cache_eviction(), "render-cache")
         self.spawn(self._session_cleanup(), "session-cleanup")
         self.spawn(self.search.catch_up(), "search-catch-up")
+        self.spawn(self.notifier.run_forever(), "notifications")
         if self.cfg.sync.enabled:
             self.spawn(self.sync.run_forever(), "sync")
             self.spawn(self.zotero.run_forever(), "zotero")
@@ -331,7 +349,12 @@ class App:
         route, params = self.router.match(req)
         req.path_params = params
         opts = route.options
-        if bool(opts.get("preview_host")) != on_preview_host and not opts.get("host_any"):
+        same_origin_preview = (
+            bool(opts.get("same_origin_preview"))
+            and self.cfg.preview_origin == self.cfg.app_origin
+            and req.origin == self.cfg.app_origin
+        )
+        if bool(opts.get("preview_host")) != on_preview_host and not opts.get("host_any") and not same_origin_preview:
             raise HTTPError(404, "not_found")
         if not opts.get("no_session"):
             await self.load_session(req)

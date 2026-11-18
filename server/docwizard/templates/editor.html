@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ doc.path }} · {{ project.name }} · DocWizard{% endblock %}
-{% block body_class %}page editor-page{% endblock %}
+{% block body_class %}page editor-page{% if review %} review-mode{% endif %}{% endblock %}
 {% block head %}
 <script type="importmap" nonce="{{ nonce }}">{"imports": {"codemirror": "{{ static }}/vendor/codemirror.js", "temml": "{{ static }}/vendor/temml/temml.mjs"}}</script>
 <link rel="modulepreload" href="{{ static }}/vendor/codemirror.js">
@@ -11,34 +11,77 @@
 {% block actions %}
 <span class="presence" id="presence" aria-label="{{ _('Also here') }}"></span>
 <span class="status" id="save-state" role="status">{{ _("Saved") }}</span>
-<button type="button" id="new-comment" title="{{ _('Comment on the selection (Ctrl+Alt+M)') }}">{{ _("Comment") }}</button>
-<button type="button" id="open-comments" aria-pressed="false">{{ _("Comments") }}</button>
 <button type="button" id="toggle-preview" aria-pressed="true">{{ _("Preview") }}</button>
-<button type="button" id="open-export">{{ _("Export") }}</button>
-<button type="button" id="open-versions">{{ _("Versions") }}</button>
-{% if can(role, "share", project) and not guest %}<button type="button" id="open-share">{{ _("Share") }}</button>{% endif %}
-{% if can(role, "publish", project) and not guest %}<button type="button" id="open-publish">{{ _("Publish") }}</button>{% endif %}
+<div class="editor-more" id="editor-more">
+  <button type="button" id="more-actions" aria-expanded="false" aria-controls="toolbar-buttons">{{ _("Actions") }}</button>
+  <div class="toolbar-buttons" id="toolbar-buttons">
+    <span class="status menu-status" id="menu-save-state" aria-hidden="true">{{ _("Saved") }}</span>
+    <button type="button" id="new-comment" title="{{ _('Comment on the selection (Ctrl+Alt+M)') }}">{{ _("Comment") }}</button>
+    <button type="button" id="new-suggestion" aria-pressed="false" title="{{ _('Suggest changes: what you type becomes suggestions (Ctrl+Alt+G)') }}">{{ _("Suggest") }}</button>
+    <button type="button" id="open-comments" aria-pressed="false">{{ _("Comments") }}</button>
+    {% if doc.kind == "markdown" %}<button type="button" id="open-refs" aria-pressed="false" title="{{ _('References (Ctrl+Alt+R)') }}">{{ _("References") }}</button>{% endif %}
+    {% if doc.kind == "markdown" %}<button type="button" id="open-fields" aria-pressed="false" title="{{ _('Front matter fields this layout prints') }}">{{ _("Fields") }}</button>{% endif %}
+    {% if doc.kind == "markdown" %}<a class="button" id="switch-view" href="?view={{ 'source' if review else 'review' }}">{{ _("Edit the source") if review else _("Review view") }}</a>{% endif %}
+    <button type="button" id="open-export">{{ _("Export") }}</button>
+    <button type="button" id="open-versions">{{ _("Versions") }}</button>
+    {% if can(role, "share", project) and not guest %}<button type="button" id="open-share">{{ _("Share") }}</button>{% endif %}
+    {% if can(role, "publish", project) and not guest %}<button type="button" id="open-publish">{{ _("Publish") }}</button>{% endif %}
+  </div>
+</div>
 {% endblock %}
 {% block main_class %}workspace{% endblock %}
 {% block content %}
 <script type="application/json" id="snapshot">{{ snapshot|safe }}</script>
+<div class="mode-switch" role="tablist" aria-label="{{ _('Editor view') }}">
+  <button type="button" role="tab" id="mode-edit" aria-selected="true">{{ _("Edit") }}</button>
+  <button type="button" role="tab" id="mode-preview" aria-selected="false">{{ _("Preview") }}</button>
+</div>
 <div class="split" id="split">
-  <section class="pane editor-pane" aria-label="{{ _('Editor') }}"><div id="editor"></div></section>
+  <section class="pane editor-pane" aria-label="{{ _('Editor') }}">
+    {% if review %}<p class="review-banner" id="review-banner">{{ _("You're reviewing {path}. Select text, then choose Comment or Suggest change.", path=doc.path) if can(role, "comment", project) else _("You're reading {path}.", path=doc.path) }}</p>{% endif %}
+    <p class="suggest-banner" id="suggest-banner" role="status" hidden><strong>{{ _("Suggesting") }}</strong> <span class="muted">{{ _("What you type becomes suggestions to accept or reject.") }}</span> <button type="button" class="link" id="suggest-off">{{ _("Stop") }}</button></p>
+    <div class="format-bar" id="format-bar" role="toolbar" aria-label="{{ _('Formatting') }}"{% if doc.kind != "markdown" or not can(role, "edit", project) %} hidden{% endif %}>
+      <button type="button" data-cmd="undo" aria-label="{{ _('Undo') }}" title="{{ _('Undo (Ctrl+Z)') }}">↶</button>
+      <button type="button" data-cmd="redo" aria-label="{{ _('Redo') }}" title="{{ _('Redo (Ctrl+Y)') }}">↷</button>
+      <span class="format-sep" aria-hidden="true"></span>
+      <button type="button" data-cmd="bold" aria-pressed="false" aria-label="{{ _('Bold') }}" title="{{ _('Bold (Ctrl+B)') }}"><strong>B</strong></button>
+      <button type="button" data-cmd="italic" aria-pressed="false" aria-label="{{ _('Italic') }}" title="{{ _('Italic (Ctrl+I)') }}"><span class="fmt-italic">I</span></button>
+      <button type="button" data-cmd="strike" aria-pressed="false" aria-label="{{ _('Strikethrough') }}" title="{{ _('Strikethrough (Ctrl+Shift+X)') }}"><span class="fmt-strike">S</span></button>
+      <button type="button" data-cmd="code" aria-pressed="false" aria-label="{{ _('Inline code') }}" title="{{ _('Inline code') }}"><code>&lt;/&gt;</code></button>
+      <span class="format-sep" aria-hidden="true"></span>
+      <button type="button" data-cmd="heading" aria-pressed="false" aria-label="{{ _('Heading') }}" title="{{ _('Heading') }}">H</button>
+      <button type="button" data-cmd="quote" aria-pressed="false" aria-label="{{ _('Blockquote') }}" title="{{ _('Blockquote') }}">&gt;</button>
+      <button type="button" data-cmd="bullet" aria-pressed="false" aria-label="{{ _('Bullet list') }}" title="{{ _('Bullet list') }}">•</button>
+      <button type="button" data-cmd="ordered" aria-pressed="false" aria-label="{{ _('Numbered list') }}" title="{{ _('Numbered list') }}">1.</button>
+      <button type="button" data-cmd="task" aria-pressed="false" aria-label="{{ _('Task list') }}" title="{{ _('Task list') }}">[ ]</button>
+      <span class="format-sep" aria-hidden="true"></span>
+      <button type="button" data-cmd="link" aria-pressed="false" aria-label="{{ _('Link') }}" title="{{ _('Link') }}">{{ _("Link") }}</button>
+      <button type="button" data-cmd="math" aria-pressed="false" aria-label="{{ _('Inline math') }}" title="{{ _('Inline math') }}">$</button>
+      <button type="button" data-cmd="image" aria-label="{{ _('Image') }}" title="{{ _('Image (or paste or drop one into the text)') }}">{{ _("Image") }}</button>
+      <button type="button" data-cmd="cite" aria-label="{{ _('Citation') }}" title="{{ _('Citation') }}">[@]</button>
+      <button type="button" data-cmd="refs" aria-pressed="false" aria-label="{{ _('References') }}" title="{{ _('References (Ctrl+Alt+R)') }}">{{ _("Refs") }}</button>
+      <button type="button" data-cmd="footnote" aria-pressed="false" aria-label="{{ _('Footnote') }}" title="{{ _('Footnote') }}">[^]</button>
+    </div>
+    <div id="editor"></div>
+  </section>
   <section class="pane preview-pane" id="preview-pane" aria-label="{{ _('Preview') }}">
     <div class="pane-head">
-      <span id="preview-state">{{ _("Preview") }}</span>
+      <span id="preview-state" class="idle">{{ _("Preview") }}</span>
       <span class="spacer"></span>
       <label class="choice"><input type="radio" name="preview-target" value="html" checked> HTML</label>
       <label class="choice"><input type="radio" name="preview-target" value="pdf"> PDF</label>
       <label class="choice"><input type="checkbox" id="dark-paper"> {{ _("Dark paper") }}</label>
-      <button type="button" id="open-options">{{ _("Layout options") }}</button>
+      <button type="button" id="open-options" title="{{ _('Layout options') }}">{{ _("Layout") }}</button>
     </div>
+    <div class="preview-empty" id="preview-error" role="alert" hidden></div>
     <iframe id="preview" title="{{ _('Preview') }}" sandbox referrerpolicy="no-referrer"></iframe>
   </section>
   <aside class="pane side-panel" id="side-panel" aria-label="{{ _('Comments') }}" hidden>
     <div class="pane-head"><span>{{ _("Comments") }}</span><span class="spacer"></span><button type="button" id="close-panel">{{ _("Close") }}</button></div>
     <div class="panel-body" id="comments-list"></div>
   </aside>
+  <aside class="pane side-panel refs-panel" id="refs-panel" aria-label="{{ _('References') }}" hidden></aside>
+  <aside class="pane side-panel fields-panel" id="fields-panel" aria-label="{{ _('Fields') }}" hidden></aside>
 </div>
 <dialog id="export-dialog" aria-labelledby="export-title">
   <form method="dialog" class="form" id="export-form">
@@ -54,10 +97,12 @@
         <option value="docx">Word (DOCX)</option>
         <option value="odt">OpenDocument (ODT)</option>
         <option value="html">HTML</option>
+        <option value="epub">{{ _("E-book (EPUB)") }}</option>
         <option value="md-resolved">{{ _("Markdown with citations resolved") }}</option>
         <option value="md-gfm">GitHub Markdown</option>
         <option value="typ-source">{{ _("Typst source") }}</option>
         <option value="tex-source">{{ _("LaTeX source") }}</option>
+        {% if layout.public is defined and layout.public().script %}<option value="fountain">{{ _("Fountain screenplay") }}</option>{% endif %}
         <option value="md-source">{{ _("Project source (zip)") }}</option>
         {% endif %}
       </select>
@@ -111,6 +156,7 @@
       </div>
       <label>{{ _("Password (optional)") }} <input name="password" type="password" autocomplete="new-password" minlength="6"></label>
       <label>{{ _("Name (optional)") }} <input name="label" maxlength="80" placeholder="{{ _('Seminar group') }}"></label>
+      <label class="choice"><input type="checkbox" name="review" value="1" checked> {{ _("Open in the review view: the text as it reads, without Markdown, for commenting and suggesting changes") }}</label>
       <div class="row" id="share-result"></div>
       <div class="buttons">
         <button type="button" data-close-dialog>{{ _("Close") }}</button>
@@ -122,22 +168,27 @@
 {% endif %}
 <dialog id="options-dialog" aria-labelledby="options-title">
   <form method="dialog" class="form" id="options-form">
-    <h2 id="options-title">{{ _("Layout options") }} · <span data-layout-name>{{ layout.name }}</span></h2>
-    <div id="options-fields"></div>
+    <h2 id="options-title">{{ _("Layout") }}</h2>
+    <label hidden>{{ _("Layout") }} <select id="options-layout" name="layout-id"></select></label>
+    <p class="muted">{{ _("Options you change here apply to this project. The rest follow the layout.") }}</p>
+    <div id="options-fields" class="design-fields"></div>
     <div class="buttons">
+      {% if not guest %}<a id="options-edit-layout" class="spacer" href="/layouts{% if layout.id is defined %}/{{ layout.id }}{% endif %}">{{ _("Edit layouts") }}</a>{% endif %}
       <button type="button" data-close-dialog>{{ _("Cancel") }}</button>
-      <button type="submit" class="primary" value="save">{{ _("Save") }}</button>
+      <button type="submit" class="primary" value="save" id="options-save">{{ _("Save") }}</button>
     </div>
   </form>
 </dialog>
-<dialog id="versions-dialog" aria-labelledby="versions-title">
+<dialog id="versions-dialog" class="wide" aria-labelledby="versions-title">
   <div class="form">
     <h2 id="versions-title">{{ _("Versions") }}</h2>
+    <p class="muted">{{ _("DocWizard keeps the history of this document: every autosave of the last hour, then one per hour for two days, one per day for two months and one per week after that. Name a version to keep it exactly.") }}</p>
     <form class="row" id="version-form">
       <input name="label" placeholder="{{ _('Name this version') }}" required aria-label="{{ _('Version name') }}">
       <button type="submit">{{ _("Save version") }}</button>
     </form>
-    <ul class="plain" id="versions-list"></ul>
+    <ul class="plain versions-list" id="versions-list"></ul>
+    <div id="versions-compare" hidden></div>
     <div class="buttons"><button type="button" data-close-dialog>{{ _("Close") }}</button></div>
   </div>
 </dialog>
@@ -145,6 +196,8 @@
 {% block footer %}
 <footer class="statusbar" id="statusbar">
   <span id="word-count"></span>
+  <span id="script-stats"></span>
+  {% if doc.kind == "markdown" %}<button type="button" class="link" id="open-outline" title="{{ _('Outline (Ctrl+Alt+O)') }}">{{ _("Outline") }}</button>{% endif %}
   <span id="doc-kind">{{ "Markdown" if doc.kind == "markdown" else doc.kind|capitalize }}</span>
   <span data-layout-name>{{ layout.name }}</span>
   <span id="conflict-count"></span>

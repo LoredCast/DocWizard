@@ -33,6 +33,26 @@
         {% endfor %}
       </select>
     </label>
+    {% if grammar.harper or grammar.languagetool %}
+    <label>{{ _("Check grammar and spelling") }}
+      <select name="grammar">
+        {% set choices = [("auto", "Automatically: Harper for English" + (", LanguageTool for other languages" if grammar.languagetool else "") if grammar.harper else "Automatically")] %}
+        {% if grammar.harper %}{% set choices = choices + [("harper", "With Harper (English, in your browser)")] %}{% endif %}
+        {% if grammar.languagetool %}{% set choices = choices + [("languagetool", "With this server's LanguageTool (many languages)")] %}{% endif %}
+        {% set choices = choices + [("off", "Off")] %}
+        {% for value, label in choices %}
+        <option value="{{ value }}" {% if user.preferences.get("grammar", "auto") == value %}selected{% endif %}>{{ _(label) }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% endif %}
+    <label>{{ _("Email me about comments") }}
+      <select name="notify_email">
+        {% for value, label in [("all", "Mentions and replies"), ("mentions", "Only when someone mentions me"), ("off", "Never")] %}
+        <option value="{{ value }}" {% if user.preferences.get("notify_email", "all") == value %}selected{% endif %}>{{ _(label) }}</option>
+        {% endfor %}
+      </select>
+    </label>
     {% if saved == "profile" %}<p role="status">{{ _("Saved") }}</p>{% endif %}
     <div class="buttons"><button type="submit" class="primary">{{ _("Save") }}</button></div>
   </form>
@@ -109,33 +129,56 @@
   {% if link_error %}<p class="error" role="alert">{{ _(link_error) }}</p>{% endif %}
   {% endif %}
   <h2 id="zotero">{{ _("Zotero libraries") }}</h2>
-  <p class="muted">{{ _("Use a library in a document with this line in its front matter:") }} <code>bibliography: zotero:&lt;name&gt;</code>. {{ _("Collaborators' documents can use your libraries in projects you own or edit.") }}</p>
-  <ul class="plain">
+  <p class="muted">{{ _("Browse your libraries from the editor with References, and cite from them as you type @. Citing an item adds its library to the document's front matter:") }} <code>bibliography: zotero:&lt;name&gt;</code>. {{ _("Collaborators' documents can use your libraries in projects you own or edit.") }}</p>
+  <ul class="plain zotero-sources">
     {% for s in sources %}
-    <li><span class="spacer"><strong>{{ s.name }}</strong> <span class="muted">({{ _("user library {id}", id=s.library_id) if s.library_type == "user" else _("group library {id}", id=s.library_id) }}{% if s.collection %}, {{ _("collection {key}", key=s.collection) }}{% endif %}, {{ _("1 item") if s.item_count == 1 else _("{n} items", n=s.item_count) }}{% if s.last_sync_at %}, {{ _("updated {when}", when=s.last_sync_at|reltime) }}{% endif %})</span>
+    <li><span class="spacer"><strong>{{ s.name }}</strong> <span class="muted">({% if s.api_url %}{{ _("Zotero on {host}", host=s.api_host) }}, {% endif %}{{ _("user library {id}", id=s.library_id) if s.library_type == "user" else _("group library {id}", id=s.library_id) }}{% if s.collection %}, {{ _("collection {key}", key=s.collection) }}{% endif %}, {{ _("1 item") if s.item_count == 1 else _("{n} items", n=s.item_count) }}{% if s.last_sync_at %}, {{ _("updated {when}", when=s.last_sync_at|reltime) }}{% endif %}{% if s.has_storage %}, {{ _("files from WebDAV") }}{% endif %})</span>
       {% if s.status == "error" %}<br><span class="error">{{ s.last_error }}</span>{% endif %}</span>
       <form method="post" action="/settings/zotero" class="inline">
         <input type="hidden" name="_csrf" value="{{ csrf }}">
         <input type="hidden" name="source_id" value="{{ s.id }}">
         <button type="submit" name="action" value="refresh" class="link">{{ _("Refresh") }}</button>
+        {% if s.has_storage %}<button type="submit" name="action" value="storage_remove" class="link">{{ _("Stop using WebDAV") }}</button>{% endif %}
         <button type="submit" name="action" value="remove" class="link">{{ _("Remove") }}</button>
       </form>
+      {% if s.library_type == "user" %}
+      <details class="zotero-storage">
+        <summary>{{ _("Attachment files from WebDAV") }}</summary>
+        <form method="post" action="/settings/zotero" class="form">
+          <input type="hidden" name="_csrf" value="{{ csrf }}">
+          <input type="hidden" name="source_id" value="{{ s.id }}">
+          <input type="hidden" name="action" value="storage">
+          <p class="muted">{{ _("If Zotero syncs your files to a WebDAV server (Zotero settings › Sync › File Syncing), enter the same address and login here to open PDFs from the editor. Zotero on a computer needs this for PDFs.") }}</p>
+          <label>{{ _("WebDAV address") }} <input name="storage_url" type="url" required placeholder="https://dav.example.org/remote.php/dav/files/me/"></label>
+          <label>{{ _("Username") }} <input name="storage_username" autocomplete="off"></label>
+          <label>{{ _("Password") }} <input name="storage_password" type="password" autocomplete="new-password"></label>
+          <div class="buttons"><button type="submit">{{ _("Save") }}</button></div>
+        </form>
+      </details>
+      {% endif %}
     </li>
     {% else %}
     <li class="muted">{{ _("No Zotero libraries yet.") }}</li>
     {% endfor %}
   </ul>
-  <form method="post" action="/settings/zotero" class="form">
+  <form method="post" action="/settings/zotero" class="form zotero-add">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <input type="hidden" name="action" value="add">
+    <fieldset class="plain">
+      <legend>{{ _("Connect to") }}</legend>
+      <label class="choice"><input type="radio" name="connection" value="web" {% if zotero_values.get("connection") != "local" %}checked{% endif %}> {{ _("zotero.org, with an API key") }}</label>
+      <label class="choice"><input type="radio" name="connection" value="local" {% if zotero_values.get("connection") == "local" %}checked{% endif %}> {{ _("Zotero desktop's local API") }}</label>
+    </fieldset>
     <label>{{ _("Name") }} <input name="name" required pattern="[A-Za-z0-9_\-]{1,40}" placeholder="thesis" value="{{ zotero_values.get("name", "") }}"></label>
     <label>{{ _("Library") }}
       <select name="library_type"><option value="user">{{ _("My library") }}</option><option value="group" {% if zotero_values.get("library_type") == "group" %}selected{% endif %}>{{ _("A group library") }}</option></select>
     </label>
-    <label>{{ _("User or group ID") }} <input name="library_id" required inputmode="numeric" pattern="[0-9]{1,12}" value="{{ zotero_values.get("library_id", "") }}"></label>
+    <label>{{ _("User or group ID") }} <input name="library_id" inputmode="numeric" pattern="[0-9]{1,12}" value="{{ zotero_values.get("library_id", "") }}"></label>
     <label>{{ _("Collection key (optional)") }} <input name="collection" pattern="[A-Z0-9]{8}" value="{{ zotero_values.get("collection", "") }}"></label>
-    <label>{{ _("API key, read-only") }} <input name="api_key" required type="password" autocomplete="off"></label>
-    <p class="muted">{{ _("Create a read-only key at zotero.org under Settings › Security. Your user ID is shown on the same page.") }}</p>
+    <label class="zotero-web">{{ _("API key, read-only") }} <input name="api_key" type="password" autocomplete="off"></label>
+    <p class="muted zotero-web">{{ _("Create a read-only key at zotero.org under Settings › Security, with access to files if you want to open PDFs. Your user ID is shown on the same page.") }}</p>
+    <label class="zotero-local">{{ _("Local API address") }} <input name="api_url" type="url" placeholder="http://localhost:23119/api" value="{{ zotero_values.get("api_url", "") }}"></label>
+    <p class="muted zotero-local">{{ _("Zotero 7 answers on the computer it runs on, once “Allow other applications on this computer to communicate with Zotero” is on (Settings › Advanced). DocWizard's server connects to it, so this works when the server runs on the same computer or network, and an admin has allowed the address. Leave the ID empty for your own library.") }}</p>
     {% if zotero_error %}<p class="error" role="alert">{{ _(zotero_error) }}</p>{% endif %}
     {% if saved == "zotero" %}<p role="status">{{ _("Saved") }}</p>{% endif %}
     <div class="buttons"><button type="submit">{{ _("Add library") }}</button></div>

@@ -23,6 +23,8 @@ min_password_length = 12
 [sync]
 default_poll_seconds = 60
 max_files_per_target = 5000
+# folder_roots = ["/srv/docwizard-folders"]       # folders on this server that projects may sync with
+# git = true                                      # git repositories over HTTPS; needs git on the PATH
 
 # One block per login provider (§13.4). The redirect URI to register at the
 # provider is <public_url>/login/oidc/<id>/callback.
@@ -49,6 +51,15 @@ default_layout = "default"
 [limits]
 max_document_bytes = 5000000
 max_upload_bytes = 50000000
+
+# Grammar checking (§6.8). Harper is built in and runs in each browser, for English. A LanguageTool
+# server checks other languages too; the app passes the text on to it. With the public
+# api.languagetoolplus.com, texts leave your server: run your own (e.g. the erikvl87/languagetool image).
+# [grammar]
+# harper = true
+# languagetool_url = "http://languagetool:8010"
+# languagetool_api_key = ""          # only for LanguageTool Premium
+# languagetool_username = ""
 
 # Mail for password resets and invitations (§13.2). Without it, admins hand out
 # the links from the admin area.

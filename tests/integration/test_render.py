@@ -104,6 +104,42 @@ async def test_html_preview_on_preview_origin(rapp, rclient):
     await ws.close()
 
 
+async def test_html_preview_on_same_origin_is_sandboxed(cfg):
+    from docwizard.asgi import create_app
+    from docwizard.auth import passwords, users
+
+    cfg.render.spawn_worker = True
+    cfg.server.public_url = "https://write.example.org"
+    cfg.server.preview_url = "https://write.example.org/_preview"
+    import tempfile
+    shared = tempfile.mkdtemp(prefix="dw-same-origin-")
+    os.chmod(shared, 0o755)
+    cfg.server.jobs_dir = os.path.join(shared, "jobs")
+    cfg.server.cache_dir = os.path.join(shared, "cache")
+    app = create_app(cfg)
+    await app.startup()
+    try:
+        pw = passwords.hash_password("correct horse battery")
+        await app.db.write(lambda c: users.create(c, "jane", pw, display_name="Jane Doe"))
+        cl = Client(app, origin="https://write.example.org")
+        await cl.login("jane", "correct horse battery")
+        pid = await new_project(cl)
+        snap = await open_editor(cl, pid)
+        ws = await connect(app, cl, snap)
+        await ws.send({"t": "render", "doc": snap["doc"]["id"], "version": snap["version"], "target": "html"})
+        msg = await ws.recv_until("rendered", timeout=60)
+        assert msg["status"] == "ok" and msg["url"].startswith("https://write.example.org/_preview/")
+        path = msg["url"][len("https://write.example.org"):]
+        r = await cl.get(path)
+        assert r.status == 200
+        csp = r.header("content-security-policy")
+        assert csp.startswith("sandbox;") and "frame-ancestors 'self'" in csp
+        await ws.close()
+    finally:
+        await app.shutdown()
+        shutil.rmtree(shared, ignore_errors=True)
+
+
 async def test_exports(rapp, rclient):
     pid = await new_project(rclient)
     snap = await open_editor(rclient, pid)
@@ -270,3 +306,24 @@ async def test_markdown_to_pdf_via_latex(rapp, rclient):
     res = await rapp.renderer.render(project, "pdf-latex", doc_path=snap["doc"]["path"])
     assert res.status == "ok", res.diagnostics
     assert (rapp.renderer.renders_dir / res.key / res.output).read_bytes().startswith(b"%PDF")
+
+
+async def test_epub_export(rapp, rclient):
+    """E-books build with pandoc, styled with the layout's HTML CSS (§9.5)."""
+    import zipfile
+
+    pid = await new_project(rclient)
+    snap = await open_editor(rclient, pid)
+    project = dict(await rapp.db.fetchone("SELECT * FROM projects WHERE id = ?", (pid,)))
+    res = await rapp.renderer.render(project, "epub", doc_path=snap["doc"]["path"])
+    assert res.status == "ok", res.diagnostics
+    path = rapp.renderer.renders_dir / res.key / res.output
+    with zipfile.ZipFile(path) as z:
+        names = z.namelist()
+        assert names[0] == "mimetype" and z.read("mimetype") == b"application/epub+zip"
+        assert any(n.endswith(".css") for n in names)
+        text = "".join(z.read(n).decode() for n in names if n.endswith(".xhtml"))
+    assert "Write here." in text
+    r = await rclient.post(f"/api/projects/{pid}/export", json={"doc": snap["doc"]["id"], "target": "epub"})
+    data = await wait_job(rclient, r.json()["job"])
+    assert data["status"] == "ok" and data["url"].endswith(".epub"), data

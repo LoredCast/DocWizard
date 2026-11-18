@@ -1,0 +1,86 @@
+{
+  "id": "normseite",
+  "name": "Normseite (Manuskript)",
+  "version": "1.0.0",
+  "extends": "default",
+  "starter": "story",
+  "description": "Normseite für Roman- und Sachbuchmanuskripte nach literaturcafe.de und den Hinweisen von Beatrix Mannel und Andreas Eschbach: A4, 12 pt Cousine (Courier-Laufweite), anderthalbzeilig, höchstens 60 Anschläge je Zeile und 30 Zeilen je Seite, Flattersatz ohne Silbentrennung, Autor und Titel in der Kopfzeile, Seitenzahl.",
+  "filters": [
+    "wordcount",
+    "crossref"
+  ],
+  "design": {
+    "page.paper": "a4",
+    "page.margin-left": "2.5cm",
+    "page.margin-right": "3.25cm",
+    "page.margin-top": "3cm",
+    "page.margin-bottom": "5.2cm",
+    "page.header": "author-title",
+    "page.number-position": "bottom-center",
+    "text.font": "Cousine",
+    "text.size": 12,
+    "text.leading": 1.6,
+    "text.paragraph-spacing": "0",
+    "text.indent": "1.8em",
+    "text.justify": false,
+    "text.hyphenate": false,
+    "text.lang": "de-DE",
+    "text.scene-break": "* * *",
+    "heading.numbering": "",
+    "heading.font": "Cousine",
+    "heading.1.size": 1,
+    "heading.1.weight": "regular",
+    "heading.1.above": "0pt",
+    "heading.1.below": "2.1em",
+    "heading.2.size": 1,
+    "heading.2.weight": "regular",
+    "heading.3.size": 1,
+    "heading.3.weight": "regular",
+    "heading.chapter-break": true,
+    "cover.page": true,
+    "cover.position": "center",
+    "cover.title-size": 1,
+    "cover.title-weight": "regular",
+    "cover.subtitle-size": 1,
+    "cover.abstract": false,
+    "cover.corner-left": [
+      {
+        "key": "author"
+      },
+      {
+        "key": "address"
+      },
+      {
+        "key": "phone"
+      },
+      {
+        "key": "email"
+      }
+    ],
+    "cover.fields": [
+      {
+        "key": "genre"
+      },
+      {
+        "space": "2em"
+      },
+      {
+        "key": "byline"
+      },
+      {
+        "space": "1em"
+      },
+      {
+        "key": "word-count"
+      }
+    ],
+    "footnote.size": 1,
+    "text.indent-first": false
+  },
+  "variables": {
+    "titlepage": {
+      "type": "boolean",
+      "label": "Title page"
+    }
+  }
+}
