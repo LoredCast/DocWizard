@@ -152,6 +152,7 @@ export class PdfPreview {
     for (const task of this.tasks.values()) task.cancel?.();
     this.tasks.clear();
     const old = this.doc;
+    this.headingDoc = null;
     this.doc = doc;
     this.sizes = sizes;
     this.pages.replaceChildren(frag);
@@ -226,6 +227,40 @@ export class PdfPreview {
     this.onPick({ page: n, pages: this.sizes.length, x: px - view[0], y: view[3] - py, words, at, url: this.url });
   }
 
+  // Follows the editor's cursor (§6.4): scrolls to the *nth* heading with this title, found in the
+  // text of the pages, or to the top for none. The headings are read once per rendered document.
+  async scrollToHeading(title, nth = 0) {
+    if (!this.doc || !this.viewer || !this.visible) return false;
+    const doc = this.doc;
+    if (!title) {
+      this.viewer.scrollTo({ top: 0, behavior: "smooth" });
+      return true;
+    }
+    if (this.headingDoc !== doc) {
+      this.headingDoc = doc;
+      this.headings = (async () => {
+        const contents = [];
+        for (const size of this.sizes) contents.push(await size.page.getTextContent());
+        const body = bodySize(contents);
+        return contents.flatMap((content, i) => headingsOf(content, body).map((h) => ({ ...h, page: i + 1 })));
+      })().catch(() => []);
+    }
+    const headings = await this.headings;
+    if (doc !== this.doc) return false;
+    const want = plainText(title);
+    const hits = headings.filter((h) => sameHeading(h.text, want));
+    const hit = hits[Math.min(nth, hits.length - 1)];
+    if (!want || !hit) return false;
+    const sheet = this.pages.children[hit.page - 1];
+    const size = this.sizes[hit.page - 1];
+    if (!sheet || !size) return false;
+    const view = size.page.view;
+    const y = sheet.getBoundingClientRect().top - this.viewer.getBoundingClientRect().top + this.viewer.scrollTop
+      + (view[3] - hit.top) * size.scale;
+    this.viewer.scrollTo({ top: Math.max(0, y - 24), behavior: "smooth" });
+    return true;
+  }
+
   scrollRatio() {
     if (!this.viewer) return 0;
     const max = Math.max(0, this.viewer.scrollHeight - this.viewer.clientHeight);
@@ -287,4 +322,66 @@ export function wordsAround(content, px, py) {
   const from = Math.max(0, at - WORDS_AROUND);
   const to = Math.min(all.length, at + WORDS_AROUND + 1);
   return { words: all.slice(from, to).map((w) => w.word), at: at - from };
+}
+
+// Text compared without case, accents, punctuation or spacing: "Über die Stadt" is "uber die stadt".
+export function plainText(s) {
+  return String(s).normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+
+// The headings of a page's text: lines set larger than the body text (*body*, in points), with a
+// heading that wraps joined into one. Each is its plain text and the top of its first line in PDF
+// user space. Running heads and page numbers are smaller than the body; the table of contents
+// lists headings at body size, so neither counts.
+export function headingsOf(content, body) {
+  const lines = [];
+  for (const item of content.items) {
+    if (typeof item.str !== "string" || !item.str.trim()) continue;
+    const [a, b, c, d, e, f] = item.transform;
+    const size = Math.hypot(c, d) || Math.hypot(a, b) || 0;
+    let line = lines.find((l) => Math.abs(l.y - f) < Math.max(1, size * 0.3));
+    if (!line) lines.push(line = { y: f, x: e, size, parts: [] });
+    line.size = Math.max(line.size, size);
+    line.x = Math.min(line.x, e);
+    line.parts.push({ x: e, str: item.str });
+  }
+  lines.sort((p, q) => q.y - p.y);
+  const out = [];
+  let last = null;
+  for (const line of lines) {
+    if (line.size < body * 1.12) { last = null; continue; }
+    const text = line.parts.sort((p, q) => p.x - q.x).map((p) => p.str).join(" ");
+    if (last && Math.abs(last.size - line.size) < 0.5 && last.bottom - line.y < line.size * 1.8) {
+      last.raw += ` ${text}`;
+      last.bottom = line.y;
+    } else {
+      last = { raw: text, size: line.size, top: line.y + line.size, bottom: line.y };
+      out.push(last);
+    }
+  }
+  return out.filter((h) => h.raw.length <= 300).map((h) => ({ text: plainText(h.raw), top: h.top, size: h.size }));
+}
+
+// The size of the body text: the size most characters are set in.
+export function bodySize(contents) {
+  const chars = new Map();
+  for (const content of contents) {
+    for (const item of content.items) {
+      if (typeof item.str !== "string") continue;
+      const [a, b, c, d] = item.transform;
+      const size = Math.round((Math.hypot(c, d) || Math.hypot(a, b) || 0) * 2) / 2;
+      chars.set(size, (chars.get(size) ?? 0) + item.str.trim().length);
+    }
+  }
+  let best = 0;
+  let size = 10;
+  for (const [s, n] of chars) if (n > best) { best = n; size = s; }
+  return size;
+}
+
+// Whether a heading line is the heading *want* (plain text): the same, or with its number in front
+// ("2.1 Method" for "Method").
+export function sameHeading(line, want) {
+  return line === want || line.replace(/^(?:(?:\d+|[ivxlc]{1,4}|[a-z])\s+)+/, "") === want;
 }
