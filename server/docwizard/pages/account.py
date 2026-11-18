@@ -44,7 +44,8 @@ def register(app) -> None:
             return redirect(safe_next(req.query.get("next")))
         return app.page(req, "login.html", next=safe_next(req.query.get("next")), username="",
                         error=req.query.get("error"), registration_open=app.policy("registration") == "open",
-                        providers=app.oidc.list(), verified=req.query.get("verified") == "1")
+                        providers=app.oidc.list(), verified=req.query.get("verified") == "1",
+                        deleted=req.query.get("deleted") == "1")
 
     async def login(req: Request) -> Response:
         form = await req.form()
@@ -178,6 +179,7 @@ def register(app) -> None:
         ctx["mail"] = app.mail.enabled
         ctx["email_required"] = bool(app.policy("require_email_verification"))
         ctx["storage"] = await app.quotas.usage(req.user.id)
+        await app.settings_extras(req, ctx)
         from ..i18n import LANGUAGES
 
         return app.page(req, "settings.html", status, sources=[{**dict(r), "api_host": urlsplit(r["api_url"]).netloc if r["api_url"] else ""} for r in rows], languages=LANGUAGES, **ctx)

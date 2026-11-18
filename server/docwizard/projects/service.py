@@ -223,6 +223,78 @@ def trash_asset(conn: sqlite3.Connection, project_id: str, path: str) -> None:
                  (now_iso(), project_id, path))
 
 
+def rename_asset(conn: sqlite3.Connection, project_id: str, path: str, new_path: str) -> str:
+    new_path = files.normalize(new_path)
+    if get_asset(conn, project_id, path) is None:
+        raise ValueError("No such file.")
+    if files.kind_for(new_path) is not None:
+        raise ValueError("Keep the file extension of this kind of file.")
+    if new_path != path and path_taken(conn, project_id, new_path):
+        raise ValueError("A file with this name already exists.")
+    conn.execute("UPDATE assets SET path = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
+                 " WHERE project_id = ? AND path = ? AND deleted_at IS NULL", (new_path, project_id, path))
+    touch_project(conn, project_id)
+    return new_path
+
+
+# -- trash -----------------------------------------------------------------
+
+def list_trash(conn: sqlite3.Connection, project_id: str) -> list[dict]:
+    """Trashed documents and files of a project, newest first."""
+    rows = conn.execute(
+        "SELECT 'document' AS type, id, path, deleted_at, json_extract(materialized_stat, '$[2]') AS size"
+        " FROM documents WHERE project_id = :p AND deleted_at IS NOT NULL"
+        " UNION ALL SELECT 'asset', NULL, path, deleted_at, size FROM assets"
+        " WHERE project_id = :p AND deleted_at IS NOT NULL ORDER BY deleted_at DESC", {"p": project_id}).fetchall()
+    return [dict(r) for r in rows]
+
+
+def restore_document(conn: sqlite3.Connection, project_id: str, doc_id: str) -> str:
+    row = conn.execute("SELECT path FROM documents WHERE id = ? AND project_id = ? AND deleted_at IS NOT NULL",
+                       (doc_id, project_id)).fetchone()
+    if row is None:
+        raise ValueError("This file is no longer in the trash.")
+    path = free_path(conn, project_id, row["path"])
+    conn.execute("UPDATE documents SET deleted_at = NULL, path = ?, materialized_version = -1 WHERE id = ?",
+                 (path, doc_id))
+    touch_project(conn, project_id)
+    return path
+
+
+def restore_asset(conn: sqlite3.Connection, project_id: str, path: str, deleted_at: str) -> tuple[str, str]:
+    row = conn.execute("SELECT rowid, sha256 FROM assets WHERE project_id = ? AND path = ? AND deleted_at = ?",
+                       (project_id, path, deleted_at)).fetchone()
+    if row is None:
+        raise ValueError("This file is no longer in the trash.")
+    new_path = free_path(conn, project_id, path)
+    conn.execute("UPDATE assets SET deleted_at = NULL, path = ? WHERE rowid = ?", (new_path, row["rowid"]))
+    touch_project(conn, project_id)
+    return new_path, row["sha256"]
+
+
+def empty_trash(conn: sqlite3.Connection, project_id: str) -> dict:
+    """Delete a project's trashed documents and files for good. Blobs go with the daily collection."""
+    docs = conn.execute("DELETE FROM documents WHERE project_id = ? AND deleted_at IS NOT NULL",
+                        (project_id,)).rowcount
+    assets = conn.execute("DELETE FROM assets WHERE project_id = ? AND deleted_at IS NOT NULL",
+                          (project_id,)).rowcount
+    return {"documents": docs, "assets": assets}
+
+
+def purge_project(conn: sqlite3.Connection, project_id: str) -> list[str]:
+    """Delete a project and everything in it for good. Returns the slugs of its publications."""
+    slugs = [r[0] for r in conn.execute("SELECT slug FROM publications WHERE project_id = ?", (project_id,))]
+    conn.execute("DELETE FROM publications WHERE project_id = ?", (project_id,))
+    conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+    return slugs
+
+
+def trashed_projects(conn: sqlite3.Connection, owner_id: int) -> list[dict]:
+    rows = conn.execute("SELECT id, name, deleted_at FROM projects WHERE owner_id = ? AND deleted_at IS NOT NULL"
+                        " ORDER BY deleted_at DESC", (owner_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
 def tree(conn: sqlite3.Connection, project_id: str) -> list[dict]:
     docs = conn.execute(
         "SELECT id, path, kind, version, updated_at, materialized_stat FROM documents"

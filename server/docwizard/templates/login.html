@@ -2,6 +2,7 @@
 {% block title %}{{ _("Log in") }} · DocWizard{% endblock %}
 {% block content %}
 <section class="narrow">
+  {% if deleted is defined and deleted %}<p role="status">{{ _("Your account and its data were deleted.") }}</p>{% endif %}
   {% if verified is defined and verified %}<p role="status">{{ _("Your email address is confirmed. Log in to continue.") }}</p>{% endif %}
   <form method="post" action="/login" class="form">
     <input type="hidden" name="next" value="{{ next }}">

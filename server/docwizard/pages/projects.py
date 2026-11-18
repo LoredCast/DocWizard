@@ -9,7 +9,8 @@ import time
 from urllib.parse import quote
 
 from ..api import grammar
-from ..api.projects import GUEST_FORBIDDEN, create_project_with_starter, enforce_quota, project_access
+from ..api.projects import (GUEST_FORBIDDEN, create_project_with_starter, empty_trash, enforce_quota, project_access,
+                            rename_file, restore_file, trash_file)
 from ..auth import passwords, permissions
 from ..http.request import HTTPError, Request, not_found
 from ..http.response import Response, redirect
@@ -105,11 +106,18 @@ def register(app) -> None:
         guest = req.guest is not None
         may_share = permissions.can(role, "share", project) and not guest
 
+        may_edit = permissions.can(role, "edit", project)
+
         def load(c):
             return (svc.tree(c, project["id"]), [] if guest else svc.list_members(c, project["id"]),
-                    links.list_for_project(c, project["id"]) if may_share else [])
+                    links.list_for_project(c, project["id"]) if may_share else [],
+                    svc.list_trash(c, project["id"]) if may_edit and not guest else [])
 
-        tree, members, shares = await app.db.read(load)
+        tree, members, shares, trash = await app.db.read(load)
+        try:
+            build_inputs = json.loads(project["build_inputs"]) if project["build_inputs"] else []
+        except ValueError:
+            build_inputs = []
         may_sync = permissions.can(role, "sync", project) and not guest
         sync = sync_options = None
         if may_sync:
@@ -119,7 +127,8 @@ def register(app) -> None:
             sync = public_target(await app.db.fetchone("SELECT * FROM sync_targets WHERE project_id = ?",
                                                        (project["id"],)))
             sync_options = sync_kinds(app)
-        return app.page(req, "project.html", project=project, role=role, tree=tree, members=members,
+        return app.page(req, "project.html", project=project, role=role, tree=tree, members=members, trash=trash,
+                        build_inputs=build_inputs if isinstance(build_inputs, list) else [build_inputs],
                         may_sync=may_sync, sync=sync, sync_options=sync_options,
                         shares=shares, may_share=may_share, link_roles=_link_roles(app, role),
                         new_link=req.query.get("link"), layouts=_layout_choices(app, req, project), doc_url=doc_url,
@@ -182,6 +191,34 @@ def register(app) -> None:
                 lid = form.get("link_id", "")
                 await app.db.write(lambda c: links.revoke(c, pid, int(lid) if lid.isdigit() else -1))
                 return redirect(back + "#share")
+            elif action == "rename-file":
+                await project_access(app, req, pid, "edit")
+                new = form.get("new_path", "").strip()
+                if new and "." not in new.rsplit("/", 1)[-1] and "." in form.get("path", "").rsplit("/", 1)[-1]:
+                    new += "." + form["path"].rsplit(".", 1)[1]
+                await rename_file(app, pid, form.get("path", ""), new)
+            elif action == "delete-file":
+                await project_access(app, req, pid, "edit")
+                await trash_file(app, pid, form.get("path", ""))
+            elif action == "restore-file":
+                await project_access(app, req, pid, "edit")
+                kind = "document" if form.get("doc_id") else "asset"
+                await restore_file(app, pid, kind, form.get("doc_id") or form.get("path", ""),
+                                   form.get("deleted_at", ""))
+                return redirect(back + "#trash")
+            elif action == "empty-trash":
+                project, _ = await project_access(app, req, pid, "delete_project")
+                result = await empty_trash(app, pid, project["owner_id"])
+                await app.db.execute("INSERT INTO audit_log(actor, action, target, meta_json)"
+                                     " VALUES (?, 'trash.empty', ?, ?)", (f"user:{req.user.id}", pid, json.dumps(result)))
+                return redirect(back + "#trash")
+            elif action == "build-inputs":
+                await project_access(app, req, pid, "change_layout")
+                inputs = [files.normalize(line.strip()) for line in form.get("inputs", "").splitlines() if line.strip()]
+                if len(inputs) > 200:
+                    raise ValueError("Use at most 200 build inputs.")
+                await app.db.write(lambda c: svc.update_project(c, pid, build_inputs=inputs or None))
+                return redirect(back + "#build")
             elif action == "delete":
                 await project_access(app, req, pid, "delete_project")
                 await app.db.write(lambda c: svc.delete_project(c, pid))

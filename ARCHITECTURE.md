@@ -1245,6 +1245,15 @@ The admin area covers:
 
 The CLI (`python -m docwizard …`) provides `serve`, `migrate`, `create-admin`, `reset-password`, `backup`, `check` (tools, sandbox, file permissions) and `rotate-key`.
 
+### 13.7 Self-service
+
+What an account can do for itself, so a public server doesn't route every request through an admin.
+
+- **Sessions**: Settings lists where the account is logged in (browser and system read from the user agent, last activity, this device marked). Each one can be revoked, which ends it at its next request; "Log out other devices" keeps only the current one. Revoking the current session logs out.
+- **Files and trash**: the project page renames and deletes documents and files, restores them from the project's trash, and sets the build inputs (§9.2). The editor renames and deletes the open document. Owners can empty a project's trash for good, and Settings lists deleted projects to restore or delete for good, with one action that empties all of an account's trash. Space is free right away, not after the 30-day purge (§7.6, §7.7).
+- **Export**: `GET /settings/export` streams a zip: `account.json` (profile, projects and roles, comments written, linked logins, Zotero libraries without keys, custom layouts), owned projects under `projects/`, projects shared with the account under `shared/`, and named versions under `versions/`. It is written to `<cache_dir>/exports` and removed after an hour; one export per account runs at a time.
+- **Deleting the account** needs the username typed, the password (or, without one, a login in the last 15 minutes) and the two-step code when it is on. Owned projects are deleted with their published sites and folders, or, when asked, handed to one of their editors. Sessions, logins, tokens, recovery codes, notifications and Zotero libraries go with the account; audit entries about it keep only that something happened. Comments in others' projects stay under the name they were written with. The last admin can't delete themselves.
+
 ## 14. Sharing, guests and publishing
 
 ### 14.1 Share links
