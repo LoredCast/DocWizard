@@ -2,19 +2,43 @@
 // The server sends ranges at a version; once mapped to the current document they
 // live in this field, which maps them through every transaction.
 import { Decoration, EditorView, GutterMarker, RangeSet, StateEffect, StateField, WidgetType, gutter } from "codemirror";
+import { sharedEnds } from "../ui/worddiff.js";
 
-// The text a suggestion would put in place of its passage, shown right after it (§8.10).
+// The text a suggestion would put in place of its passage (§8.10).
 class SuggestionWidget extends WidgetType {
-  constructor(text, id) { super(); this.text = text; this.id = id; }
-  eq(other) { return other.text === this.text && other.id === this.id; }
+  constructor(text, id, pending) { super(); this.text = text; this.id = id; this.pending = pending; }
+  eq(other) { return other.text === this.text && other.id === this.id && other.pending === this.pending; }
   toDOM() {
     const span = document.createElement("span");
-    span.className = "cm-suggest-ins";
-    span.dataset.thread = String(this.id);
-    span.textContent = this.text || "\u2009";
+    span.className = this.pending ? "cm-suggest-ins cm-suggest-pending" : "cm-suggest-ins";
+    if (this.id !== null) span.dataset.thread = String(this.id);
+    span.textContent = this.text;
     return span;
   }
   ignoreEvent() { return false; }
+}
+
+// A suggestion in place: the words it removes struck through, the words it brings right
+// after them. Words it keeps at either end stay as they are, so a suggestion that adds a
+// word to "cat" shows the new word, not "cat" struck and written again. A pending
+// suggestion (being typed, §8.10) puts its new text before the cursor.
+export function suggestionDecorations(doc, from, to, text, { id = null, active = false, pending = false } = {}) {
+  const before = doc.sliceString(from, to);
+  const { head, tail } = sharedEnds(before, text);
+  const cut = { from: from + head, to: to - tail };
+  const insert = text.slice(head, text.length - tail);
+  const attributes = id !== null ? { "data-thread": String(id) } : {};
+  const ranges = [];
+  if (active && to > from) ranges.push(Decoration.mark({ class: "cm-comment-active", attributes }).range(from, to));
+  if (cut.to > cut.from) {
+    ranges.push(Decoration.mark({ class: pending ? "cm-suggest-del cm-suggest-pending" : "cm-suggest-del", attributes })
+      .range(cut.from, cut.to));
+  }
+  if (insert || (!pending && cut.to <= cut.from)) {
+    ranges.push(Decoration.widget({ widget: new SuggestionWidget(insert || "\u2009", id, pending), side: pending ? -1 : 1 })
+      .range(cut.to));
+  }
+  return ranges;
 }
 
 // {kind: "comment" | "conflict", items: [{id, from, to}]} replaces every anchor of that kind.
@@ -47,19 +71,17 @@ export const anchorsField = StateField.define({
     }
     return next;
   },
-  provide: (field) => EditorView.decorations.from(field, (value) => {
+  provide: (field) => EditorView.decorations.compute(["doc", field], (state) => {
+    const value = state.field(field);
     const ranges = [];
     for (const a of value.comment) {
-      const suggesting = typeof a.suggestion === "string";
-      if (a.to <= a.from && !suggesting) continue;
-      let cls = a.id === value.active ? "cm-comment-mark cm-comment-active" : "cm-comment-mark";
-      if (suggesting) cls += " cm-suggest-del";
-      if (a.to > a.from) {
-        ranges.push(Decoration.mark({ class: cls, attributes: { "data-thread": String(a.id) } }).range(a.from, a.to));
+      if (typeof a.suggestion === "string") {
+        ranges.push(...suggestionDecorations(state.doc, a.from, a.to, a.suggestion, { id: a.id, active: a.id === value.active }));
+        continue;
       }
-      if (suggesting) {
-        ranges.push(Decoration.widget({ widget: new SuggestionWidget(a.suggestion, a.id), side: 1 }).range(a.to));
-      }
+      if (a.to <= a.from) continue;
+      const cls = a.id === value.active ? "cm-comment-mark cm-comment-active" : "cm-comment-mark";
+      ranges.push(Decoration.mark({ class: cls, attributes: { "data-thread": String(a.id) } }).range(a.from, a.to));
     }
     for (const a of value.draft) {
       if (a.to > a.from) ranges.push(Decoration.mark({ class: "cm-comment-mark cm-comment-active" }).range(a.from, a.to));

@@ -1,6 +1,6 @@
 // Editor composition (ARCHITECTURE.md §6.3): languages, highlighting, keymaps and options.
 import {
-  EditorState, EditorView, HighlightStyle, Language, autocompletion, closeBrackets, closeBracketsKeymap,
+  Compartment, EditorState, EditorView, HighlightStyle, Language, autocompletion, closeBrackets, closeBracketsKeymap,
   completionKeymap, defaultKeymap, defineLanguageFacet, drawSelection, dropCursor, foldKeymap, foldService,
   highlightSelectionMatches, highlightSpecialChars, history, historyKeymap, indentOnInput, keymap, markdownParser,
   GFM, languageDataProp, rectangularSelection, searchKeymap, syntaxHighlighting, tags as t,
@@ -85,6 +85,12 @@ function cspNonce() {
   return document.querySelector('meta[name="csp-nonce"]')?.content ?? "";
 }
 
+// Whether the text can be typed in; suggest mode (§8.10) opens it to commenters.
+export const access = new Compartment();
+export function accessExtensions(readOnly, editable = !readOnly) {
+  return [EditorState.readOnly.of(readOnly), EditorView.editable.of(editable)];
+}
+
 // Everything except collaboration, which the session adds per version.
 export function baseExtensions({ kind, readOnly, live = true, lang = "", reading = false, editable = !readOnly }) {
   return [
@@ -101,8 +107,7 @@ export function baseExtensions({ kind, readOnly, live = true, lang = "", reading
     reading ? [] : highlightSelectionMatches(),
     autocompletion({ activateOnTyping: true, icons: false }),
     EditorView.lineWrapping,
-    EditorState.readOnly.of(readOnly),
-    EditorView.editable.of(editable),
+    access.of(accessExtensions(readOnly, editable)),
     EditorView.contentAttributes.of({ spellcheck: "true", autocorrect: "on", autocapitalize: "sentences",
                                       ...(lang ? { lang } : {}) }),
     languageFor(kind),

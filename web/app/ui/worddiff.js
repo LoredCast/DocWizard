@@ -57,3 +57,16 @@ export function diffNodes(before, after, el) {
   return wordDiff(before, after).map((s) => (s.op === "eq" ? el("span", {}, s.text)
     : el(s.op, {}, s.text)));
 }
+
+// How many characters at the start and at the end two passages share, in whole words:
+// the part between is what a suggestion changes, shown in place in the editor.
+export function sharedEnds(before, after) {
+  const a = tokens(before);
+  const b = tokens(after);
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start++;
+  let endA = a.length;
+  let endB = b.length;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) { endA--; endB--; }
+  return { head: a.slice(0, start).join("").length, tail: a.slice(endA).join("").length };
+}

@@ -235,6 +235,14 @@ export class CommentsPanel {
       items.push(form);
       attachMentions(form.elements.body, this.members);
     }
+    // Suggest mode makes many small suggestions; editors can decide them all at once.
+    const waiting = this.threads.filter((t) => t.suggestion !== null && !t.suggestionState && !t.resolved && !t.orphaned);
+    if (waiting.length > 1 && (this.canAccept || this.canResolve)) {
+      items.push(el("div", { class: "suggestion-bulk" },
+        el("span", {}, tr("{n} suggestions", { n: waiting.length })),
+        this.canResolve ? el("button", { type: "button", onclick: () => this.decideAll(waiting, "reject") }, tr("Reject all")) : null,
+        this.canAccept ? el("button", { type: "button", class: "primary", onclick: () => this.decideAll(waiting, "accept") }, tr("Accept all")) : null));
+    }
     const shown = this.threads.filter((t) => this.showResolved || !t.resolved);
     for (const t of shown) items.push(this.renderThread(t));
     if (!shown.length && !this.draft) {
@@ -320,6 +328,28 @@ export class CommentsPanel {
         return;
       }
       toast(err.message, { error: true });
+    }
+  }
+
+  // Decide every waiting suggestion, last in the text first. Passages that changed since
+  // they were suggested are left for a decision one by one.
+  async decideAll(threads, decision) {
+    const n = threads.length;
+    const question = decision === "accept" ? tr("Accept all {n} suggestions? Each one changes the text.", { n })
+      : tr("Reject all {n} suggestions?", { n });
+    if (!await confirmDialog(question, decision === "accept" ? tr("Accept all") : tr("Reject all"))) return;
+    let skipped = 0;
+    for (const t of [...threads].sort((a, b) => (b.from ?? 0) - (a.from ?? 0))) {
+      try {
+        await api("POST", `/api/documents/${this.docId}/comments/${t.id}/suggestion`, { decision, force: false });
+      } catch (err) {
+        if (err.code !== "decided") skipped++;
+      }
+    }
+    await this.load();
+    if (skipped) {
+      toast(skipped === 1 ? tr("1 suggestion was left open: its passage changed or it couldn't be decided.")
+        : tr("{n} suggestions were left open: their passages changed or they couldn't be decided.", { n: skipped }));
     }
   }
 
