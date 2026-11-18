@@ -3,6 +3,7 @@
   "name": "Short story manuscript",
   "version": "1.0.0",
   "extends": "default",
+  "starter": "story",
   "description": "William Shunn's Modern Manuscript Format for short fiction: US Letter, one-inch margins, 12 pt Tinos (Times New Roman metrics), double-spaced, half-inch indents, ragged right; contact block and rounded word count on the first page, the title a third down, “Surname / Title / 2” from page 2, # for scene breaks.",
   "filters": [
     "wordcount",

@@ -3,6 +3,7 @@
   "name": "Normseite (Manuskript)",
   "version": "1.0.0",
   "extends": "default",
+  "starter": "story",
   "description": "Normseite für Roman- und Sachbuchmanuskripte nach literaturcafe.de und den Hinweisen von Beatrix Mannel und Andreas Eschbach: A4, 12 pt Cousine (Courier-Laufweite), anderthalbzeilig, höchstens 60 Anschläge je Zeile und 30 Zeilen je Seite, Flattersatz ohne Silbentrennung, Autor und Titel in der Kopfzeile, Seitenzahl.",
   "filters": [
     "wordcount",

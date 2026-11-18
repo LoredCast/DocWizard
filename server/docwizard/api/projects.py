@@ -10,7 +10,7 @@ from ..citations import lookup
 from ..netpolicy import FetchError, PolicyError
 from ..http.request import HTTPError, Request, bad_request, not_found
 from ..http.response import Response, json_response, user_content
-from ..projects import docx_import, files, fountain, history
+from ..projects import docx_import, files, fountain, history, starters
 from ..projects import service as svc
 from ..render import fields, languages
 
@@ -64,16 +64,22 @@ async def document_access(app, req: Request, doc_id: str, capability: str):
 
 
 async def create_project_with_starter(app, user, name: str, layout: str, starter: bool = True,
-                                     lang: str = "en") -> tuple[str, str | None]:
+                                     lang: str = "en") -> tuple[str, str | None, str | None]:
+    """Create a project and, with *starter*, the files its layout starts with (projects/starters.py).
+    Returns the project id and the id and path of the document to open first."""
     today = dt.date.today().isoformat()
-    extra = fields.starter_lines(app.layouts.get(layout)) if app.layouts.exists(layout) else []
+    lay = app.layouts.get(layout) if app.layouts.exists(layout) else None
+    extra = fields.starter_lines(lay) if lay is not None else []
+    plan = starters.for_layout(lay, lang, user.display_name, today, extra) if starter else None
 
     def work(c):
         pid = svc.create_project(c, user.id, name, layout)
         main = None
-        if starter:
-            main = svc.create_document(c, pid, "paper.md", svc.starter(lang, user.display_name, today, extra))
-            svc.create_document(c, pid, "references.json", svc.STARTER_REFS)
+        if plan is not None:
+            ids = [svc.create_document(c, pid, path, text) for path, text in plan.files]
+            main = ids[0]
+            if plan.build:
+                svc.update_project(c, pid, build_inputs=plan.build)
         return pid, main
 
     pid, main = await app.db.write(work)
@@ -81,7 +87,7 @@ async def create_project_with_starter(app, user, name: str, layout: str, starter
     for doc in await app.db.fetchall("SELECT id FROM documents WHERE project_id = ?", (pid,)):
         room = await app.rooms.get(doc["id"])
         await room.call(room.materialize)
-    return pid, main
+    return pid, main, plan.main if plan is not None else None
 
 
 def register(app) -> None:
@@ -98,11 +104,11 @@ def register(app) -> None:
         if not app.layouts.exists(layout):
             raise bad_request("Unknown layout.")
         try:
-            pid, main = await create_project_with_starter(app, req.user, str(body.get("name", "")), layout,
-                                                          bool(body.get("starter", True)), app.lang_of(req))
+            pid, main, main_path = await create_project_with_starter(
+                app, req.user, str(body.get("name", "")), layout, bool(body.get("starter", True)), app.lang_of(req))
         except ValueError as exc:
             raise bad_request(str(exc)) from None
-        return json_response({"id": pid, "mainDocument": main}, 201)
+        return json_response({"id": pid, "mainDocument": main, "mainPath": main_path}, 201)
 
     async def get_project(req: Request) -> Response:
         project, role = await project_access(app, req, req.param("id"), "read")
@@ -246,6 +252,9 @@ def register(app) -> None:
             await room.call(room.materialize)
             return json_response({"id": doc_id, "type": "document"}, 201)
         root = app.rooms.project_dir(project["id"])
+        if req.query.get("unique") == "1":
+            # Pasted and dropped images never replace a file: figures/figure.png becomes figure-2.png.
+            path = await app.db.read(lambda c: svc.free_path(c, project["id"], path))
 
         def store():
             digest = files.put_blob(app.cfg.data_dir, data)

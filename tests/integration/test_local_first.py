@@ -52,7 +52,7 @@ async def test_merge_over_http_is_idempotent_and_needs_edit_rights(client, app):
     base = snap["text"]
     doc_id = snap["doc"]["id"]
     # Someone else edits meanwhile, in another paragraph.
-    await edit(app, pid, "paper.md", lambda t: t.replace("# References", "# Sources"))
+    await edit(app, pid, "paper.md", lambda t: t.replace("# Introduction", "# Sources"))
     body = {"mergeId": "m_offline_1", "baseVersion": snap["version"], "base": base,
             "text": base.replace("Write here.", "Written on the plane.")}
     r = await client.post(f"/api/documents/{doc_id}/merge", json=body)

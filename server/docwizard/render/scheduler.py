@@ -24,7 +24,7 @@ from ..http.request import HTTPError
 from ..logs import fields
 from ..projects import docx_import, fountain
 from ..projects import service as svc
-from . import jobs, sample
+from . import jobs, sample, synctex
 from .layouts import Layout, LayoutError
 from .worker_client import WorkerClient, WorkerUnavailable
 
@@ -355,6 +355,8 @@ class Renderer:
                 # Failed renders aren't cached, so fixing the document retries.
                 return RenderResult(key, status, target, output, diagnostics, project_id=project_id)
             await asyncio.to_thread(_move_outputs, job_dir / "out", dest)
+            if target == "pdf-latex":
+                await asyncio.to_thread(_index_synctex, job_dir, dest)
             return self._finish(key, project_id, target, status, diagnostics, dest)
         finally:
             await asyncio.to_thread(shutil.rmtree, job_dir, True)
@@ -577,6 +579,24 @@ def _move_outputs(src: Path, dest: Path) -> None:
         shutil.rmtree(tmp, ignore_errors=True)
         return
     tmp.rename(dest)
+
+
+def _index_synctex(job_dir: Path, dest: Path) -> None:
+    """Keep what SyncTeX recorded as synctex.json for clicks in the preview (§6.4). latexmk puts the
+    file next to the PDF; older versions leave it in the auxiliary directory."""
+    for src in (dest / "document.synctex.gz", job_dir / "tmp" / "latex" / "document.synctex.gz",
+                dest / "document.synctex"):
+        try:
+            if synctex.index(src, dest / "synctex.json"):
+                break
+        except (OSError, ValueError):
+            log.warning("synctex index failed", exc_info=True)
+            break
+    for leftover in ("document.synctex.gz", "document.synctex"):
+        try:
+            (dest / leftover).unlink()
+        except OSError:
+            pass
 
 
 def _zip_snapshot(snap: jobs.ProjectSnapshot, dest: Path, output: str) -> None:
