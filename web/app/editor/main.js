@@ -621,7 +621,8 @@ function showRendered(msg) {
   }
   if (msg.target !== target) return;
   if (!msg.url) {
-    setPreviewState(t("Preview failed"));
+    // "limited": a render limit of the server; the next edit tries again.
+    setPreviewState(msg.status === "limited" ? t("Preview paused") : t("Preview failed"));
     return;
   }
   if ((msg.version ?? 0) < shown[msg.target]) return;
@@ -1319,6 +1320,40 @@ document.addEventListener("keydown", (event) => {
   } else if (mod && event.altKey && event.code === "KeyO" && isMarkdown) {
     event.preventDefault();
     showOutline();
+  }
+});
+
+// -- Rename and delete the document ------------------------------------------
+async function settle() {
+  // Edits still on their way go first, so nothing is lost by leaving the page.
+  for (let i = 0; i < 50 && session.unconfirmed() > 0; i++) await new Promise((r) => setTimeout(r, 100));
+}
+
+const docUrl = (path) => `/p/${projectId}/${path.split("/").map(encodeURIComponent).join("/")}`;
+const renameDialog = $("#rename-dialog");
+$("#rename-doc")?.addEventListener("click", () => {
+  $("#rename-path").value = snap.doc.path;
+  renameDialog.showModal();
+});
+$("#rename-form")?.addEventListener("submit", async (event) => {
+  if (event.submitter?.value !== "save") return;
+  event.preventDefault();
+  try {
+    await settle();
+    const { path } = await api("PATCH", `/api/documents/${docId}`, { path: $("#rename-path").value.trim() });
+    location.href = docUrl(path);
+  } catch (err) {
+    toast(err.message, { error: true });
+  }
+});
+$("#delete-doc")?.addEventListener("click", async () => {
+  if (!(await confirmDialog(t("Move {name} to the trash?", { name: snap.doc.path })))) return;
+  try {
+    await settle();
+    await api("DELETE", `/api/documents/${docId}`);
+    location.href = `/p/${projectId}`;
+  } catch (err) {
+    toast(err.message, { error: true });
   }
 });
 
