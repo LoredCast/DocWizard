@@ -137,7 +137,8 @@ export class ReferencesPanel {
   async show({ focus = true } = {}) {
     this.panel.hidden = false;
     this.onToggle(true);
-    if (focus) this.searchInput.focus();
+    // On touch screens the search waits for a tap, so the keyboard doesn't cover the list.
+    if (focus && !window.matchMedia("(pointer: coarse)").matches) this.searchInput.focus();
     await this.loadSources();
     this.render();
   }
@@ -145,7 +146,7 @@ export class ReferencesPanel {
   hide() {
     this.panel.hidden = true;
     this.onToggle(false);
-    this.view.focus();
+    if (!window.matchMedia("(pointer: coarse)").matches) this.view.focus();
   }
 
   toggle() { return this.open ? this.hide() : this.show(); }

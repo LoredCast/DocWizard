@@ -1371,5 +1371,18 @@
  "This address is reserved. Choose another one.": "Diese Adresse ist reserviert. Wähle eine andere.",
  "Wait for your other exports to finish, then try again.": "Warte, bis deine anderen Exporte fertig sind, und versuch es dann noch einmal.",
  "You're rendering a lot right now. Wait a minute, then try again.": "Du renderst gerade sehr viel. Warte eine Minute und versuch es dann noch einmal.",
- "You've reached today's limit for LaTeX builds. Use the PDF made with Typst, or try again tomorrow.": "Du hast das heutige Limit für LaTeX-Builds erreicht. Nutze das mit Typst erstellte PDF oder versuch es morgen wieder."
+ "You've reached today's limit for LaTeX builds. Use the PDF made with Typst, or try again tomorrow.": "Du hast das heutige Limit für LaTeX-Builds erreicht. Nutze das mit Typst erstellte PDF oder versuch es morgen wieder.",
+ "Review": "Überarbeiten",
+ "Write": "Schreiben",
+ "Share and export": "Teilen und exportieren",
+ "File": "Datei",
+ "Plain text editing": "Als reinen Text bearbeiten",
+ "Edit the Markdown as plain text, without rendering titles, pictures or tables": "Das Markdown als reinen Text bearbeiten, ohne Titel, Bilder oder Tabellen darzustellen",
+ "Plain": "Text",
+ "1 member": "1 Mitglied",
+ "{n} members": "{n} Mitglieder",
+ "Files": "Dateien",
+ "Layout and language": "Layout und Sprache",
+ "Apply": "Übernehmen",
+ "The project and its files move to the trash.": "Das Projekt und seine Dateien kommen in den Papierkorb."
 }

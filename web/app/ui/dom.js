@@ -1,6 +1,7 @@
 // Small DOM and fetch helpers shared by every page.
 
 import { currentOwner, forgetAccount } from "../store/idb.js";
+import { wireKeyboard } from "./keyboard.js";
 
 export const $ = (sel, root = document) => root.querySelector(sel);
 export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -85,6 +86,7 @@ export function confirmDialog(message, actionLabel = t("Delete")) {
 export function wireCommon(root = document) {
   registerServiceWorker();
   wireNetState();
+  wireKeyboard();
   root.addEventListener("click", (event) => {
     for (const d of root.querySelectorAll("details.menu[open]")) {
       if (!d.contains(event.target)) d.open = false;

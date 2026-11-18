@@ -1,5 +1,5 @@
 // The editor page: wires the editor, collaboration, preview, export, layout options and versions.
-import { Decoration, EditorSelection, EditorState, EditorView, StateEffect, StateField, closeSearchPanel, openSearchPanel,
+import { Compartment, Decoration, EditorSelection, EditorState, EditorView, StateEffect, StateField, closeSearchPanel, openSearchPanel,
          redo, searchPanelOpen, undo } from "codemirror";
 import { DocSession } from "../collab/peer.js";
 import { PresenceSender, PresenceView, peersField } from "../collab/presence.js";
@@ -29,9 +29,12 @@ import { characterCompletion, openOutline } from "./script.js";
 import { access, accessExtensions, baseExtensions } from "./setup.js";
 import { setSuggestMode, suggestField, suggestMode } from "./suggest-mode.js";
 import { TitleCardEditor, refreshCard } from "./title-card.js";
+import { frontMatter } from "./cite-tools.js";
 import { ChaptersDrawer } from "./chapters.js";
 import { addColumn, addRow, cycleAlign, deleteColumn, deleteRow, deleteTable, tableAt } from "./tables.js";
 import { setWriterMode, writerField, writerMode } from "./writer-mode.js";
+import { livePreview } from "./live-preview.js";
+import { tableView } from "./table-view.js";
 
 wireCommon();
 
@@ -88,7 +91,7 @@ const socket = new Socket();
 // The review view keeps the text focusable (read-only), so keyboard users can select passages too;
 // on touch screens that would bring up the keyboard, so there it isn't.
 const coarse = window.matchMedia("(pointer: coarse)").matches;
-const base = baseExtensions({ kind, readOnly: readOnly || review, reading: review,
+const base = baseExtensions({ kind, readOnly: readOnly || review, reading: review, live: false,
                               editable: review ? !coarse : !readOnly });
 let bubble = null; // the review view's selection toolbar
 
@@ -114,8 +117,14 @@ const grammar = isMarkdown && !readOnly && !review && !navigator.connection?.sav
 let library = new Map();
 let references = null; // the references panel, created below
 let fieldsPanel = null; // the fields panel, created below
-// Clicking commented text opens its thread.
+// Clicking commented text opens its thread. On touch screens, a tap on it while the keyboard is
+// down opens the thread without focusing the text, so the keyboard stays down.
 const markClicks = EditorView.domEventHandlers({
+  mousedown(event, v) {
+    if (!coarse || v.hasFocus || !event.target.closest?.("[data-thread]")) return false;
+    event.preventDefault();
+    return true;
+  },
   click(event) {
     const mark = event.target.closest?.("[data-thread]");
     if (mark) comments.focusThread(Number(mark.dataset.thread));
@@ -167,6 +176,15 @@ const marksKey = "dw.marks";
 const figureField = isMarkdown ? figures({ projectId: offlineRecord ? null : projectId,
                                            locked: (state) => state.readOnly }) : null;
 
+// Plain text editing ("Raw"): the Markdown as it is, in a monospaced font, without the live preview,
+// the title card, figures or tables. The choice is kept per browser, like "Show Markdown marks".
+const rawKey = "dw.raw";
+const rendering = new Compartment();
+let raw = isMarkdown && !review && stored(rawKey, "off") === "on";
+const richExtensions = isMarkdown ? [
+  livePreview({ reading: review }), titleCard ? titleCard.extension() : [], figureField ?? [], tableView({ reading: review }),
+] : [];
+
 // The search panel in the app's colours (CodeMirror's own are light grey gradients).
 const searchTheme = EditorView.theme({
   ".cm-panel .cm-textfield, .cm-panel .cm-button": {
@@ -188,9 +206,9 @@ const session = new DocSession({
     base, searchPhrases, searchTheme, peersField, anchorsField, conflictGutter((id) => openConflicts(id)), markClicks,
     review ? reviewFrontMatter : [], richPaste ? richPaste.extension() : [], images ? images.extension() : [],
     flashField,
-    layoutFields ? fieldsExtension(layoutFields) : [], titleCard ? titleCard.extension() : [],
+    layoutFields ? fieldsExtension(layoutFields) : [], rendering.of(raw ? [] : richExtensions),
     isMarkdown ? writerField.init(() => !review && stored(marksKey, "on") === "off") : [],
-    figureField ?? [], tools ? tools.extension({ writer: writerMode }) : [], isScript ? characterCompletion(() => characters) : [],
+    tools ? tools.extension({ writer: writerMode }) : [], isScript ? characterCompletion(() => characters) : [],
     grammar ? grammarExtension({ ignore: (m, w) => { grammar.ignore(m, w); checkGrammar(); },
                                  addWord: (w) => { grammar.addWord(w); checkGrammar(); } }) : [],
     suggest ? suggest.extension : [],
@@ -224,7 +242,38 @@ const view = new EditorView({
 const { text: _text, version: _version, clientID: _clientID, ...meta } = snap;
 session.keep = { url: location.pathname, meta, pinned: Boolean(snap.doc.pinned) };
 session.start(view);
-view.focus();
+
+// Where the cursor starts: where it was when this document was last open in this browser, or else
+// at the first line of text after the front matter (not on the title card). On touch screens the
+// text isn't focused, so the keyboard only comes up when someone taps into the text.
+const cursorKey = `dw.cursor.${docId}`;
+function firstBodyLine(state) {
+  const fm = isMarkdown ? frontMatter(state.sliceDoc(0, Math.min(state.doc.length, 20000))) : null;
+  let line = state.doc.lineAt(fm ? Math.min(fm.to, state.doc.length) : 0);
+  while (line.number < state.doc.lines && !line.text.trim()) line = state.doc.line(line.number + 1);
+  return line.text.trim() ? line.from : (fm ? Math.min(fm.to, state.doc.length) : 0);
+}
+function focusEditor() {
+  if (!coarse) view.focus();
+}
+function placeCursor() {
+  const saved = Number.parseInt(stored(cursorKey, ""), 10);
+  const fm = isMarkdown ? frontMatter(view.state.sliceDoc(0, Math.min(view.state.doc.length, 20000))) : null;
+  const usable = Number.isInteger(saved) && saved >= (fm ? fm.to : 0) && saved <= view.state.doc.length;
+  const pos = usable ? saved : firstBodyLine(view.state);
+  view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: usable ? "center" : "nearest" }) });
+  let cursorTimer = null;
+  const keepCursor = () => store(cursorKey, String(view.state.selection.main.head));
+  view.dom.addEventListener("keyup", () => { clearTimeout(cursorTimer); cursorTimer = setTimeout(keepCursor, 500); });
+  view.dom.addEventListener("pointerup", () => { clearTimeout(cursorTimer); cursorTimer = setTimeout(keepCursor, 500); });
+  window.addEventListener("pagehide", keepCursor);
+  focusEditor();
+}
+// The keyboard came up: the line being typed on stays in view above it.
+document.addEventListener("dw:keyboard", () => {
+  view.requestMeasure();
+  view.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main.head, { y: "nearest", yMargin: 48 }) });
+});
 if (tools) {
   tools.view = view;
   tools.listen(view.dom);
@@ -256,6 +305,7 @@ const FORMAT_CMDS = {
   refs: () => references?.toggle(),
   image: (v) => images?.pick(v),
   marks: () => setMarks(writerMode(view.state)),
+  raw: () => setRaw(!raw),
   find: (v) => toggleFind(v),
 };
 
@@ -275,6 +325,22 @@ function setMarks(on) {
   view.dispatch({ effects: setWriterMode.of(!on) });
   updateFormatBar();
 }
+
+// Plain text editing on or off: the rendering extensions come and go; the text stays as it is.
+function setRaw(on) {
+  if (!isMarkdown || review) return;
+  raw = on;
+  store(rawKey, on ? "on" : "off");
+  view.dispatch({ effects: rendering.reconfigure(on ? [] : richExtensions) });
+  applyRaw();
+  view.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main.head, { y: "center" }) });
+}
+function applyRaw() {
+  split.classList.toggle("raw-mode", raw);
+  for (const b of document.querySelectorAll('[data-cmd="raw"], #toggle-raw')) b.setAttribute("aria-pressed", String(raw));
+  updateFormatBar();
+}
+$("#toggle-raw")?.addEventListener("click", () => setRaw(!raw));
 
 if (formatBar) {
   formatBar.hidden = readOnly || !isMarkdown || review;
@@ -310,6 +376,7 @@ function updateFormatBar() {
   if (tableBar) tableBar.hidden = !tableAt(view.state, view.state.selection.main.head);
   const marks = formatBar.querySelector('[data-cmd="marks"]');
   marks?.setAttribute("aria-pressed", String(!writerMode(view.state)));
+  if (marks) marks.hidden = raw; // in plain text every mark shows anyway
   const active = activeFormatting(view.state);
   for (const btn of formatBar.querySelectorAll("[data-cmd]")) {
     const cmd = btn.dataset.cmd;
@@ -321,6 +388,7 @@ function updateFormatBar() {
   }
 }
 updateFormatBar();
+applyRaw();
 
 const editorMore = $("#editor-more");
 const moreBtn = $("#more-actions");
@@ -343,6 +411,24 @@ if (editorMore && moreBtn) {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") closeMore();
   });
+}
+
+// The bar's shortcuts to menu items (wide screens): they show what the item shows and do what it does.
+for (const proxy of document.querySelectorAll("[data-proxy]")) {
+  const item = document.getElementById(proxy.dataset.proxy);
+  if (!item) { proxy.remove(); continue; }
+  const mirror = () => {
+    proxy.hidden = item.hidden;
+    proxy.textContent = item.textContent;
+    for (const name of ["aria-pressed", "title"]) {
+      if (item.hasAttribute(name)) proxy.setAttribute(name, item.getAttribute(name));
+      else proxy.removeAttribute(name);
+    }
+    proxy.classList.toggle("has-unread", item.classList.contains("has-unread"));
+  };
+  new MutationObserver(mirror).observe(item, { attributes: true, childList: true, characterData: true, subtree: true });
+  mirror();
+  proxy.addEventListener("click", () => item.click());
 }
 
 if (!offlineRecord) {
@@ -654,7 +740,7 @@ function setMobilePreview(show) {
     requestPreview(0);
     cursorMoved();
   } else {
-    view.focus();
+    focusEditor();
   }
 }
 
@@ -794,7 +880,7 @@ function jumpToLine(line, column = 0) {
   const pos = Math.min(target.from + Math.max(0, column), target.to);
   if (narrow.matches && split.classList.contains("show-preview")) setMobilePreview(false);
   view.dispatch({ selection: { anchor: pos }, effects: [EditorView.scrollIntoView(pos, { y: "center" }), flashLine.of(target.from)] });
-  view.focus();
+  focusEditor();
   setTimeout(() => view.dispatch({ effects: flashLine.of(null) }), 1600);
 }
 
@@ -1511,3 +1597,4 @@ if (offlineRecord) {
   session.resume(offlineRecord);
   session.reportStatus();
 }
+placeCursor();

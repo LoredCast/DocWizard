@@ -357,9 +357,13 @@ A view plugin over the syntax tree. On every line except the one with the cursor
 - shows citations as chips (`Smith 2020`) resolved from the citation library, and underlines unknown keys as errors;
 - renders task-list checkboxes, footnotes as numbered chips (a click opens the note to edit), and optional image thumbnails;
 - shows cross-references (`[@fig:map]`) as chips that read *Figure 1*, *Table 2*, numbered as crossref.lua numbers them, and marks references to labels that don't exist;
-- hides `{#…}` attributes and sets pipe tables in a monospaced font so their columns line up.
+- hides `{#…}` attributes and sets pipe tables in a monospaced font so their columns line up while they're edited.
 
-The line with the cursor shows raw source, unless *Show Markdown marks* (¶ in the toolbar, remembered per browser) is off: in this **writer mode** the marks stay hidden on the cursor's line too, and links, footnotes and figures are edited through their popovers. A toggle switches to plain source mode.
+Pipe tables (`editor/table-view.js`) show as tables, with their header, alignments, inline formatting and caption, unless the selection is in them; wide ones scroll sideways inside the text. A click on a cell puts the cursor in that cell of the source, where the table bar takes over. In the review view tables always show as tables.
+
+The line with the cursor shows raw source, unless *Show Markdown marks* (¶ in the toolbar, remembered per browser) is off: in this **writer mode** the marks stay hidden on the cursor's line too, and links, footnotes and figures are edited through their popovers. **Plain text editing** (*Plain* in the toolbar, or *Actions → Plain text editing*, remembered per browser) turns all of this off: no live preview, title card, figures or tables, just the Markdown in a monospaced font with its syntax colours. The rendering extensions sit in one compartment that the switch reconfigures, so the text and the collaboration session are untouched.
+
+A document opens with the cursor where it was when it was last open in this browser (`dw.cursor.<doc>`), or else at the first line of text after the front matter. On touch screens the text isn't focused when the page opens, so the keyboard only comes up on a tap into the text.
 
 **Other features**
 
@@ -1852,7 +1856,7 @@ Text tokens meet WCAG AA (≥ 4.5:1) and control borders meet the 3:1 rule for U
 ### 25.5 Spacing and layout
 
 - **Spacing scale:** 4, 8, 12, 16, 24, 32 px. Nothing else.
-- **Controls:** 28px high, or 40px under `@media (pointer: coarse)`.
+- **Controls:** 28px high, or 36px under `@media (pointer: coarse)`.
 - **Page structure:** a 40px toolbar, the content, and an optional 24px status bar, laid out as a grid over `100dvh`.
 - **Widths:**
   - tables span the full width with 16px side padding;
@@ -1881,10 +1885,10 @@ Name ▴                                 Layout                Modified        M
   Urban infrastructure                 term-paper            3 min ago             2
 ```
 
-Editor: breadcrumb, presence, save state and three actions in the toolbar; text and preview below; facts in the status bar.
+Editor: breadcrumb, presence, save state and three actions in the toolbar, then *Actions ▾*, which holds everything in groups (Write, Review, Share and export, File) at every width; below 1100px *Comments* and *Share* move into it too. Text and preview below; facts in the status bar.
 
 ```text
-Projects / Urban infrastructure / paper.md     ● ● Jane, Ali   Saved   Preview  Export  Share
+Projects / Urban infrastructure / paper.md  ● ● Jane, Ali  Saved  Comments  Preview  Share  Actions ▾
 ──────────────────────────────────────────────────────────────────────────────────────
                                             │
   # Introduction                             │   Introduction
@@ -1896,6 +1900,10 @@ Projects / Urban infrastructure / paper.md     ● ● Jane, Ali   Saved   Previ
 ──────────────────────────────────────────────────────────────────────────────────────
 1 248 words · Markdown · term-paper · Nextcloud synced 1 min ago
 ```
+
+Project: the project's name with its layout, documents and members underneath, *Available offline* and *Download as .zip* beside it; the files as a table with *Upload files* and *Create document*; then the settings (layout and language, members, share links, sync, trash, the project itself) in columns, each set apart by a line and its heading.
+
+On phones, a page with a search field (home, search) puts search, *New project* and the account menu in one line.
 
 Settings: plain links as navigation (the current one in bold), then a simple form.
 

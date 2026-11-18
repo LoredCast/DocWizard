@@ -165,7 +165,7 @@ export class FieldsPanel {
   hide() {
     this.panel.hidden = true;
     this.onToggle(false);
-    this.view.focus();
+    if (!window.matchMedia("(pointer: coarse)").matches) this.view.focus();
   }
 
   toggle() { return this.open ? this.hide() : this.show(); }
