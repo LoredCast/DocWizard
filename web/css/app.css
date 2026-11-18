@@ -34,7 +34,7 @@
     :root { --muted: var(--fg); --line: var(--edge); }
   }
   @media (pointer: coarse) {
-    :root { --control: 40px; }
+    :root { --control: 36px; }
   }
 }
 
@@ -73,6 +73,8 @@
   input::placeholder { color: var(--muted); }
   input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); min-height: 0; }
   input[type="file"] { border: 0; padding: 0; }
+  /* 16px on touch screens: smaller text makes phones zoom the page in when a field takes the focus. */
+  @media (pointer: coarse) { input, select, textarea { font-size: 16px; } }
   table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
   th { text-align: left; font-weight: 400; color: var(--muted); }
   th, td { padding: 4px 16px; border-bottom: 1px solid var(--line); height: var(--control); }
@@ -84,6 +86,7 @@
     border-radius: var(--radius); padding: 16px; width: min(32rem, calc(100vw - 32px));
   }
   dialog::backdrop { background: rgb(0 0 0 / .6); }
+  dialog:focus { outline: none; }
   dialog h2 { margin-top: 0; }
   fieldset { border: 0; padding: 0; margin: 0; display: flex; gap: 16px; flex-wrap: wrap; }
   legend { color: var(--muted); padding: 0; margin-bottom: 4px; }
@@ -115,15 +118,15 @@
   }
   .statusbar .spacer, .pane-head .spacer { flex: 1; }
   .statusbar > span:empty:not(.spacer) { display: none; }
-  /* The project page's sections flow in columns, so a long one leaves no gap beside it. */
-  .panels { columns: 24rem; column-gap: 32px; padding: 0 16px; }
-  .panels > section { break-inside: avoid; display: inline-block; width: 100%; }
-  .file-actions { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-top: 12px; }
-  .file-actions .row { margin: 0; }
-  .file-actions input[name="path"] { width: 12rem; }
   .hint { margin: 4px 0 0; font-size: 13px; }
 
+
   .editor-page { height: 100dvh; grid-template-rows: auto minmax(0, 1fr) auto; }
+  /* While the on-screen keyboard is up (ui/keyboard.js): the page fits above it, and the status bar
+     and the Edit/Preview switch make room for the text. */
+  .keyboard-open .editor-page { height: var(--vvh, 100dvh); }
+  .keyboard-open .editor-page > .statusbar, .keyboard-open .editor-page .mode-switch { display: none !important; }
+  input:focus, textarea:focus, select:focus { border-color: var(--accent); }
   .workspace { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
   .mode-switch { display: none; border-bottom: 1px solid var(--line); background: var(--bg); flex: none; }
   .mode-switch[hidden] { display: none !important; }
@@ -132,8 +135,37 @@
     color: var(--muted); min-height: var(--control);
   }
   .mode-switch button[aria-selected="true"] { color: var(--fg); font-weight: 600; border-bottom-color: var(--accent); }
-  .editor-more, .toolbar-buttons { display: contents; }
-  #more-actions, .menu-status { display: none; }
+  /* The editor's bar: the save state, a few shortcuts on wide screens, Preview, and the Actions menu
+     with everything in groups. The menu is the same at every width, so nothing runs out of room. */
+  .editor-more { position: relative; }
+  #more-actions { display: inline-flex; align-items: center; gap: 4px; }
+  #more-actions::after { content: "▾"; font-size: 11px; color: var(--muted); }
+  .menu-status { display: none; }
+  .toolbar-buttons { display: none; }
+  .editor-more.open .toolbar-buttons {
+    position: absolute; right: 0; top: calc(100% + 4px); z-index: 20;
+    width: min(16rem, calc(100vw - 16px)); max-height: calc(var(--vvh, 100dvh) - 56px); overflow-y: auto;
+    background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px;
+    display: grid; gap: 0;
+  }
+  .toolbar-buttons button, .toolbar-buttons .button {
+    display: flex; align-items: center; justify-content: flex-start; width: 100%; text-align: left;
+    border-color: transparent; padding: 0 8px;
+  }
+  .toolbar-buttons [hidden] { display: none; }
+  .toolbar-buttons [aria-pressed="true"] { color: var(--accent); }
+  .toolbar-buttons [aria-pressed="true"]::after { content: "✓"; margin-left: auto; padding-left: 8px; }
+  .menu-group { display: grid; padding: 4px 0; }
+  .menu-group + .menu-group { border-top: 1px solid var(--line); }
+  .menu-group:not(:has(> :not(.menu-heading):not([hidden]))) { display: none; }
+  .menu-heading { padding: 2px 8px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+  .tb-quick { display: none; }
+  .actions .has-unread::after { margin-left: 4px; }
+  @media (min-width: 1100px) {
+    .tb-quick:not([hidden]) { display: inline-flex; align-items: center; }
+    .toolbar-buttons .pinned { display: none; }
+    .menu-group:not(:has(> :not(.menu-heading):not([hidden]):not(.pinned))) { display: none; }
+  }
 
   .split { flex: 1; display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
   .split.no-preview { grid-template-columns: 1fr; }
@@ -152,14 +184,17 @@
   }
   .format-bar[hidden] { display: none; }
   .format-bar::-webkit-scrollbar { display: none; }
-  .format-bar button { border: 1px solid transparent; padding: 0 8px; min-height: 26px; font-size: 13px; flex: none; }
+  .format-bar button { border: 1px solid transparent; padding: 0 6px; min-height: 26px; font-size: 13px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
   .format-bar button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
   .format-sep { width: 1px; height: 16px; background: var(--line); margin: 0 4px; flex: none; }
   .fmt-italic { font-style: italic; }
   .fmt-strike { text-decoration: line-through; }
+  /* With a mouse the bar wraps rather than hiding its last buttons; on touch screens it scrolls. */
+  @media (pointer: fine) { .format-bar { flex-wrap: wrap; row-gap: 2px; } }
   @media (pointer: coarse) {
     .format-bar button { min-height: var(--control); min-width: var(--control); padding: 0 10px; }
   }
+  .format-bar [hidden] { display: none; }
   .preview-pane { border-left: 1px solid var(--line); }
   .pane-head {
     display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 4px 16px; min-height: 32px;
@@ -204,48 +239,29 @@
     .preview-pane .pane-head { gap: 8px; padding-right: 8px; }
     #preview-state.idle { display: none; }
     .actions > .status, .presence .name { display: none; }
-    .menu-status { display: block; padding: 4px 8px; font-size: 12px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
-  }
-  /* The editor's actions fold into a menu before they run out of room. */
-  @media (max-width: 1460px) {
-    .editor-more { display: block; position: relative; }
-    #more-actions { display: inline-flex; align-items: center; }
-    .toolbar-buttons { display: none; }
-    .editor-more.open .toolbar-buttons {
-      position: absolute; right: 0; top: calc(100% + 4px); z-index: 20;
-      width: min(15rem, calc(100vw - 32px)); background: var(--bg);
-      border: 1px solid var(--line); border-radius: var(--radius); padding: 4px;
-      display: grid; gap: 0;
-    }
-    .editor-more.open .toolbar-buttons button, .editor-more.open .toolbar-buttons .button {
-      justify-content: flex-start; text-align: left; border-color: transparent; padding: 0 8px;
-    }
-    .editor-more.open .toolbar-buttons [aria-pressed="true"] { color: var(--accent); }
+    .menu-status { display: block; padding: 4px 8px; font-size: 12px; }
   }
   @media (max-width: 640px) {
     /* Three levels deep, the middle link leads back; the wordmark gives its room to the names. */
     .crumbs:has(> :nth-child(5)) > .wordmark, .crumbs:has(> :nth-child(5)) > .wordmark + span { display: none; }
     .page:not(.editor-page) .toolbar { flex-wrap: wrap; gap: 8px; padding: 6px 16px; }
     .page:not(.editor-page) .actions { flex-wrap: wrap; }
-    /* With a search field: the wordmark and the account menu, then search across the width. */
-    .toolbar:has(.toolbar-search) { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-auto-flow: row dense; }
-    .toolbar:has(.toolbar-search) .actions, .toolbar:has(.toolbar-search) form.inline { display: contents; }
-    .toolbar:has(.toolbar-search) .crumbs { grid-area: 1 / 1; }
-    .toolbar:has(.toolbar-search) .account-menu { grid-area: 1 / 2; justify-self: end; }
-    .toolbar:not(:has(.actions > button)) .toolbar-search { grid-column: 1 / -1; }
+    /* With a search field (home, search): search, New project and the account in one line. */
+    .page:not(.editor-page) .toolbar:has(.toolbar-search) { flex-wrap: nowrap; }
+    .toolbar:has(.toolbar-search) .crumbs:not(:has(> :nth-child(2))) { display: none; }
+    .toolbar:has(.toolbar-search) .actions { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; }
+    .toolbar:has(.toolbar-search) form.inline { display: flex; flex: 1 1 auto; min-width: 0; }
     th, td { padding: 4px 8px; }
     th:first-child, td:first-child { padding-left: 16px; }
     th:last-child, td:last-child { padding-right: 16px; }
     th.opt, td.opt { display: none; }
-    .file-actions input[name="path"] { flex: 1; width: auto; }
-    .file-actions form:first-child { flex: 1 1 100%; }
   }
 }
 
 @layer components {
   /* Search */
   .toolbar-search { width: min(16rem, 40vw); min-width: 0; }
-  @media (max-width: 640px) { .toolbar-search { width: 100%; } }
+  @media (max-width: 640px) { .toolbar-search { width: 100%; flex: 1 1 auto; } }
   .narrow.wide { max-width: 52rem; }
   .search-results li { display: block; padding: 8px 0; border-bottom: 1px solid var(--line); }
   .search-results .snippet { margin: 4px 0 0; color: var(--muted); }
@@ -282,6 +298,9 @@
     max-width: 10rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   details.account-menu summary::-webkit-details-marker { display: none; }
+  .account-name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  /* On phones a long name gives its room to the bar. */
+  @media (max-width: 640px) { details.account-menu summary { max-width: 6rem; flex: none; } }
   details.account-menu summary::after { content: "▾"; font-size: 11px; color: var(--muted); flex: none; }
   details.account-menu[open] .menu-body { width: min(14rem, calc(100vw - 32px)); padding: 4px; gap: 0; z-index: 20; }
   details.account-menu form.inline { display: contents; }
@@ -301,7 +320,11 @@
   label.choice[hidden], label[hidden] { display: none; }
   .buttons { display: flex; gap: 8px; justify-content: flex-end; align-items: center; flex-wrap: wrap; }
   .buttons .spacer { margin-right: auto; }
-  .row select { flex: 1 1 8rem; }
+  /* Only a select that sits in the row itself grows along it: one inside a label (a column) would
+     take the 8rem as its height. */
+  .row > select { flex: 1 1 8rem; }
+  .row > label:has(> select) { flex: 1 1 8rem; min-width: 0; }
+  .row > label > select { width: 100%; }
   .form-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: 12px 16px; }
   details.disclosure { margin: 8px 0; }
   details.disclosure > summary { cursor: pointer; color: var(--accent); width: fit-content; }
@@ -324,13 +347,16 @@
     background: var(--bg); border: 1px solid var(--line); padding: 4px 12px;
   }
   .toast.error { color: var(--danger); }
-  .thread { border-bottom: 1px solid var(--line); padding: 8px 0; display: flex; flex-direction: column; gap: 4px; }
+  .thread { border-bottom: 1px solid var(--line); padding: 12px 0; display: flex; flex-direction: column; gap: 8px; }
   .thread.active blockquote { border-left-color: var(--accent); }
   .thread.resolved { color: var(--muted); }
   .thread blockquote { margin: 0; padding-left: 8px; border-left: 2px solid var(--line); color: var(--muted); cursor: pointer; white-space: pre-wrap; overflow-wrap: anywhere; }
   .thread .meta { margin: 4px 0 0; }
   .thread .body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
   .thread .row { margin: 0; }
+  .thread .comment { display: grid; gap: 4px; }
+  .thread .buttons { justify-content: flex-start; }
+  .show-resolved { display: flex; margin: 12px 0 4px; min-height: var(--control); color: var(--muted); }
   .thread textarea { width: 100%; resize: vertical; }
   .thread blockquote.suggested { white-space: pre-wrap; color: var(--fg); }
   .thread del, .cm-suggest-del { color: var(--danger); text-decoration: line-through; }
@@ -352,6 +378,7 @@
   @supports (field-sizing: content) { .reply textarea[rows="1"] { height: auto; } }
   .thread-foot { display: flex; gap: 8px; align-items: flex-start; margin-top: 4px; }
   .thread-foot .reply { flex: 1; min-width: 0; }
+  .thread-foot .resolved-by { flex: 1; min-width: 0; align-self: center; }
   dialog.wide { width: min(56rem, calc(100vw - 32px)); }
   .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .conflicts li { flex-direction: column; align-items: stretch; padding: 8px 0; }
@@ -542,7 +569,9 @@
   #editor .cm-editor { height: 100%; background: var(--bg); color: var(--fg); }
   #editor .cm-editor.cm-focused { outline: none; }
   #editor .cm-scroller { font-family: var(--editor-font, var(--font)); font-size: var(--editor-size, 17px); line-height: 1.6; }
-  #editor .cm-content { max-width: 72ch; margin: 0 auto; padding: 24px 16px 40vh; caret-color: var(--accent); }
+  /* min-width: 0 so a wide picture, table or title never makes the text wider than a phone. */
+  #editor .cm-content { max-width: 72ch; min-width: 0; margin: 0 auto; padding: 24px 16px 40vh; caret-color: var(--accent); }
+  #editor .cm-content > * { max-width: 100%; }
   #editor .cm-cursor, #editor .cm-dropCursor { border-left: 2px solid var(--accent); }
   #editor .cm-selectionBackground, #editor .cm-focused .cm-selectionBackground, #editor .cm-content ::selection { background: var(--sel) !important; }
   #editor .cm-searchMatch { background: var(--sel); }
@@ -616,24 +645,44 @@
   }
   #editor .cm-note-chip:hover { background: color-mix(in srgb, var(--accent) 25%, transparent); }
   #editor .cm-md-table { font-family: var(--mono); font-size: .85em; }
-  #editor .cm-figure { margin: 4px 0; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius); display: grid; gap: 6px; font-family: var(--font); cursor: default; }
+  /* Tables as tables (editor/table-view.js); wide ones scroll sideways inside the text. */
+  #editor .cm-table-view { margin: 4px 0; min-width: 0; font-family: var(--font); cursor: text; word-break: normal; overflow-wrap: normal; }
+  #editor .cm-table-caption { color: var(--muted); font-size: .9em; }
+  #editor .cm-table-scroll { overflow-x: auto; max-width: 100%; }
+  #editor .cm-table-view table { width: auto; min-width: min(100%, 16rem); border-collapse: collapse; font-size: .9em; line-height: 1.45; }
+  #editor .cm-table-view th, #editor .cm-table-view td {
+    height: auto; padding: 4px 10px; border: 1px solid var(--line); color: var(--fg); vertical-align: top; text-align: left;
+    white-space: normal; overflow-wrap: normal;
+  }
+  #editor .cm-table-view th { font-weight: 600; background: var(--hover); }
+  #editor .cm-table-view tbody tr:hover { background: none; }
+  #editor .cm-table-view td:hover, #editor .cm-table-view th:hover { outline: 1px solid var(--edge); outline-offset: -1px; }
+  #editor .cm-table-view code { font-family: var(--mono); font-size: .9em; }
+  .review-mode #editor .cm-table-view { cursor: default; }
+  .review-mode #editor .cm-table-view td:hover, .review-mode #editor .cm-table-view th:hover { outline: 0; }
+  /* Plain text editing: the Markdown as it is, monospaced, every line the same size. */
+  .raw-mode #editor .cm-scroller { font-family: var(--mono); font-size: 14px; line-height: 1.6; }
+  .raw-mode #editor .cm-content { max-width: 96ch; }
+  .raw-mode #editor .cm-md-table, .raw-mode #editor .cm-md-code, .raw-mode #editor .cm-md-frontmatter,
+  .raw-mode #editor .cm-md-math, .raw-mode #editor .cm-md-raw { font-size: inherit; }
+  #editor .cm-figure { margin: 4px 0; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius); display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; min-width: 0; font-family: var(--font); cursor: default; }
   #editor .cm-figure-img { display: flex; justify-content: center; min-height: 2rem; align-items: center; }
   #editor .cm-figure-img img { max-width: 100%; max-height: 16rem; object-fit: contain; display: block; }
-  #editor .cm-figure-row { display: flex; gap: 8px; align-items: center; }
-  #editor .cm-figure-caption { flex: 1; min-width: 0; border: 1px solid transparent; background: transparent; color: var(--fg); font: inherit; font-size: .95em; text-align: center; min-height: 0; padding: 2px 6px; }
+  #editor .cm-figure-row { display: flex; gap: 8px; align-items: center; min-width: 0; }
+  #editor .cm-figure-caption { flex: 1; min-width: 0; width: 0; border: 1px solid transparent; background: transparent; color: var(--fg); font: inherit; font-size: .95em; text-align: center; min-height: 0; padding: 2px 6px; }
   #editor .cm-figure-caption:hover:not(:disabled) { border-color: var(--line); }
   #editor .cm-figure-caption:focus { border-color: var(--accent); outline: none; }
   #editor .cm-figure-pill { flex: none; min-height: 0; padding: 0 8px; border-radius: 999px; border: 1px solid var(--line); font: 11px/18px var(--mono); color: var(--muted); }
   #editor .cm-figure-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; font-size: 13px; }
   #editor .cm-figure-meta[hidden] { display: none; }
   #editor .cm-figure-meta label { display: inline-flex; gap: 4px; align-items: center; }
-  #editor .cm-figure-meta input { width: 9rem; min-height: 24px; font: 12px var(--mono); }
+  #editor .cm-figure-meta input { width: 9rem; max-width: 100%; min-height: 24px; font: 12px var(--mono); }
   #editor .cm-figure-path { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
   #editor .cm-figure button.link { min-height: 0; }
   @media (pointer: coarse) { #editor .cm-figure button, #editor .cm-figure input { min-height: var(--control); } }
   /* The title card: the front matter as a document's title block (§6.3) */
   #editor .cm-title-card {
-    display: grid; gap: 2px; padding: 8px 0 12px; margin-bottom: 8px; border-bottom: 1px solid var(--line);
+    display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; min-width: 0; padding: 8px 0 12px; margin-bottom: 8px; border-bottom: 1px solid var(--line);
     font-family: var(--font); cursor: default;
   }
   #editor .cm-title-card input, #editor .cm-title-card textarea {
@@ -643,12 +692,13 @@
   #editor .cm-title-card input:hover:not(:disabled), #editor .cm-title-card textarea:hover:not(:disabled) { border-color: var(--line); }
   #editor .cm-title-card input:focus, #editor .cm-title-card textarea:focus { border-color: var(--accent); outline: none; }
   #editor .cm-title-card input::placeholder, #editor .cm-title-card textarea::placeholder { color: var(--muted); opacity: .7; }
+  #editor .cm-title-card textarea.tc-wrap { resize: none; overflow: hidden; display: block; field-sizing: content; }
   #editor .cm-title-card .tc-title { font-size: 1.6em; font-weight: 600; line-height: 1.3; }
   #editor .cm-title-card .tc-subtitle { font-size: 1.1em; }
   #editor .cm-title-card .tc-byline { display: flex; gap: 4px 16px; flex-wrap: wrap; color: var(--muted); }
   #editor .cm-title-card .tc-byline input { color: var(--muted); }
-  #editor .cm-title-card .tc-author { flex: 1 1 12rem; width: auto; }
-  #editor .cm-title-card .tc-date { flex: 0 1 11rem; width: auto; }
+  #editor .cm-title-card .tc-author { flex: 1 1 12rem; width: auto; min-width: 0; }
+  #editor .cm-title-card .tc-date { flex: 0 1 11rem; width: auto; min-width: 0; }
   #editor .cm-title-card .tc-abstract { display: grid; gap: 2px; margin-top: 6px; }
   #editor .cm-title-card .tc-abstract textarea { resize: vertical; font-size: .95em; line-height: 1.5; }
   #editor .cm-title-card .tc-label, #editor .cm-title-card .tc-field label { color: var(--muted); font-size: 12px; }
@@ -754,8 +804,7 @@
 
 /* Local-first (§6.5, §12.6–12.7): the project bar, the sync choice and the offline badge. */
 @layer components {
-  .project-bar { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; min-height: 36px; padding: 4px 16px; border-bottom: 1px solid var(--line); }
-  .project-bar .spacer-left { margin-left: auto; }
+  .project-bar { display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap; }
   .project-bar [data-offline-state]:empty { display: none; }
   label.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
   label.switch input { margin: 0; }
@@ -844,6 +893,48 @@
   .export-form .export-formats label.choice { display: flex; width: fit-content; }
   .export-form .export-tech label.choice { margin-left: 14px; }
   .export-form #export-conflicts:empty, .export-form #export-status:empty { display: none; }
+
+  /* The project page: its name and facts, the files, then the settings as cards in a grid. */
+  .project-page { max-width: 72rem; margin: 0 auto; padding: 16px 16px 0; display: grid; gap: 16px; }
+  .project-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 16px; }
+  .project-title { min-width: 0; }
+  .project-title h1 { margin: 0; font-size: 20px; line-height: 1.3; overflow-wrap: anywhere; }
+  .project-meta { display: flex; flex-wrap: wrap; gap: 0 8px; margin: 4px 0 0; font-size: 13px; }
+  .project-meta > span + span::before { content: "·"; margin-right: 8px; }
+  /* Sections are set apart by a line and their heading (§25.1: lines, not boxes). */
+  .card { border-top: 1px solid var(--line); padding: 12px 0 0; min-width: 0; }
+  .card > :last-child { margin-bottom: 0; }
+  .section-head { display: flex; align-items: center; gap: 8px 12px; min-height: var(--control); margin-bottom: 4px; }
+  .section-head h2 { margin: 0; font-size: 15px; flex: 1 1 auto; min-width: 0; }
+  .section-head .row { margin: 0; }
+  .settings-title { margin: 16px 0 -4px; font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+  /* The settings flow in columns, so a long card leaves no gap beside it. */
+  .settings-grid { columns: 22rem; column-gap: 32px; }
+  .settings-grid > .card { break-inside: avoid; display: block; margin: 0 0 24px; }
+  .card form.row:has(> .row-label) { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr) auto; }
+  .row-label { color: var(--muted); }
+  .files-card td:nth-child(3) { white-space: nowrap; }
+  .files-card table th:first-child, .files-card table td:first-child { padding-left: 0; }
+  .files-card table th:last-child, .files-card table td:last-child { padding-right: 0; }
+  .files-card .file-name { overflow-wrap: anywhere; }
+  .files-card .new-doc { margin: 12px 0 0; flex-wrap: nowrap; }
+  .files-card .new-doc input { min-width: 0; max-width: 20rem; }
+  .upload-form { margin: 0; }
+  .card .row > select { flex: 1 1 10rem; }
+  .card .compact-form { gap: 4px; margin-top: 8px; }
+  .card .compact-form > div { margin-top: 4px; }
+  .member-list .badge { flex: none; }
+  .danger-zone .row:last-child { justify-content: flex-end; }
+
+  @media (max-width: 640px) {
+    .project-page { padding-top: 12px; gap: 12px; }
+    .files-card .table-wrap { margin: 0 -16px; }
+    .files-card table th:first-child, .files-card table td:first-child { padding-left: 16px; }
+    .files-card table th:last-child, .files-card table td:last-child { padding-right: 16px; }
+    .files-card .new-doc input { max-width: none; flex: 1; }
+    .settings-grid > .card { margin-bottom: 16px; }
+    .card form.row:has(> .row-label) { grid-template-columns: 5rem minmax(0, 1fr) auto; }
+  }
 
   /* The search panel wraps on phones, with room to tap (its colours: searchTheme in editor/main.js). */
   #editor .cm-search { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; padding: 6px 8px; font-size: 14px; }

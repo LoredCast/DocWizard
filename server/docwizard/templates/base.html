@@ -2,7 +2,7 @@
 <html lang="{{ lang }}" data-theme="{{ theme }}">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
 {% if theme == "light" %}
 <meta name="theme-color" content="#ffffff">
 {% elif theme == "system" %}
@@ -31,7 +31,7 @@
     {% block actions %}{% endblock %}
     {% if user %}
     <details class="menu account-menu">
-      <summary>{{ user.display_name }}</summary>
+      <summary title="{{ user.display_name }}"><span class="account-name">{{ user.display_name }}</span></summary>
       <div class="menu-body actions-list">
         <a class="menu-item" href="/notifications">{{ _("Notifications") }}</a>
         {% if user.is_admin %}<a class="menu-item" href="/admin">{{ _("Admin") }}</a>{% endif %}
@@ -45,7 +45,7 @@
     </details>
     {% elif guest %}
     <details class="menu account-menu">
-      <summary>{{ guest.display_name }} <span class="muted">({{ _("guest") }})</span></summary>
+      <summary title="{{ guest.display_name }}"><span class="account-name">{{ guest.display_name }} <span class="muted">({{ _("guest") }})</span></span></summary>
       <div class="menu-body actions-list">
         <form method="post" action="/logout" class="inline">
           <input type="hidden" name="_csrf" value="{{ csrf }}">

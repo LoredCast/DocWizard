@@ -11,25 +11,43 @@
 {% block actions %}
 <span class="presence" id="presence" aria-label="{{ _('Also here') }}"></span>
 <span class="status" id="save-state" role="status">{{ _("Saved") }}</span>
+{# The actions used most stay in the bar on wide screens; the rest are grouped in the Actions menu. #}
+<button type="button" class="tb-quick" data-proxy="open-comments">{{ _("Comments") }}</button>
 <button type="button" id="toggle-preview" aria-pressed="true">{{ _("Preview") }}</button>
+{% if can(role, "share", project) and not guest %}<button type="button" class="tb-quick" data-proxy="open-share">{{ _("Share") }}</button>{% endif %}
 <div class="editor-more" id="editor-more">
   <button type="button" id="more-actions" aria-expanded="false" aria-controls="toolbar-buttons">{{ _("Actions") }}</button>
   <div class="toolbar-buttons" id="toolbar-buttons">
     <span class="status menu-status" id="menu-save-state" aria-hidden="true">{{ _("Saved") }}</span>
-    <button type="button" id="open-chapters" data-open-chapters aria-expanded="false" aria-controls="chapters">{{ _("Chapters") }}</button>
-    <button type="button" id="open-find" title="{{ _('Find and replace (Ctrl+F)') }}">{{ _("Find and replace") }}</button>
-    <button type="button" id="new-comment" title="{{ _('Comment on the selection (Ctrl+Alt+M)') }}">{{ _("Comment") }}</button>
-    <button type="button" id="new-suggestion" aria-pressed="false" title="{{ _('Suggest changes: what you type becomes suggestions (Ctrl+Alt+G)') }}">{{ _("Track changes") }}</button>
-    <button type="button" id="open-comments" aria-pressed="false">{{ _("Comments") }}</button>
-    {% if doc.kind == "markdown" %}<button type="button" id="open-refs" aria-pressed="false" title="{{ _('References (Ctrl+Alt+R)') }}">{{ _("References") }}</button>{% endif %}
-    {% if doc.kind == "markdown" %}<button type="button" id="open-fields" aria-pressed="false" title="{{ _('Title, author and the other details this template prints') }}">{{ _("Document details") }}</button>{% endif %}
-    {% if doc.kind == "markdown" %}<a class="button" id="switch-view" title="{{ _('Edit the Markdown') if review else _('Read the document as it prints, without Markdown, to comment and suggest') }}" href="?view={{ 'source' if review else 'review' }}">{{ _("Edit the source") if review else _("Review view") }}</a>{% endif %}
-    <button type="button" id="open-export" title="{{ _('PDF, Word, e-book and more (Ctrl+E)') }}">{{ _("Download or print") }}</button>
-    <button type="button" id="open-versions">{{ _("Version history") }}</button>
-    {% if can(role, "share", project) and not guest %}<button type="button" id="open-share">{{ _("Share") }}</button>{% endif %}
-    {% if can(role, "publish", project) and not guest %}<button type="button" id="open-publish">{{ _("Publish") }}</button>{% endif %}
-    {% if can(role, "edit", project) %}<button type="button" id="rename-doc">{{ _("Rename") }}</button>
-    <button type="button" id="delete-doc" class="danger">{{ _("Delete") }}</button>{% endif %}
+    <div class="menu-group" role="group" aria-labelledby="menu-write">
+      <span class="menu-heading" id="menu-write">{{ _("Write") }}</span>
+      <button type="button" id="open-chapters" data-open-chapters aria-expanded="false" aria-controls="chapters">{{ _("Chapters") }}</button>
+      <button type="button" id="open-find" title="{{ _('Find and replace (Ctrl+F)') }}">{{ _("Find and replace") }}</button>
+      {% if doc.kind == "markdown" %}<button type="button" id="open-refs" aria-pressed="false" title="{{ _('References (Ctrl+Alt+R)') }}">{{ _("References") }}</button>
+      <button type="button" id="open-fields" aria-pressed="false" title="{{ _('Title, author and the other details this template prints') }}">{{ _("Document details") }}</button>
+      {% if not review %}<button type="button" id="toggle-raw" aria-pressed="false" title="{{ _('Edit the Markdown as plain text, without rendering titles, pictures or tables') }}">{{ _("Plain text editing") }}</button>{% endif %}
+      <a class="button" id="switch-view" title="{{ _('Edit the Markdown') if review else _('Read the document as it prints, without Markdown, to comment and suggest') }}" href="?view={{ 'source' if review else 'review' }}">{{ _("Edit the source") if review else _("Review view") }}</a>{% endif %}
+    </div>
+    <div class="menu-group" role="group" aria-labelledby="menu-review">
+      <span class="menu-heading" id="menu-review">{{ _("Review") }}</span>
+      <button type="button" id="new-comment" title="{{ _('Comment on the selection (Ctrl+Alt+M)') }}">{{ _("Comment") }}</button>
+      <button type="button" id="open-comments" class="pinned" aria-pressed="false">{{ _("Comments") }}</button>
+      <button type="button" id="new-suggestion" aria-pressed="false" title="{{ _('Suggest changes: what you type becomes suggestions (Ctrl+Alt+G)') }}">{{ _("Track changes") }}</button>
+    </div>
+    <div class="menu-group" role="group" aria-labelledby="menu-share">
+      <span class="menu-heading" id="menu-share">{{ _("Share and export") }}</span>
+      {% if can(role, "share", project) and not guest %}<button type="button" id="open-share" class="pinned">{{ _("Share") }}</button>{% endif %}
+      <button type="button" id="open-export" title="{{ _('PDF, Word, e-book and more (Ctrl+E)') }}">{{ _("Download or print") }}</button>
+      {% if can(role, "publish", project) and not guest %}<button type="button" id="open-publish">{{ _("Publish") }}</button>{% endif %}
+      <button type="button" id="open-versions">{{ _("Version history") }}</button>
+    </div>
+    {% if can(role, "edit", project) %}
+    <div class="menu-group" role="group" aria-labelledby="menu-file">
+      <span class="menu-heading" id="menu-file">{{ _("File") }}</span>
+      <button type="button" id="rename-doc">{{ _("Rename") }}</button>
+      <button type="button" id="delete-doc" class="danger">{{ _("Delete") }}</button>
+    </div>
+    {% endif %}
   </div>
 </div>
 {% endblock %}
@@ -67,6 +85,7 @@
       <span class="format-sep" aria-hidden="true"></span>
       <button type="button" data-cmd="refs" aria-pressed="false" aria-label="{{ _('References') }}" title="{{ _('References (Ctrl+Alt+R)') }}">{{ _("Refs") }}</button>
       <button type="button" data-cmd="marks" aria-pressed="true" aria-label="{{ _('Show Markdown marks') }}" title="{{ _('Show Markdown marks on the line you edit. Off: writer mode, the marks stay hidden and the toolbar formats.') }}">¶</button>
+      <button type="button" data-cmd="raw" aria-pressed="false" aria-label="{{ _('Plain text editing') }}" title="{{ _('Edit the Markdown as plain text, without rendering titles, pictures or tables') }}">{{ _("Plain") }}</button>
     </div>
     <div class="table-bar" id="table-bar" role="toolbar" aria-label="{{ _('Table') }}" hidden>
       <span class="muted">{{ _("Table") }}</span>

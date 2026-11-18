@@ -174,6 +174,33 @@ for (const vp of VIEWPORTS) {
       noProblems(page);
     });
 
+    test("tables show as tables, and plain text editing shows the Markdown", async () => {
+      await page.goto(projectUrl);
+      await page.fill('input[name="path"][placeholder]', "tables.md");
+      await page.click('button:text("Create document")');
+      await page.waitForURL(/tables\.md/);
+      await page.waitForSelector(".cm-content");
+      await page.locator(".cm-content").click();
+      await page.keyboard.press("ControlOrMeta+End");
+      await page.keyboard.insertText("| City | Bridges | Pipes (km) | Roads (km) | Budget per year (million EUR) |\n"
+        + "|------|--------:|-----------:|-----------:|------------------------------:|\n"
+        + "| Berlin | 960 | 9,600 | 5,400 | 1,200 |\n\nAfter the table.\n");
+      // The cursor is below the table, so the table shows as one, inside the width of the window.
+      await page.locator(".cm-table-view td", { hasText: "Berlin" }).waitFor();
+      await noOverflow(page, "editor with a table");
+      const raw = page.locator('#format-bar [data-cmd="raw"]');
+      await raw.scrollIntoViewIfNeeded();
+      await raw.click();
+      assert.equal(await raw.getAttribute("aria-pressed"), "true");
+      assert.equal(await page.locator(".cm-table-view").count(), 0, "plain text shows the table's Markdown");
+      await raw.click();
+      await page.locator(".cm-table-view").waitFor();
+      // A click on a cell opens the table's source there, with the table tools.
+      await page.locator(".cm-table-view td", { hasText: "Berlin" }).click();
+      await page.locator("#table-bar:not([hidden])").waitFor();
+      noProblems(page);
+    });
+
     test("preview: HTML and PDF, with the phone's Edit/Preview switch", async () => {
       const modeSwitch = page.locator(".mode-switch");
       if (vp.isMobile) {

@@ -14,6 +14,17 @@ const ISO = /^\d{4}-\d{2}-\d{2}$/;
 export const showYamlEffect = StateEffect.define(); // true: the YAML; false: the card
 export const refreshCard = StateEffect.define();
 
+// A one-line box as high as its wrapped text.
+function fit(area) {
+  if (!area.isConnected) return;
+  area.style.height = "auto";
+  area.style.height = `${area.scrollHeight}px`;
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("resize", () => document.querySelectorAll(".cm-title-card textarea.tc-wrap").forEach(fit));
+}
+
 const head = (state) => state.sliceDoc(0, Math.min(state.doc.length, HEAD));
 
 class TitleCard extends WidgetType {
@@ -117,6 +128,7 @@ export class TitleCardEditor {
   // Shows a field: its input in the card, or the YAML for fields the card can't edit.
   // Returns false when there is nothing to show (no front matter).
   reveal(view, key) {
+    if (!view.state.field(this.field, false)) return false; // plain text editing: no card
     if (!frontMatter(head(view.state))) return false;
     if (this.yamlShown(view.state)) return false;
     const info = readFields(head(view.state));
@@ -176,17 +188,26 @@ export class TitleCardEditor {
       const value = key === "author" ? authorsOf(f) : f?.kind === "list" ? f.value.join(", ") : (f?.value ?? "");
       if (input.type === "date" && value && !ISO.test(value)) input.type = "text";
       if (input.value !== value) input.value = value;
-      if (input.tagName === "TEXTAREA") input.rows = Math.min(12, Math.max(2, value.split("\n").length));
+      if (input.dataset.multiline !== undefined) input.rows = Math.min(12, Math.max(2, value.split("\n").length));
     }
+    requestAnimationFrame(() => dom.querySelectorAll("textarea.tc-wrap").forEach(fit));
   }
 
-  input(view, key, { cls, placeholder, type = "text", multiline = false, label = null, locked = false, list = false }) {
+  // wrap: one line of text that wraps instead of scrolling sideways (the title), so long values
+  // never make the card wider than the text on a phone.
+  input(view, key, { cls, placeholder, type = "text", multiline = false, wrap = false, label = null, locked = false, list = false }) {
     const value = (v) => (key === "author" ? authorValue(v)
       : list ? v.split(",").map((s) => s.trim()).filter(Boolean) : v);
     const attrs = {
       class: cls, "data-key": key, placeholder, disabled: locked, spellcheck: type === "text" ? "true" : "false",
       "aria-label": label ?? placeholder, title: label && label !== placeholder ? label : undefined,
-      oninput: (e) => this.write(view, key, value(e.target.value), { keepEmpty: true }),
+      oninput: (e) => {
+        if (wrap) {
+          if (/\n/.test(e.target.value)) e.target.value = e.target.value.replace(/\s*\n\s*/g, " ");
+          fit(e.target);
+        }
+        this.write(view, key, value(e.target.value), { keepEmpty: true });
+      },
       onchange: (e) => {
         // An emptied subtitle goes, so the layout doesn't print an empty line.
         if (key === "subtitle" && !e.target.value.trim()) this.write(view, key, "");
@@ -201,7 +222,9 @@ export class TitleCardEditor {
         }
       },
     };
-    return multiline ? el("textarea", { ...attrs, rows: 2 }) : el("input", { ...attrs, type });
+    if (multiline) return el("textarea", { ...attrs, rows: 2, "data-multiline": "" });
+    if (wrap) return el("textarea", { ...attrs, class: `${cls} tc-wrap`, rows: 1 });
+    return el("input", { ...attrs, type });
   }
 
   // Back to the text, just below the card.
@@ -219,8 +242,8 @@ export class TitleCardEditor {
     const author = byKey.get("author");
     const authorComplex = author?.kind === "complex";
     const parts = [
-      this.input(view, "title", { cls: "tc-title", placeholder: t("Title"), locked }),
-      this.input(view, "subtitle", { cls: "tc-subtitle", placeholder: t("Subtitle (optional)"), locked }),
+      this.input(view, "title", { cls: "tc-title", placeholder: t("Title"), wrap: true, locked }),
+      this.input(view, "subtitle", { cls: "tc-subtitle", placeholder: t("Subtitle (optional)"), wrap: true, locked }),
       el("div", { class: "tc-byline" },
         authorComplex
           ? el("button", { type: "button", class: "link tc-complex", onclick: () => this.setYaml(view, true) },
