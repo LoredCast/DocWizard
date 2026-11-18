@@ -1127,8 +1127,7 @@
  "Edit as YAML": "Als YAML bearbeiten",
  "Add a detail…": "Angabe hinzufügen …",
  "Show the document details as YAML, as they are in the file": "Die Dokumentangaben als YAML zeigen, so wie sie in der Datei stehen",
- "Fill these in at the top of the document, in its title card. Go to or Add takes you there. In the YAML view they are the lines between --- at the very top, one “name: value” per line.": "Diese Angaben füllst du oben im Dokument in der Titelkarte aus; „Zur Stelle“ und „Hinzufügen“ bringen dich hin. In der YAML-Ansicht sind es die Zeilen zwischen --- ganz oben, eine „Name: Wert“ pro Zeile."
- "{n} pictures in the pasted text were left out. Paste or drop each one on its own to add it.": "{n} Bilder im eingefügten Text wurden ausgelassen. Füg sie einzeln ein oder zieh sie in den Text."
+ "Fill these in at the top of the document, in its title card. Go to or Add takes you there. In the YAML view they are the lines between --- at the very top, one “name: value” per line.": "Diese Angaben füllst du oben im Dokument in der Titelkarte aus; „Zur Stelle“ und „Hinzufügen“ bringen dich hin. In der YAML-Ansicht sind es die Zeilen zwischen --- ganz oben, eine „Name: Wert“ pro Zeile.",
  "Add email address": "E-Mail-Adresse hinzufügen",
  "Change email address": "E-Mail-Adresse ändern",
  "Confirm": "Bestätigen",
