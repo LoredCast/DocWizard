@@ -159,6 +159,16 @@ def rename_document(conn: sqlite3.Connection, doc: sqlite3.Row, new_path: str) -
         raise ValueError("A file with this name already exists.")
     conn.execute("UPDATE documents SET path = ?, kind = ? WHERE id = ?",
                  (new_path, files.kind_for(new_path), doc["id"]))
+    # A renamed chapter keeps its place in the build.
+    row = conn.execute("SELECT build_inputs FROM projects WHERE id = ?", (doc["project_id"],)).fetchone()
+    if row and row["build_inputs"] and new_path != doc["path"]:
+        try:
+            inputs = json.loads(row["build_inputs"])
+        except ValueError:
+            inputs = None
+        if isinstance(inputs, list) and doc["path"] in inputs:
+            conn.execute("UPDATE projects SET build_inputs = ? WHERE id = ?",
+                         (json.dumps([new_path if p == doc["path"] else p for p in inputs]), doc["project_id"]))
     return new_path
 
 

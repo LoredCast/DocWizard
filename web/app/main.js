@@ -42,6 +42,47 @@ for (const form of $$("form[data-upload]")) {
   });
 }
 
+// "Import Word" on the home page: the Word file becomes a project of its own with one document,
+// which opens right away; there is no project to set up first (§8.11).
+const wordInput = $("#import-word");
+if (wordInput) {
+  let layout = null;
+  for (const button of $$("[data-import-word]")) {
+    button.addEventListener("click", () => {
+      // From the New project dialog, the layout chosen there.
+      const dialog = button.closest("dialog");
+      layout = dialog?.querySelector('select[name="layout"]')?.value ?? null;
+      wordInput.value = "";
+      wordInput.click();
+    });
+  }
+  wordInput.addEventListener("change", async () => {
+    const file = wordInput.files[0];
+    if (!file) return;
+    const status = $("#import-status");
+    const buttons = $$("[data-import-word]");
+    const name = file.name.replace(/\.docx$/i, "").trim().slice(0, 120) || t("Imported document");
+    for (const b of buttons) b.disabled = true;
+    const label = buttons[0]?.textContent;
+    if (buttons[0]) buttons[0].textContent = t("Importing…");
+    status.textContent = t("Importing {name}…", { name: file.name });
+    let project = null;
+    try {
+      project = await api("POST", "/api/projects", { name, starter: false, ...(layout ? { layout } : {}) });
+      const path = `${name.replace(/[\\/]+/g, "-")}.docx`;
+      const result = await api("PUT", `/api/projects/${project.id}/assets/${encodeURIComponent(path)}`, file, { raw: true });
+      location.href = `/p/${project.id}/${result.path.split("/").map(encodeURIComponent).join("/")}`;
+    } catch (err) {
+      // A Word file that can't be read leaves no empty project behind.
+      if (project) await api("DELETE", `/api/projects/${project.id}`).catch(() => {});
+      for (const b of buttons) b.disabled = false;
+      if (buttons[0]) buttons[0].textContent = label;
+      status.textContent = "";
+      toast(err.message, { error: true });
+    }
+  });
+}
+
 if ($("#sync")) import("./sync.js").then((m) => m.wireSync($("#sync")));
 
 // "Available offline" on the project page: every document of the project is kept in this
