@@ -1,12 +1,9 @@
 """Collaboration authority and protocol tests (§8, §20)."""
 
-import asyncio
 import json
 import re
 import sqlite3
-from pathlib import Path
 
-import pytest
 
 from tests.asgi_client import Client, WebSocket
 
