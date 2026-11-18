@@ -83,12 +83,12 @@ def register(app) -> None:
         if not app.layouts.exists(layout):
             layout = app.policy("default_layout")
         try:
-            pid, main = await create_project_with_starter(app, req.user, form.get("name", ""), layout,
-                                                          form.get("starter", "1") == "1", app.lang_of(req))
+            pid, main, main_path = await create_project_with_starter(
+                app, req.user, form.get("name", ""), layout, form.get("starter", "1") == "1", app.lang_of(req))
         except ValueError as exc:
             return redirect("/?error=" + quote(str(exc)))
         if main:
-            return redirect(doc_url(pid, "paper.md"))
+            return redirect(doc_url(pid, main_path))
         return redirect(f"/p/{pid}")
 
     async def project_page(req: Request) -> Response:
@@ -265,7 +265,7 @@ async def editor_snapshot(app, req: Request, project, role: str, doc, *, review:
         "user": {"id": req.actor_key, "name": req.actor_name, "guest": guest is not None},
         "can": {cap: permissions.can(role, cap, project) and not (guest and cap in GUEST_FORBIDDEN)
                 for cap in ("edit", "comment", "resolve_comments", "versions", "share", "publish",
-                            "change_layout")},
+                            "change_layout", "upload")},
         "layout": layout.public(),
         "layoutOptions": options,
         "fields": fields.for_layout(layout),

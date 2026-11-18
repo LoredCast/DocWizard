@@ -95,7 +95,7 @@ async def test_changes_flow_both_ways(client, app, dav):
     assert (await run(client, pid))["uploaded"] == ["paper.md"]
     assert dav.read(f"{FOLDER}/paper.md").decode().endswith("Added here.\n")
     # Both sides, different paragraphs: both kept, no conflict.
-    dav.put(f"{FOLDER}/paper.md", dav.read(f"{FOLDER}/paper.md").decode().replace("# References", "# Sources"))
+    dav.put(f"{FOLDER}/paper.md", dav.read(f"{FOLDER}/paper.md").decode().replace("# Introduction", "# Sources"))
     await edit(app, pid, "paper.md", lambda t: t.replace("Added here.", "Added here, then edited."))
     report = await run(client, pid)
     assert report["conflicts"] == []
