@@ -10,6 +10,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/opt/docwizard/serve
 RUN groupadd --system --gid 10001 docwizard-app \
  && useradd --system --uid 10001 --gid 10001 --home-dir /var/lib/docwizard --shell /usr/sbin/nologin docwizard-app
 
+# git for syncing projects with git repositories (§12.7).
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /opt/docwizard
 COPY requirements.lock ./
 RUN pip install --no-cache-dir --require-hashes -r requirements.lock

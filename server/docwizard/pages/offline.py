@@ -66,6 +66,27 @@ def register(app) -> None:
     editor_ctx = {"project": {"id": "", "name": ""}, "doc": {"path": "", "kind": "markdown"}, "role": "viewer",
                   "layout": {"name": ""}, "snapshot": "null", "can": lambda *a: False, "review": False}
 
+    # Installing DocWizard as an app (§6.5): its own window, an icon, and the offline shells
+    # when it starts without a connection.
+    async def web_manifest(req: Request) -> Response:
+        icons = app.static_prefix + "/icons"
+        manifest = {
+            "name": "DocWizard", "short_name": "DocWizard", "id": "/", "start_url": "/", "scope": "/",
+            "display": "standalone", "background_color": "#000000", "theme_color": "#000000",
+            "description": "Write, cite and lay out documents together, also offline.",
+            "icons": [
+                {"src": f"{icons}/icon-192.png", "sizes": "192x192", "type": "image/png"},
+                {"src": f"{icons}/icon-512.png", "sizes": "512x512", "type": "image/png"},
+                {"src": f"{icons}/icon-maskable-512.png", "sizes": "512x512", "type": "image/png",
+                 "purpose": "maskable"},
+                {"src": f"{app.static_prefix}/favicon.svg", "sizes": "any", "type": "image/svg+xml"},
+            ],
+        }
+        resp = Response(json.dumps(manifest), 200, "application/manifest+json")
+        resp.set_header("cache-control", "no-cache")
+        return resp
+
+    app.router.add("GET", "/manifest.webmanifest", web_manifest, auth=False, no_session=True)
     app.router.add("GET", "/sw.js", service_worker, auth=False, no_session=True)
     app.router.add("GET", "/_shell/home", shell("shell_home.html"), auth=False, no_session=True)
     app.router.add("GET", "/_shell/editor", shell("editor.html", **editor_ctx), auth=False, no_session=True)

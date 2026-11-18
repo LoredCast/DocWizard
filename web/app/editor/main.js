@@ -314,6 +314,12 @@ function handleEvent(msg) {
       presence.receive(msg.version, msg.peer);
       break;
     case "error":
+      if (offlineRecord && msg.code === "bad_client_id") {
+        // A copy kept offline for a long time: its client ID expired. Online again, the real
+        // editor page opens with a new one and merges this browser's edits (§6.5).
+        session.persistNow().then(() => location.reload());
+        break;
+      }
       toast(msg.message ?? t("Something went wrong."), { error: true });
       break;
     default:
