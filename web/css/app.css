@@ -571,6 +571,63 @@
   #editor .cm-jump-flash { background: var(--sel); animation: jump-flash 1.6s ease-out forwards; }
   @keyframes jump-flash { 60% { background: var(--sel); } to { background: transparent; } }
   @media (prefers-reduced-motion: reduce) { #editor .cm-jump-flash { animation: none; } }
+  /* Popovers for links, footnotes, tables and cross-references (§6.3) */
+  .dw-popover {
+    position: absolute; z-index: 30; width: min(22rem, calc(100% - 16px)); background: var(--bg); color: var(--fg);
+    border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 4px 16px rgb(0 0 0 / .25); padding: 12px;
+    font-family: var(--font); font-size: 14px;
+  }
+  .dw-popover.wide { width: min(28rem, calc(100% - 16px)); }
+  .dw-popover.sheet { inset: auto 0 0 0; width: auto; max-height: 70%; overflow: auto; border-width: 1px 0 0; border-radius: 0; padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+  .dw-popover .form { gap: 10px; }
+  .dw-popover input, .dw-popover textarea { width: 100%; }
+  .dw-popover textarea { resize: vertical; min-height: 5rem; }
+  .dw-popover .hint { margin: 0; }
+  .dw-insert-menu { padding: 0; }
+  .dw-popover:has(.dw-insert-menu) { padding: 4px; width: min(16rem, calc(100% - 16px)); }
+  .dw-popover.sheet:has(.dw-insert-menu) { width: auto; }
+  .dw-insert-menu button { display: flex; gap: 12px; width: 100%; }
+  .dw-menu-hint { margin-left: auto; font-size: 12px; }
+  .dw-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px; width: min(16rem, 100%); }
+  .dw-grid-cell { aspect-ratio: 1; min-height: 0; min-width: 0; padding: 0; border: 1px solid var(--edge); border-radius: 1px; background: transparent; }
+  .dw-grid-cell.on { background: color-mix(in srgb, var(--accent) 35%, transparent); border-color: var(--accent); }
+  .dw-grid-label { margin: 8px 0 4px; }
+  .dw-xref-list { max-height: 18rem; overflow: auto; margin: 4px 0 0; }
+  .dw-xref-list li { padding: 0; }
+  .dw-xref-list button { width: 100%; justify-content: flex-start; text-align: left; border-color: transparent; padding: 4px 8px; white-space: normal; height: auto; }
+  .dw-note-head { display: flex; align-items: baseline; gap: 8px; }
+  /* Table tools, under the toolbar while the cursor is in a table */
+  .table-bar { display: flex; align-items: center; gap: 2px; padding: 2px 8px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; flex: none; font-size: 13px; }
+  .table-bar[hidden] { display: none; }
+  .table-bar > .muted { margin-right: 6px; }
+  .table-bar button { border-color: transparent; padding: 0 8px; min-height: 24px; flex: none; }
+  .table-bar [data-table="delete"] { margin-left: auto; }
+  @media (pointer: coarse) { .table-bar button { min-height: var(--control); } }
+  .format-bar [data-cmd="marks"] { font-size: 15px; }
+  .format-bar [data-cmd="marks"][aria-pressed="false"] { color: var(--muted); border-color: transparent; }
+  /* Footnotes as their numbers, figures as pictures, tables monospaced */
+  #editor .cm-note-chip {
+    display: inline-block; min-width: 1.3em; padding: 0 3px; margin: 0 1px; border-radius: 3px; text-align: center;
+    font-size: .7em; line-height: 1.4; vertical-align: super; color: var(--accent); cursor: pointer;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  #editor .cm-note-chip:hover { background: color-mix(in srgb, var(--accent) 25%, transparent); }
+  #editor .cm-md-table { font-family: var(--mono); font-size: .85em; }
+  #editor .cm-figure { margin: 4px 0; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius); display: grid; gap: 6px; font-family: var(--font); cursor: default; }
+  #editor .cm-figure-img { display: flex; justify-content: center; min-height: 2rem; align-items: center; }
+  #editor .cm-figure-img img { max-width: 100%; max-height: 16rem; object-fit: contain; display: block; }
+  #editor .cm-figure-row { display: flex; gap: 8px; align-items: center; }
+  #editor .cm-figure-caption { flex: 1; min-width: 0; border: 1px solid transparent; background: transparent; color: var(--fg); font: inherit; font-size: .95em; text-align: center; min-height: 0; padding: 2px 6px; }
+  #editor .cm-figure-caption:hover:not(:disabled) { border-color: var(--line); }
+  #editor .cm-figure-caption:focus { border-color: var(--accent); outline: none; }
+  #editor .cm-figure-pill { flex: none; min-height: 0; padding: 0 8px; border-radius: 999px; border: 1px solid var(--line); font: 11px/18px var(--mono); color: var(--muted); }
+  #editor .cm-figure-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; font-size: 13px; }
+  #editor .cm-figure-meta[hidden] { display: none; }
+  #editor .cm-figure-meta label { display: inline-flex; gap: 4px; align-items: center; }
+  #editor .cm-figure-meta input { width: 9rem; min-height: 24px; font: 12px var(--mono); }
+  #editor .cm-figure-path { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+  #editor .cm-figure button.link { min-height: 0; }
+  @media (pointer: coarse) { #editor .cm-figure button, #editor .cm-figure input { min-height: var(--control); } }
   /* The title card: the front matter as a document's title block (§6.3) */
   #editor .cm-title-card {
     display: grid; gap: 2px; padding: 8px 0 12px; margin-bottom: 8px; border-bottom: 1px solid var(--line);

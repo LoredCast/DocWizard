@@ -10,14 +10,16 @@ import { $, api, confirmDialog, el, t, toast, wireCommon } from "../ui/dom.js";
 import { AnchorLoader, anchorsField, conflictGutter } from "./anchors.js";
 import { setCiteHooks, setLibrary } from "./citations.js";
 import {
-  activeFormatting, cycleHeading, insertCitation, insertFootnote, insertLink,
+  activeFormatting, cycleHeading, insertCitation,
   toggleBold, toggleBulletList, toggleCode, toggleInlineMath, toggleItalic,
   toggleOrderedList, toggleQuote, toggleStrike, toggleTaskList,
 } from "./commands.js";
 import { CommentsPanel } from "./comments.js";
 import { FieldsPanel, LayoutFields, fieldsExtension } from "./fields.js";
 import { GrammarChecker, grammarExtension, showMatches } from "./grammar.js";
+import { figures } from "./figures.js";
 import { ImageInserter } from "./images.js";
+import { InsertTools } from "./insert-tools.js";
 import { RichPaste } from "./paste.js";
 import { documentLanguage } from "../workers/grammar-text.js";
 import { ReferencesPanel } from "./references.js";
@@ -26,6 +28,8 @@ import { characterCompletion, openOutline } from "./script.js";
 import { access, accessExtensions, baseExtensions } from "./setup.js";
 import { setSuggestMode, suggestField, suggestMode } from "./suggest-mode.js";
 import { TitleCardEditor, refreshCard } from "./title-card.js";
+import { addColumn, addRow, cycleAlign, deleteColumn, deleteRow, deleteTable, tableAt } from "./tables.js";
+import { setWriterMode, writerField, writerMode } from "./writer-mode.js";
 
 wireCommon();
 
@@ -154,6 +158,12 @@ const titleCard = isMarkdown && !review ? new TitleCardEditor({
   yaml: stored(yamlKey, "off") === "on",
   onYaml: (on) => store(yamlKey, on ? "on" : "off"),
 }) : null;
+// Links, footnotes, tables and cross-references through popovers; pictures as figures; writer mode.
+const tools = isMarkdown ? new InsertTools({ view: null, host: $("#editor").closest(".pane"),
+                                             readOnly: (state) => state.readOnly }) : null;
+const marksKey = "dw.marks";
+const figureField = isMarkdown ? figures({ projectId: offlineRecord ? null : projectId,
+                                           locked: (state) => state.readOnly }) : null;
 
 const session = new DocSession({
   socket, docId, clientID: snap.clientID, text: snap.text, version: snap.version,
@@ -161,7 +171,9 @@ const session = new DocSession({
     base, peersField, anchorsField, conflictGutter((id) => openConflicts(id)), markClicks,
     review ? reviewFrontMatter : [], richPaste ? richPaste.extension() : [], images ? images.extension() : [],
     flashField,
-    layoutFields ? fieldsExtension(layoutFields) : [], titleCard ? titleCard.extension() : [], isScript ? characterCompletion(() => characters) : [],
+    layoutFields ? fieldsExtension(layoutFields) : [], titleCard ? titleCard.extension() : [],
+    isMarkdown ? writerField.init(() => !review && stored(marksKey, "on") === "off") : [],
+    figureField ?? [], tools ? tools.extension({ writer: writerMode }) : [], isScript ? characterCompletion(() => characters) : [],
     grammar ? grammarExtension({ ignore: (m, w) => { grammar.ignore(m, w); checkGrammar(); },
                                  addWord: (w) => { grammar.addWord(w); checkGrammar(); } }) : [],
     suggest ? suggest.extension : [],
@@ -196,37 +208,83 @@ const { text: _text, version: _version, clientID: _clientID, ...meta } = snap;
 session.keep = { url: location.pathname, meta, pinned: Boolean(snap.doc.pinned) };
 session.start(view);
 view.focus();
+if (tools) {
+  tools.view = view;
+  tools.listen(view.dom);
+}
 
 // -- Formatting bar and mobile actions menu -------------------------------
 const formatBar = $("#format-bar");
+// Commands that open a popover return "popover", so the popover keeps the focus.
+const POPOVER = "popover";
 const FORMAT_CMDS = {
   undo, redo,
   bold: toggleBold, italic: toggleItalic, strike: toggleStrike, code: toggleCode,
   heading: cycleHeading, quote: toggleQuote, bullet: toggleBulletList,
   ordered: toggleOrderedList, task: toggleTaskList,
-  link: insertLink, math: toggleInlineMath, cite: insertCitation, footnote: insertFootnote,
+  link: (v, btn) => { tools.link(btn); return POPOVER; },
+  footnote: (v, btn) => { tools.note({ anchor: btn }); return POPOVER; },
+  table: (v, btn) => { tools.table(btn); return POPOVER; },
+  insert: (v, btn) => {
+    tools.menu(btn, [
+      [t("Footnote"), "", (a) => tools.note({ anchor: a })],
+      [t("Cross-reference"), t("Figure 1, Table 2"), (a) => tools.crossRef(a)],
+      [t("Citation"), "[@]", () => { insertCitation(view); view.focus(); }],
+      [t("Math"), "$", () => { toggleInlineMath(view); view.focus(); }],
+      [t("Table"), "", (a) => tools.table(a)],
+    ]);
+    return POPOVER;
+  },
+  math: toggleInlineMath, cite: insertCitation,
   refs: () => references?.toggle(),
   image: (v) => images?.pick(v),
+  marks: () => setMarks(writerMode(view.state)),
 };
+const TABLE_CMDS = { row: addRow, column: addColumn, align: cycleAlign, "delete-row": deleteRow,
+                     "delete-column": deleteColumn, delete: deleteTable };
+const tableBar = $("#table-bar");
+
+// "Show Markdown marks" on (the line with the cursor shows its source) or off (writer mode).
+function setMarks(on) {
+  store(marksKey, on ? "on" : "off");
+  view.dispatch({ effects: setWriterMode.of(!on) });
+  updateFormatBar();
+}
+
 if (formatBar) {
   formatBar.hidden = readOnly || !isMarkdown || review;
-  formatBar.addEventListener("mousedown", (event) => {
-    if (event.target.closest("[data-cmd]")) event.preventDefault();
-  });
+  for (const bar of [formatBar, tableBar]) {
+    bar?.addEventListener("mousedown", (event) => {
+      if (event.target.closest("[data-cmd], [data-table]")) event.preventDefault();
+    });
+  }
   formatBar.addEventListener("click", (event) => {
     const btn = event.target.closest("[data-cmd]");
     if (!btn || readOnly || !isMarkdown || review) return;
     const cmd = FORMAT_CMDS[btn.dataset.cmd];
     if (cmd) {
-      cmd(view);
-      view.focus();
+      if (cmd(view, btn) !== POPOVER) view.focus();
       updateFormatBar();
     }
+  });
+  tableBar?.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-table]");
+    const cmd = btn && TABLE_CMDS[btn.dataset.table];
+    if (!cmd || readOnly) return;
+    cmd(view);
+    view.focus();
+    updateFormatBar();
   });
 }
 
 function updateFormatBar() {
-  if (!formatBar || formatBar.hidden) return;
+  if (!formatBar || formatBar.hidden) {
+    if (tableBar) tableBar.hidden = true;
+    return;
+  }
+  if (tableBar) tableBar.hidden = !tableAt(view.state, view.state.selection.main.head);
+  const marks = formatBar.querySelector('[data-cmd="marks"]');
+  marks?.setAttribute("aria-pressed", String(!writerMode(view.state)));
   const active = activeFormatting(view.state);
   for (const btn of formatBar.querySelectorAll("[data-cmd]")) {
     const cmd = btn.dataset.cmd;
@@ -1032,6 +1090,7 @@ function setSuggesting(on, { quiet = false } = {}) {
   if (reviewBanner) reviewBanner.hidden = on; // one banner at a time
   // The banner takes the formatting bar's place: formatting doesn't apply to suggestions.
   if (formatBar) formatBar.hidden = on || readOnly || !isMarkdown || review;
+  updateFormatBar();
   bubble?.hide();
   if (on && !quiet) view.focus();
 }

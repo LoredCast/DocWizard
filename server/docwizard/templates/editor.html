@@ -55,12 +55,22 @@
       <button type="button" data-cmd="ordered" aria-pressed="false" aria-label="{{ _('Numbered list') }}" title="{{ _('Numbered list') }}">1.</button>
       <button type="button" data-cmd="task" aria-pressed="false" aria-label="{{ _('Task list') }}" title="{{ _('Task list') }}">[ ]</button>
       <span class="format-sep" aria-hidden="true"></span>
-      <button type="button" data-cmd="link" aria-pressed="false" aria-label="{{ _('Link') }}" title="{{ _('Link') }}">{{ _("Link") }}</button>
-      <button type="button" data-cmd="math" aria-pressed="false" aria-label="{{ _('Inline math') }}" title="{{ _('Inline math') }}">$</button>
+      <button type="button" data-cmd="link" aria-pressed="false" aria-label="{{ _('Link') }}" title="{{ _('Link (Ctrl+K)') }}">{{ _("Link") }}</button>
       <button type="button" data-cmd="image" aria-label="{{ _('Image') }}" title="{{ _('Image (or paste or drop one into the text)') }}">{{ _("Image") }}</button>
-      <button type="button" data-cmd="cite" aria-label="{{ _('Citation') }}" title="{{ _('Citation') }}">[@]</button>
+      <button type="button" data-cmd="table" aria-label="{{ _('Table') }}" title="{{ _('Insert a table') }}">{{ _("Table") }}</button>
+      <button type="button" data-cmd="insert" aria-haspopup="menu" aria-label="{{ _('More to insert') }}" title="{{ _('Footnote, cross-reference, citation, math') }}">{{ _("Insert") }} ▾</button>
+      <span class="format-sep" aria-hidden="true"></span>
       <button type="button" data-cmd="refs" aria-pressed="false" aria-label="{{ _('References') }}" title="{{ _('References (Ctrl+Alt+R)') }}">{{ _("Refs") }}</button>
-      <button type="button" data-cmd="footnote" aria-pressed="false" aria-label="{{ _('Footnote') }}" title="{{ _('Footnote') }}">[^]</button>
+      <button type="button" data-cmd="marks" aria-pressed="true" aria-label="{{ _('Show Markdown marks') }}" title="{{ _('Show Markdown marks on the line you edit. Off: writer mode, the marks stay hidden and the toolbar formats.') }}">¶</button>
+    </div>
+    <div class="table-bar" id="table-bar" role="toolbar" aria-label="{{ _('Table') }}" hidden>
+      <span class="muted">{{ _("Table") }}</span>
+      <button type="button" data-table="row" title="{{ _('Add a row below') }}">+ {{ _("Row") }}</button>
+      <button type="button" data-table="column" title="{{ _('Add a column to the right') }}">+ {{ _("Column") }}</button>
+      <button type="button" data-table="align" title="{{ _('Align the column: left, centered, right') }}">{{ _("Align") }}</button>
+      <button type="button" data-table="delete-row" title="{{ _('Delete the row') }}">− {{ _("Row") }}</button>
+      <button type="button" data-table="delete-column" title="{{ _('Delete the column') }}">− {{ _("Column") }}</button>
+      <button type="button" data-table="delete" class="danger-text" title="{{ _('Delete the table') }}">{{ _("Delete table") }}</button>
     </div>
     <div id="editor"></div>
   </section>
