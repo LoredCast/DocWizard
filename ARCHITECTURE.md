@@ -547,6 +547,17 @@ HTML previews never come from these routes; they live on the preview origin ([§
 | Blob garbage collection | daily | deletes blobs unreferenced for more than 24 h; paused while a backup runs |
 | Render cache eviction | hourly, least recently used, by size cap | |
 
+### 7.7 Storage quotas and limits
+
+A server open to people the admin doesn't know needs every write to have a ceiling. DocWizard keeps the knobs generic (no plans or billing in the code): an external provisioning script or the admin area sets them per account.
+
+- **What counts**: the projects an account owns, with everything in them: assets (active and trashed), each document at its current size and named versions (`service.user_storage_bytes`). Uploads by editors of a shared project count for its owner. Automatic history doesn't count: nobody can delete it by hand, and it is thinned by age.
+- **The limit**: `users.quota_bytes`, or `limits.default_quota_bytes` (2 GB) when that is empty. 0 or less means no limit, for one account or as the default.
+- **Where it is checked**: uploads, new documents and projects, Word imports, named versions and restores, references added by lookup, files and changes pulled by sync, offline merges and live edits. Live edits use a figure at most 30 s old plus what was added since, and only text that grows a document is checked: deleting always works.
+- **Over the limit**: `413` with code `quota_exceeded` and "Storage quota reached…". The upload form and the editor show it as a message, a sync run stops with it as its error, and live edits stay in the browser until there is room.
+- **Object counts**: `limits.max_projects_per_user` and `limits.max_files_per_project` (0: no limit) return `413` with `project_limit` or `file_limit`.
+- The home page and Settings show the space used against the quota; the admin's Users page shows it per account.
+
 ## 8. Collaboration
 
 ### 8.1 Model
@@ -1168,8 +1179,10 @@ Registration mode is an admin setting: `open`, `invite` (invitation by email or 
   - stored as `scrypt$17$8$1$<salt>$<hash>`, so parameters can be raised later and old hashes upgraded at login;
   - each hash uses about 128 MiB, so a semaphore limits concurrent hashing (default 2) to prevent memory exhaustion.
 - **Password policy**: minimum length (default 12), checked against a bundled list of common passwords; no composition rules.
-- **Login throttling**: token buckets per account and per IP, kept in memory, with generic error messages.
+- **Login throttling**: token buckets per account and per IP, kept in memory, with generic error messages. Registrations and reset requests have buckets of their own, per IP and per email address or name, so people signing up at the same time never share one.
 - **Password reset and invitations**: sent by email via `smtplib`, using single-use tokens stored hashed and valid for 1 hour. Without SMTP, admins reset passwords.
+- **Email addresses**: optional at registration, required with `accounts.require_email_verification` (which needs `[smtp]`). An address is confirmed through a single-use link (`/verify/<token>`, valid 2 days; opening it shows a button, so mail scanners confirm nothing), by a login provider that sends it without `email_verified: false`, by using a reset or invitation link mailed to it, or by an admin entering it. A changed address replaces the old one only once its link is used. No two accounts share an address (compared without case). While the setting is on, publishing, sync with outside servers and Zotero libraries wait until the address is confirmed and answer with `403 email_unverified` and a pointer to Settings; admins are exempt.
+- **Anti-bot challenge** (optional): `security.captcha_provider = "turnstile"` or `"hcaptcha"` with `captcha_site_key` and `captcha_secret` shows the provider's widget on registration and password reset and checks the answer on the server through the outbound policy (§15). The widget's origin is allowed in the CSP of those pages only.
 - **TOTP** (optional): RFC 6238, implemented with `hmac`, plus one-time recovery codes. Admins can require it.
 
 ### 13.3 Sessions and CSRF
@@ -1555,14 +1568,17 @@ secret_key_file        = "/run/secrets/docwizard_key"
 allow_private_outbound = ["nextcloud.lan"]          # exceptions to the SSRF policy
 session_idle_days      = 14
 guest_session_hours    = 24
+captcha_provider       = ""                          # turnstile | hcaptcha
+captcha_site_key       = ""
+captcha_secret_file    = "/run/secrets/captcha"
 
 [accounts]
 registration            = "invite"   # open | invite | oidc-only | closed
 guests                  = true
 guest_max_role          = "editor"
-scratch_projects        = false
 require_totp_for_admins = true
 min_password_length     = 12
+require_email_verification = false   # needs [smtp]
 
 [smtp]
 host          = "smtp.example.org"
@@ -1596,7 +1612,9 @@ default_layout      = "default"
 [limits]
 max_document_bytes  = 5_000_000
 max_upload_bytes    = 50_000_000
-default_quota_bytes = 2_000_000_000
+default_quota_bytes = 2_000_000_000   # per account; 0: no limit (§7.7)
+max_projects_per_user = 0              # 0: no limit
+max_files_per_project = 0
 
 [sync]
 default_poll_seconds = 60

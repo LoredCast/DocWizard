@@ -9,7 +9,7 @@ import time
 from urllib.parse import quote
 
 from ..api import grammar
-from ..api.projects import GUEST_FORBIDDEN, create_project_with_starter, project_access
+from ..api.projects import GUEST_FORBIDDEN, create_project_with_starter, enforce_quota, project_access
 from ..auth import passwords, permissions
 from ..http.request import HTTPError, Request, not_found
 from ..http.response import Response, redirect
@@ -69,11 +69,14 @@ def register(app) -> None:
                     notifications.list_for(c, uid, limit=10, unread_only=True), notifications.unread_count(c, uid))
 
         recent, projects, inbox, unread = await app.db.read(load)
+        storage = await app.quotas.usage(uid)
         # Mirrored into IndexedDB so the offline home page can list them (§6.5).
         mirror = [{"docId": d["id"], "url": doc_url(d["project_id"], d["path"]), "path": d["path"],
                    "project": d["project"], "openedAt": d["opened_at"], "pinned": bool(d["pinned"])} for d in recent]
         return app.page(req, "home.html", recent=recent, projects=projects, layouts=app.layouts.visible(uid),
-                        inbox=inbox, unread=unread,
+                        inbox=inbox, unread=unread, storage=storage, verify=req.query.get("verify"),
+                        email_reminder=bool(app.policy("require_email_verification") and not req.user.is_admin
+                                            and not req.user.email_verified),
                         recent_json=script_json(mirror),
                         default_layout=app.policy("default_layout"), doc_url=doc_url, error=req.query.get("error"))
 
@@ -87,6 +90,10 @@ def register(app) -> None:
                 app, req.user, form.get("name", ""), layout, form.get("starter", "1") == "1", app.lang_of(req))
         except ValueError as exc:
             return redirect("/?error=" + quote(str(exc)))
+        except HTTPError as exc:
+            if exc.status != 413:
+                raise
+            return redirect("/?error=" + quote(exc.message))
         if main:
             return redirect(doc_url(pid, main_path))
         return redirect(f"/p/{pid}")
@@ -132,6 +139,7 @@ def register(app) -> None:
                 path = form.get("path", "").strip()
                 if path and "." not in path.rsplit("/", 1)[-1]:
                     path += ".md"
+                await enforce_quota(app, pid, 0, new_files=1)
                 doc_id = await app.db.write(lambda c: svc.create_document(c, pid, path, ""))
                 room = await app.rooms.get(doc_id)
                 await room.call(room.materialize)
@@ -182,6 +190,10 @@ def register(app) -> None:
                 raise HTTPError(400, "bad_request", "Unknown action.")
         except (ValueError, files.PathError) as exc:
             return redirect(back + "?error=" + quote(str(exc)))
+        except HTTPError as exc:
+            if exc.status != 413:
+                raise
+            return redirect(back + "?error=" + quote(exc.message))
         return redirect(back)
 
     async def pin(req: Request) -> Response:

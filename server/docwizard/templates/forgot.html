@@ -12,6 +12,7 @@
   {% else %}
   <form method="post" action="/forgot" class="form">
     <label>{{ _("Username or email address") }} <input name="identifier" autocomplete="username" required autofocus></label>
+    {% include "_captcha.html" %}
     {% if error %}<p class="error" role="alert">{{ _(error) }}</p>{% endif %}
     <div class="buttons"><a class="button" href="/login">{{ _("Cancel") }}</a><button type="submit" class="primary">{{ _("Send link") }}</button></div>
   </form>

@@ -11,6 +11,7 @@ from ..netpolicy import FetchError, PolicyError
 from ..http.request import HTTPError, Request, bad_request, not_found
 from ..http.response import Response, json_response, user_content
 from ..projects import docx_import, files, fountain, history, starters
+from ..projects.quota import QuotaExceeded
 from ..projects import service as svc
 from ..render import fields, languages
 
@@ -42,6 +43,21 @@ async def project_access(app, req: Request, project_id: str, capability: str):
     return project, role
 
 
+async def enforce_quota(app, project_id: str, growth: int, new_files: int = 0) -> None:
+    """413 when the write would go over the owner's storage quota or the project's file limit (§7.7)."""
+    try:
+        await app.quotas.check(project_id, growth, new_files=new_files)
+    except QuotaExceeded as exc:
+        raise HTTPError(413, exc.code, exc.message) from None
+
+
+async def enforce_project_limit(app, user_id: int, growth: int = 1) -> None:
+    try:
+        await app.quotas.check_new_project(user_id, growth)
+    except QuotaExceeded as exc:
+        raise HTTPError(413, exc.code, exc.message) from None
+
+
 def user_id_of(req: Request) -> int | None:
     return req.user.id if req.user is not None else None
 
@@ -71,6 +87,7 @@ async def create_project_with_starter(app, user, name: str, layout: str, starter
     lay = app.layouts.get(layout) if app.layouts.exists(layout) else None
     extra = fields.starter_lines(lay) if lay is not None else []
     plan = starters.for_layout(lay, lang, user.display_name, today, extra) if starter else None
+    await enforce_project_limit(app, user.id, sum(len(text.encode()) for _, text in plan.files) if plan else 1)
 
     def work(c):
         pid = svc.create_project(c, user.id, name, layout)
@@ -176,6 +193,7 @@ def register(app) -> None:
         text = body.get("text", "")
         if not isinstance(text, str) or len(text) > limits.max_document_bytes:
             raise bad_request("Invalid text.")
+        await enforce_quota(app, project["id"], len(text.encode()), new_files=1)
         try:
             doc_id = await app.db.write(lambda c: svc.create_document(c, project["id"], str(body.get("path", "")),
                                                                       text.replace("\r\n", "\n")))
@@ -223,6 +241,16 @@ def register(app) -> None:
         except files.PathError as exc:
             raise bad_request(str(exc)) from None
         data = await req.body(limits.max_upload_bytes)
+        def existing_size(c):
+            asset = svc.get_asset(c, project["id"], path)
+            if asset is not None:
+                return asset["size"]
+            return 0 if svc.path_taken(c, project["id"], path) else None
+
+        old_size = await app.db.read(existing_size)
+        replaces = old_size is not None and req.query.get("unique") != "1"
+        await enforce_quota(app, project["id"], len(data) - (old_size or 0) if replaces else len(data),
+                            new_files=0 if replaces else 1)
         if path.lower().endswith(".docx"):
             return await import_docx(project, path, data, req)
         if path.lower().endswith(".fountain"):
@@ -337,6 +365,7 @@ def register(app) -> None:
             raise bad_request(str(exc)) from None
         if not target.endswith(".json"):
             raise bad_request("References are added to a CSL-JSON file (.json).")
+        await enforce_quota(app, project["id"], 4096)
         try:
             item = await asyncio.to_thread(lookup.fetch_item, app.net, str(body.get("id", "")))
         except lookup.IdentifierError as exc:
@@ -426,6 +455,7 @@ def register(app) -> None:
         if not label:
             raise bad_request("Name the version.")
         room = await app.rooms.get(doc["id"])
+        await enforce_quota(app, doc["project_id"], len((await room.call(lambda: _text(room))).encode()))
         version = await room.call(lambda: room.snapshot(label, user_id_of(req)))
         return json_response({"version": version}, 201)
 
@@ -438,6 +468,10 @@ def register(app) -> None:
             raise not_found("No such version.")
         room = await app.rooms.get(doc["id"])
         user_id = user_id_of(req)
+        current = await room.call(lambda: _text(room))
+        # The text being replaced is kept as a version, and the restored text replaces it.
+        await enforce_quota(app, doc["project_id"], len(current.encode()) + max(0, len(row["text"].encode())
+                                                                                 - len(current.encode())))
 
         async def restore():
             # Keep the text being replaced, so a restore can be undone.

@@ -22,7 +22,7 @@
     <td><strong>{{ u.username }}</strong> {{ u.display_name }}{% if u.email %}<br><span class="muted">{{ u.email }}</span>{% endif %}{% if not u.active %} <span class="badge">{{ _("disabled") }}</span>{% endif %}{% if not u.password_hash %} <span class="badge">{{ _("no password") }}</span>{% endif %}</td>
     <td>{{ _("Administrator") if u.instance_role == "admin" else _("User") }}</td>
     <td>{{ _("On") if u.totp_secret_enc else _("Off") }}{% if u.require_totp %} <span class="muted">({{ _("required") }})</span>{% endif %}</td>
-    <td>{{ u.owned }}</td>
+    <td>{{ u.owned }}<br><span class="muted" title="{{ _("Storage used") }}">{{ u.storage|filesize or "0 B" }}</span></td>
     <td>{{ u.last_login|reltime if u.last_login else _("never") }}</td>
     <td>
       <details class="menu">
@@ -32,7 +32,7 @@
             <input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="q" value="{{ q }}">
             <input type="hidden" name="action" value="update">
             <label>{{ _("Email") }} <input name="email" type="email" value="{{ u.email or "" }}"></label>
-            <label>{{ _("Storage quota in GB (empty: default)") }} <input name="quota_gb" inputmode="decimal" value="{{ (u.quota_bytes / 1000000000)|round(2) if u.quota_bytes else "" }}"></label>
+            <label>{{ _("Storage quota in GB (empty: default, 0: no limit)") }} <input name="quota_gb" inputmode="decimal" value="{{ (u.quota_bytes / 1000000000)|round(2) if u.quota_bytes is not none else "" }}"></label>
             <div class="buttons"><button type="submit">{{ _("Save") }}</button></div>
           </form>
           <form method="post" action="/admin/users/{{ u.id }}" class="actions-list">

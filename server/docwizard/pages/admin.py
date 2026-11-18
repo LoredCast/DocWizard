@@ -91,11 +91,17 @@ def register(app) -> None:
         if q:
             sql += " WHERE u.username LIKE ? OR u.display_name LIKE ? OR u.email LIKE ?"
             params += [f"%{q}%"] * 3
-        rows = await app.db.fetchall(sql + " ORDER BY u.username COLLATE NOCASE LIMIT 500", tuple(params))
+        def load(c):
+            from ..projects.service import user_storage_bytes
+
+            found = c.execute(sql + " ORDER BY u.username COLLATE NOCASE LIMIT 500", tuple(params)).fetchall()
+            return [{**dict(r), "storage": user_storage_bytes(c, r["id"])} for r in found]
+
+        rows = await app.db.read(load)
         ctx.setdefault("error", None)
         ctx.setdefault("link", None)
         ctx.setdefault("notice", req.query.get("done"))
-        return page(req, "users", status, users=[dict(r) for r in rows], q=q, mail=app.mail.enabled, **ctx)
+        return page(req, "users", status, users=rows, q=q, mail=app.mail.enabled, **ctx)
 
     async def users_get(req: Request) -> Response:
         return await users_page(req)
@@ -111,7 +117,7 @@ def register(app) -> None:
             return await users_page(req, 400, error="This email address doesn't look right.")
         try:
             uid = await app.db.write(lambda c: users.create(c, username, None, display_name=display_name,
-                                                             email=email, role=role))
+                                                             email=email, role=role, email_verified=True))
         except ValueError as exc:
             return await users_page(req, 400, error=str(exc))
         await audit(req, "user.create", f"user:{uid}", username=username, role=role)
@@ -178,7 +184,16 @@ def register(app) -> None:
                 quota_bytes = int(float(quota) * 1_000_000_000) if quota else None
             except ValueError:
                 return await users_page(req, 400, error="The quota must be a number of gigabytes.")
-            await app.db.execute("UPDATE users SET email = ?, quota_bytes = ? WHERE id = ?", (email, quota_bytes, uid))
+            # An address an admin enters counts as confirmed; an unchanged one keeps its state.
+            same = bool(email and row["email"] and email.lower() == row["email"].lower())
+
+            def update(c):
+                c.execute("UPDATE users SET email = ?, quota_bytes = ? WHERE id = ?", (email, quota_bytes, uid))
+                if not same:
+                    users.set_email(c, uid, email, verified=True)
+
+            await app.db.write(update)
+            app.quotas.forget(uid)
         elif action == "delete":
             owned = (await app.db.fetchone("SELECT COUNT(*) FROM projects WHERE owner_id = ?", (uid,)))[0]
             if owned:
@@ -246,7 +261,9 @@ def register(app) -> None:
         if form.get("guest_max_role") not in ROLES:
             return await settings_page(req, 400, error="Choose the highest role for guests.")
         new["guest_max_role"] = form["guest_max_role"]
-        new["scratch_projects"] = form.get("scratch_projects") == "1"
+        new["require_email_verification"] = form.get("require_email_verification") == "1"
+        if new["require_email_verification"] and not app.mail.enabled:
+            return await settings_page(req, 400, error="Set up mail first: confirmation links are sent by email.")
         new["require_totp_for_admins"] = form.get("require_totp_for_admins") == "1"
         try:
             new["min_password_length"] = max(8, min(128, int(form.get("min_password_length", "12"))))

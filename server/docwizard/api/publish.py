@@ -36,6 +36,7 @@ def register(app) -> None:
     async def put(req: Request) -> Response:
         """Create or change the publication, then publish it."""
         doc, project, _ = await document_access(app, req, req.param("id"), "publish")
+        app.require_verified_email(req, "publish")
         body = await req.json_object()
         visibility = body.get("visibility", "public")
         if visibility not in ("public", "unlisted"):
@@ -84,6 +85,7 @@ def register(app) -> None:
 
     async def republish(req: Request) -> Response:
         doc, _, _ = await document_access(app, req, req.param("id"), "publish")
+        app.require_verified_email(req, "publish")
         pub = await get_pub(doc["id"])
         if pub is None:
             raise bad_request("This document isn't published.")

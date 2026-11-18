@@ -15,10 +15,15 @@ serve_static = false                              # the proxy serves /static/
 [security]
 # secret_key_file = "/run/secrets/docwizard_key"   # encrypts stored credentials; default: <data_dir>/secret.key
 allow_private_outbound = []                       # e.g. ["nextcloud.lan", "10.0.0.0/8"] for servers on your LAN
+# An anti-bot challenge on registration and password reset, for open registration:
+# captcha_provider = "turnstile"                  # or "hcaptcha"
+# captcha_site_key = "..."
+# captcha_secret_file = "/run/secrets/captcha"
 
 [accounts]
 registration = "closed"                           # open | invite | oidc-only | closed
 min_password_length = 12
+# require_email_verification = true              # confirm an email address before publishing or syncing; needs [smtp]
 
 [sync]
 default_poll_seconds = 60
@@ -51,6 +56,10 @@ default_layout = "default"
 [limits]
 max_document_bytes = 5000000
 max_upload_bytes = 50000000
+default_quota_bytes = 2000000000                  # per account, trash included; 0: no limit
+# For public hosting, also bound how many objects one account can make (0: no limit):
+# max_projects_per_user = 50
+# max_files_per_project = 1000
 
 # Grammar checking (§6.8). Harper is built in and runs in each browser, for English. A LanguageTool
 # server checks other languages too; the app passes the text on to it. With the public

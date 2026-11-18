@@ -3,6 +3,8 @@
 {% block content %}
 <section class="narrow">
   <p class="error">{{ _(message) }}</p>
+  {% if code == "email_unverified" %}<p><a href="/settings#email">{{ _("Confirm your email address") }}</a></p>{% endif %}
+  {% if code in ("quota_exceeded", "file_limit", "project_limit") %}<p><a href="/settings#storage">{{ _("See what uses your storage") }}</a></p>{% endif %}
   <p><a href="/">{{ _("Go to the home page") }}</a></p>
 </section>
 {% endblock %}

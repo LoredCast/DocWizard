@@ -77,6 +77,8 @@ class App:
         self.settings: dict = {}
         self._secrets = None
         self.net_resolver = None  # tests replace DNS resolution here
+        self.captcha_verifier = None  # tests answer the anti-bot check here
+        self.registrations = 0  # accounts created through /register since start, for /metrics
         self._tasks: list[asyncio.Task] = []
         self._startup_hooks: list = []
         self._shutdown_hooks: list = []
@@ -117,13 +119,16 @@ class App:
         from .maintenance import Maintenance
 
         self.maintenance = Maintenance(self)
+        from .projects.quota import Quotas
+
+        self.quotas = Quotas(self)
         self._ws_handler = Hub(self)
         pages.register(self)
         api.register(self)
 
     # -- instance settings ------------------------------------------------
     POLICY_KEYS = {"registration": "accounts", "guests": "accounts", "guest_max_role": "accounts",
-                   "scratch_projects": "accounts", "require_totp_for_admins": "accounts",
+                   "require_totp_for_admins": "accounts", "require_email_verification": "accounts",
                    "min_password_length": "accounts", "default_layout": "render",
                    "allow_private_outbound": "security"}
 
@@ -132,6 +137,20 @@ class App:
         if key in self.settings:
             return self.settings[key]
         return getattr(getattr(self.cfg, self.POLICY_KEYS[key]), key)
+
+    def require_verified_email(self, req: Request, what: str = "publish") -> None:
+        """With accounts.require_email_verification, publishing, sync and Zotero wait until the
+        account's email address is confirmed (§13.2). Admins are exempt."""
+        user = req.user
+        if user is None or user.is_admin or user.email_verified or not self.policy("require_email_verification"):
+            return
+        messages = {
+            "publish": "Confirm your email address before you publish. You can send yourself a new link in Settings.",
+            "sync": "Confirm your email address before you connect sync. You can send yourself a new link in Settings.",
+            "zotero": "Confirm your email address before you add a Zotero library. You can send yourself a new link"
+                      " in Settings.",
+        }
+        raise HTTPError(403, "email_unverified", messages.get(what, messages["publish"]))
 
     async def load_settings(self) -> None:
         rows = await self.db.fetchall("SELECT key, value_json FROM settings")
@@ -142,6 +161,9 @@ class App:
             except ValueError:
                 continue
         self.settings = {k: v for k, v in values.items() if k in self.POLICY_KEYS}
+        if self.policy("require_email_verification") and not self.mail.enabled:
+            log.warning("accounts.require_email_verification is on, but mail isn't set up: nobody can confirm"
+                        " an email address. Add an [smtp] section or turn the setting off.")
         approved = values.get("approved_filters")
         if isinstance(approved, list):
             self.layouts.approved_filters = {h for h in approved if isinstance(h, str)}
@@ -448,7 +470,8 @@ class App:
             err.message = self.t(req, err.message)
         if req.wants_json:
             return error_json(err)
-        resp = html(self.render(req, "error.html", status=err.status, message=err.message), err.status)
+        resp = html(self.render(req, "error.html", status=err.status, message=err.message, code=err.code),
+                    err.status)
         for k, v in err.headers:
             resp.set_header(k, v)
         return resp

@@ -40,6 +40,11 @@ class SecurityConfig:
     allow_private_outbound: list[str] = field(default_factory=list)
     session_idle_days: int = 14
     guest_session_hours: int = 24
+    # An optional anti-bot challenge on registration and password reset (§13.2): "turnstile"
+    # (Cloudflare) or "hcaptcha", checked on the server with captcha_secret. Empty: off.
+    captcha_provider: str = ""
+    captcha_site_key: str = ""
+    captcha_secret: str = ""
 
 
 @dataclass
@@ -47,9 +52,11 @@ class AccountsConfig:
     registration: str = "closed"  # open | invite | oidc-only | closed (invite: admins invite people)
     guests: bool = True
     guest_max_role: str = "editor"
-    scratch_projects: bool = False
     require_totp_for_admins: bool = False
     min_password_length: int = 12
+    # Registration asks for an email address, and publishing, sync and Zotero wait until it is
+    # confirmed through a mailed link (§13.2). Needs [smtp].
+    require_email_verification: bool = False
 
 
 @dataclass
@@ -67,7 +74,12 @@ class RenderConfig:
 class LimitsConfig:
     max_document_bytes: int = 5_000_000
     max_upload_bytes: int = 50_000_000
+    # Storage per account (§7.7): what the projects someone owns take up, trash and named versions
+    # included. users.quota_bytes overrides it per account. 0 or less: no limit.
     default_quota_bytes: int = 2_000_000_000
+    # 0: no limit. Generous or off for a private server, tightened for public hosting.
+    max_projects_per_user: int = 0
+    max_files_per_project: int = 0
 
 
 @dataclass
@@ -201,6 +213,10 @@ def _is_loopback_url(url: str) -> bool:
 
 _SECTIONS = {f.name: f.type for f in dataclasses.fields(Config)}
 
+# Keys that older releases knew and that are now ignored, so existing config files keep working.
+DEPRECATED_KEYS = {("accounts", "scratch_projects")}
+CAPTCHA_PROVIDERS = ("", "turnstile", "hcaptcha")
+
 
 def _coerce(value: str, current: Any) -> Any:
     if isinstance(current, bool):
@@ -217,6 +233,11 @@ def _coerce(value: str, current: Any) -> Any:
 def _apply_section(obj: Any, values: dict[str, Any], section: str) -> None:
     names = {f.name for f in dataclasses.fields(obj)}
     for key, value in values.items():
+        if (section, key) in DEPRECATED_KEYS:
+            import logging
+
+            logging.getLogger("docwizard").warning("config key [%s] %s is no longer used; remove it", section, key)
+            continue
         if key.endswith("_file") and key[:-5] in names and key not in names:
             value = Path(value).read_text().strip()
             key = key[:-5]
@@ -274,6 +295,12 @@ def load(path: str | os.PathLike | None = None, env: dict[str, str] | None = Non
         setattr(obj, key, _coerce(value, getattr(obj, key)))
     if cfg.accounts.registration not in ("open", "invite", "oidc-only", "closed"):
         raise ValueError("accounts.registration must be open, invite, oidc-only or closed")
+    if cfg.security.captcha_provider not in CAPTCHA_PROVIDERS:
+        raise ValueError("security.captcha_provider must be turnstile, hcaptcha or empty")
+    if cfg.security.captcha_provider and not (cfg.security.captcha_site_key and cfg.security.captcha_secret):
+        raise ValueError("security.captcha_provider needs captcha_site_key and captcha_secret")
+    if cfg.accounts.require_email_verification and not cfg.smtp.host:
+        raise ValueError("accounts.require_email_verification needs an [smtp] section to send the links")
     if cfg.server.durability not in ("full", "normal"):
         raise ValueError("server.durability must be 'full' or 'normal'")
     if not _is_loopback_url(cfg.server.public_url) and _is_loopback_url(cfg.server.preview_url):

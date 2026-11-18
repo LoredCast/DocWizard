@@ -240,6 +240,48 @@ def tree(conn: sqlite3.Connection, project_id: str) -> list[dict]:
     return out
 
 
+# -- storage (§7.7) ---------------------------------------------------------
+
+def user_storage_bytes(conn: sqlite3.Connection, user_id: int) -> int:
+    """Bytes the projects *user_id* owns take up, trashed projects and files included.
+
+    Counted: every asset row (active and trashed), each document at its current size (the file
+    on disk, or its latest snapshot before it was first written), and named versions. Rows the
+    daily purge removed no longer count. Automatic history is not counted: it is thinned by age
+    and nobody can delete it by hand.
+    """
+    row = conn.execute(
+        "SELECT"
+        " (SELECT COALESCE(SUM(a.size), 0) FROM assets a JOIN projects p ON p.id = a.project_id"
+        "   WHERE p.owner_id = :u),"
+        " (SELECT COALESCE(SUM(COALESCE(json_extract(d.materialized_stat, '$[2]'),"
+        "   (SELECT length(CAST(s.text AS BLOB)) FROM doc_snapshots s WHERE s.doc_id = d.id"
+        "    ORDER BY s.version DESC, s.id DESC LIMIT 1), 0)), 0)"
+        "   FROM documents d JOIN projects p ON p.id = d.project_id WHERE p.owner_id = :u),"
+        " (SELECT COALESCE(SUM(length(CAST(s.text AS BLOB))), 0) FROM doc_snapshots s"
+        "   JOIN documents d ON d.id = s.doc_id JOIN projects p ON p.id = d.project_id"
+        "   WHERE p.owner_id = :u AND s.label IS NOT NULL)",
+        {"u": user_id}).fetchone()
+    return int(row[0] + row[1] + row[2])
+
+
+def project_owner(conn: sqlite3.Connection, project_id: str) -> int | None:
+    row = conn.execute("SELECT owner_id FROM projects WHERE id = ?", (project_id,)).fetchone()
+    return row[0] if row else None
+
+
+def count_owned_projects(conn: sqlite3.Connection, user_id: int) -> int:
+    return conn.execute("SELECT COUNT(*) FROM projects WHERE owner_id = ? AND deleted_at IS NULL",
+                        (user_id,)).fetchone()[0]
+
+
+def count_files(conn: sqlite3.Connection, project_id: str) -> int:
+    return conn.execute(
+        "SELECT (SELECT COUNT(*) FROM documents WHERE project_id = ? AND deleted_at IS NULL)"
+        " + (SELECT COUNT(*) FROM assets WHERE project_id = ? AND deleted_at IS NULL)",
+        (project_id, project_id)).fetchone()[0]
+
+
 # -- recent --------------------------------------------------------------
 
 def touch_recent(conn: sqlite3.Connection, user_id: int, doc_id: str) -> None:
