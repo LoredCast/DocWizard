@@ -32,6 +32,17 @@ class ServerConfig:
     serve_static: bool = True
     source_url: str = "https://github.com/LoredCast/DocWizard"
     release: str = ""
+    # Search engines may index public publications (§14.4). Unlisted ones are never indexed.
+    index_public_sites: bool = True
+
+
+@dataclass
+class LegalConfig:
+    """Links shown in the footer of the login, registration, share and error pages (§13.2)."""
+    terms_url: str = ""
+    privacy_url: str = ""
+    imprint_url: str = ""
+    abuse_email: str = ""
 
 
 @dataclass
@@ -40,6 +51,11 @@ class SecurityConfig:
     allow_private_outbound: list[str] = field(default_factory=list)
     session_idle_days: int = 14
     guest_session_hours: int = 24
+    # An optional anti-bot challenge on registration and password reset (§13.2): "turnstile"
+    # (Cloudflare) or "hcaptcha", checked on the server with captcha_secret. Empty: off.
+    captcha_provider: str = ""
+    captcha_site_key: str = ""
+    captcha_secret: str = ""
 
 
 @dataclass
@@ -47,27 +63,43 @@ class AccountsConfig:
     registration: str = "closed"  # open | invite | oidc-only | closed (invite: admins invite people)
     guests: bool = True
     guest_max_role: str = "editor"
-    scratch_projects: bool = False
     require_totp_for_admins: bool = False
     min_password_length: int = 12
+    # Registration asks for an email address, and publishing, sync and Zotero wait until it is
+    # confirmed through a mailed link (§13.2). Needs [smtp].
+    require_email_verification: bool = False
 
 
 @dataclass
 class RenderConfig:
     worker_socket: str = ""  # default: <jobs_dir>/worker.sock
     spawn_worker: bool = False  # development: start the worker as a child process
-    concurrency: int = 2
-    timeout_seconds: int = 90
+    concurrency: int = 2  # jobs at once; give the worker the same number (DOCWIZARD_WORKER_CONCURRENCY)
+    timeout_seconds: int = 90  # users.render_timeout_seconds overrides it for the projects someone owns
     memory_mb: int = 1536
     preview_debounce_ms: int = 300
     default_layout: str = "default"
+    # Fairness (§9.2). Slots kept for quick targets (HTML, Typst PDF, Word...), so LaTeX builds can't
+    # take them all; at most concurrency - 1.
+    fast_lane: int = 1
+    user_previews: int = 1  # previews one person renders at once; more wait their turn
+    user_exports: int = 2  # exports one person may have queued or running; more get 429
+    per_user_rpm: int = 0  # renders (cache misses) per person per minute; 0: no limit
+    latex_daily_limit: int = 0  # LaTeX builds per person per day; 0: no limit
+    # LaTeX for projects whose owner has no users.allow_latex setting of their own.
+    allow_latex: bool = True
 
 
 @dataclass
 class LimitsConfig:
     max_document_bytes: int = 5_000_000
     max_upload_bytes: int = 50_000_000
+    # Storage per account (§7.7): what the projects someone owns take up, trash and named versions
+    # included. users.quota_bytes overrides it per account. 0 or less: no limit.
     default_quota_bytes: int = 2_000_000_000
+    # 0: no limit. Generous or off for a private server, tightened for public hosting.
+    max_projects_per_user: int = 0
+    max_files_per_project: int = 0
 
 
 @dataclass
@@ -142,6 +174,7 @@ class Config:
     sync: SyncConfig = field(default_factory=SyncConfig)
     smtp: SMTPConfig = field(default_factory=SMTPConfig)
     grammar: GrammarConfig = field(default_factory=GrammarConfig)
+    legal: LegalConfig = field(default_factory=LegalConfig)
     oidc: list[OIDCProvider] = field(default_factory=list)
 
     # -- derived values -------------------------------------------------
@@ -201,6 +234,10 @@ def _is_loopback_url(url: str) -> bool:
 
 _SECTIONS = {f.name: f.type for f in dataclasses.fields(Config)}
 
+# Keys that older releases knew and that are now ignored, so existing config files keep working.
+DEPRECATED_KEYS = {("accounts", "scratch_projects")}
+CAPTCHA_PROVIDERS = ("", "turnstile", "hcaptcha")
+
 
 def _coerce(value: str, current: Any) -> Any:
     if isinstance(current, bool):
@@ -217,6 +254,11 @@ def _coerce(value: str, current: Any) -> Any:
 def _apply_section(obj: Any, values: dict[str, Any], section: str) -> None:
     names = {f.name for f in dataclasses.fields(obj)}
     for key, value in values.items():
+        if (section, key) in DEPRECATED_KEYS:
+            import logging
+
+            logging.getLogger("docwizard").warning("config key [%s] %s is no longer used; remove it", section, key)
+            continue
         if key.endswith("_file") and key[:-5] in names and key not in names:
             value = Path(value).read_text().strip()
             key = key[:-5]
@@ -274,6 +316,18 @@ def load(path: str | os.PathLike | None = None, env: dict[str, str] | None = Non
         setattr(obj, key, _coerce(value, getattr(obj, key)))
     if cfg.accounts.registration not in ("open", "invite", "oidc-only", "closed"):
         raise ValueError("accounts.registration must be open, invite, oidc-only or closed")
+    if cfg.security.captcha_provider not in CAPTCHA_PROVIDERS:
+        raise ValueError("security.captcha_provider must be turnstile, hcaptcha or empty")
+    if cfg.security.captcha_provider and not (cfg.security.captcha_site_key and cfg.security.captcha_secret):
+        raise ValueError("security.captcha_provider needs captcha_site_key and captcha_secret")
+    if cfg.accounts.require_email_verification and not cfg.smtp.host:
+        raise ValueError("accounts.require_email_verification needs an [smtp] section to send the links")
+    for key in ("terms_url", "privacy_url", "imprint_url"):
+        value = getattr(cfg.legal, key)
+        if value and urlsplit(value).scheme not in ("http", "https"):
+            raise ValueError(f"legal.{key} must be an http or https URL")
+    if cfg.legal.abuse_email and "@" not in cfg.legal.abuse_email:
+        raise ValueError("legal.abuse_email must be an email address")
     if cfg.server.durability not in ("full", "normal"):
         raise ValueError("server.durability must be 'full' or 'normal'")
     if not _is_loopback_url(cfg.server.public_url) and _is_loopback_url(cfg.server.preview_url):

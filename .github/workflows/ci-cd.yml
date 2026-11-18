@@ -36,8 +36,86 @@ jobs:
       - name: Run test suite
         run: pytest
 
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Python (ruff, settings in pyproject.toml)
+        run: |
+          pip install ruff==0.16.9
+          ruff check server worker tests scripts deploy
+
+      - name: JavaScript syntax
+        run: |
+          find web/app tests/e2e -name '*.js' -o -name '*.mjs' | sort | xargs -n1 node --check
+          node --check web/sw.js
+
+      - name: Translations parse and templates compile
+        run: |
+          python -m json.tool server/docwizard/locale/de.json > /dev/null
+          pip install --require-hashes -r requirements.lock
+          PYTHONPATH=server python -c "
+          from docwizard.http.templates import make_env
+          from pathlib import Path
+          env = make_env()
+          for t in sorted(Path('server/docwizard/templates').glob('*.html')):
+              env.get_template(t.name)
+          print('templates ok')"
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --require-hashes -r requirements.lock
+
+      - name: Install pinned pandoc and Typst
+        run: sudo python3 -I deploy/fetch_tools.py
+
+      - name: Install Playwright and Chromium
+        run: |
+          npm install --no-save --no-package-lock playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Browser smoke tests (phone 390×844, desktop 1280×800)
+        env:
+          E2E_SCREENSHOTS: ${{ runner.temp }}/e2e-screenshots
+          PYTHON: python
+        run: node --test tests/e2e/
+
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: ${{ runner.temp }}/e2e-screenshots
+          if-no-files-found: ignore
+          retention-days: 7
+
   images:
-    needs: test
+    needs: [test, lint, e2e]
     runs-on: ubuntu-latest
     permissions:
       contents: read

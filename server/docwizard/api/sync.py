@@ -100,6 +100,8 @@ def register(app) -> None:
         project, _ = await project_access(app, req, req.param("id"), "sync")
         body = await req.json_object()
         kind = body.get("kind", "webdav")
+        if kind != "folder":
+            app.require_verified_email(req, "sync")
         if kind == "folder":
             target = await connect_folder(req, project, body)
             app.sync.nudge(project["id"])
@@ -190,6 +192,7 @@ def register(app) -> None:
     # -- Nextcloud Login Flow v2 ---------------------------------------------
     async def nextcloud_start(req: Request) -> Response:
         project, _ = await project_access(app, req, req.param("id"), "sync")
+        app.require_verified_email(req, "sync")
         body = await req.json_object()
         try:
             server = nextcloud.normalize_server(str(body.get("server", "")))

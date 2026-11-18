@@ -100,7 +100,7 @@ export function wireCommon(root = document) {
       return;
     }
     const row = event.target.closest("tr[data-href]");
-    if (row && !event.target.closest("a, button, input")) {
+    if (row && !event.target.closest("a, button, input, details, label, form")) {
       location.href = row.dataset.href;
     }
   });

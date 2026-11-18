@@ -34,6 +34,34 @@ def _safe_name(name: str) -> str:
     return cleaned[:80]
 
 
+async def project_files(app, pid: str) -> list[tuple[str, bytes]]:
+    """A project's files as (path, bytes): documents at their current text, then assets."""
+
+    def load(c):
+        docs = c.execute("SELECT id, path, line_ending FROM documents WHERE project_id = ? AND deleted_at IS NULL",
+                         (pid,)).fetchall()
+        assets = c.execute("SELECT path, sha256 FROM assets WHERE project_id = ? AND deleted_at IS NULL",
+                           (pid,)).fetchall()
+        return [dict(d) for d in docs], [dict(a) for a in assets]
+
+    docs, assets = await app.db.read(load)
+    entries: list[tuple[str, bytes]] = []
+    for d in docs:
+        room = await app.rooms.get(d["id"])
+
+        async def text_of(room=room):
+            return room.text()
+
+        entries.append((d["path"], files.encode_text(await room.call(text_of), d["line_ending"])))
+    for a in assets:
+        try:
+            data = await asyncio.to_thread(files.get_blob, app.cfg.data_dir, a["sha256"])
+        except OSError:
+            continue
+        entries.append((a["path"], data))
+    return entries
+
+
 def register(app) -> None:
     from ..pages.projects import doc_url, editor_snapshot
 
@@ -86,30 +114,7 @@ def register(app) -> None:
 
     async def archive(req: Request) -> Response:
         project, _ = await project_access(app, req, req.param("id"), "read")
-        pid = project["id"]
-
-        def load(c):
-            docs = c.execute("SELECT id, path, line_ending FROM documents WHERE project_id = ? AND deleted_at IS NULL",
-                             (pid,)).fetchall()
-            assets = c.execute("SELECT path, sha256 FROM assets WHERE project_id = ? AND deleted_at IS NULL",
-                               (pid,)).fetchall()
-            return [dict(d) for d in docs], [dict(a) for a in assets]
-
-        docs, assets = await app.db.read(load)
-        entries: list[tuple[str, bytes]] = []
-        for d in docs:
-            room = await app.rooms.get(d["id"])
-
-            async def text_of(room=room):
-                return room.text()
-
-            entries.append((d["path"], files.encode_text(await room.call(text_of), d["line_ending"])))
-        for a in assets:
-            try:
-                data = await asyncio.to_thread(files.get_blob, app.cfg.data_dir, a["sha256"])
-            except OSError:
-                continue
-            entries.append((a["path"], data))
+        entries = await project_files(app, project["id"])
         folder = _safe_name(project["name"])
 
         def build() -> bytes:
