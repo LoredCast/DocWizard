@@ -1679,7 +1679,7 @@ max_push_churn    = 1_000_000   # inserted + deleted code units per push
 | Sync | pytest with Nextcloud and Seafile containers | Every row of the [§12.2](#122-algorithm) table, conflicts, ETag races, renames in both directions keeping `doc_id` |
 | OIDC | pytest with a Keycloak container | Login, group mapping, logout |
 | Frontend unit | Node's built-in test runner | Pandoc syntax extensions, citation search, word count |
-| Browser smoke (CI) | Playwright with headless Chromium, `node --test tests/e2e/` | At 390×844 and 1280×800: register and log in, create, rename and delete a file, the formatting toolbar, the phone's Edit/Preview switch with the HTML and PDF preview, the storage-quota message. Every page is checked for horizontal overflow, failed asset requests and page errors |
+| Browser smoke (CI) | Playwright with headless Chromium, `node --test 'tests/e2e/*.test.mjs'` | At 390×844 and 1280×800: register and log in, create, rename and delete a file, the formatting toolbar, the phone's Edit/Preview switch with the HTML and PDF preview, the storage-quota message. Every page is checked for horizontal overflow, failed asset requests and page errors |
 | Lint (CI) | `ruff check` (`E9`, `F`), `node --check`, template compilation | Syntax errors, undefined names and unused imports in Python, syntax of every frontend module, templates that don't compile |
 | End-to-end | Playwright (optional, dev-only) | Two browsers editing one document, offline reload and reconnect, share links, preview scroll sync without new history entries in Chromium, Firefox and WebKit, uploaded HTML/SVG never running on the app origin |
 | Performance | `scripts/` | Size budgets, render timings on a reference paper |

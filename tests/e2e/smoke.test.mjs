@@ -1,5 +1,5 @@
 // Browser smoke tests (§20): headless Chromium at phone and desktop sizes against a real server
-// with the render worker. Run with `node --test tests/e2e/` (needs Python with the app's
+// with the render worker. Run with `node --test 'tests/e2e/*.test.mjs'` (needs Python with the app's
 // dependencies, pandoc, Typst and the Node "playwright" package with Chromium).
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";

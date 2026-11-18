@@ -103,7 +103,7 @@ jobs:
         env:
           E2E_SCREENSHOTS: ${{ runner.temp }}/e2e-screenshots
           PYTHON: python
-        run: node --test tests/e2e/
+        run: node --test 'tests/e2e/*.test.mjs'
 
       - name: Keep the screenshots
         if: always()

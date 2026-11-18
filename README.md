@@ -105,7 +105,7 @@ Browser smoke tests start a throwaway server and drive headless Chromium at phon
 
 ```sh
 npm install --no-save playwright && npx playwright install chromium
-node --test tests/e2e/
+node --test 'tests/e2e/*.test.mjs'
 ```
 
 CI runs `pytest`, the browser tests and the linters (`ruff check`, `node --check` on the frontend, template compilation) on every pull request into `main` and `nightly`.
