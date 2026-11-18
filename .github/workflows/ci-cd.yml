@@ -72,7 +72,7 @@ jobs:
           print('templates ok')"
 
   e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # Playwright 1.55 has no Chromium build for 26.04 yet
     steps:
       - uses: actions/checkout@v4
 

@@ -1240,11 +1240,7 @@
  "previous": "zurück",
  "regexp": "Regex",
  "replace": "ersetzen",
- "replace all": "alle ersetzen"
- "Title of the new document": "Titel des neuen Dokuments"
- "{cols} × {rows} table": "Tabelle {cols} × {rows}"
- "Fill these in at the top of the document, in its title card. Go to or Add takes you there. In the YAML view they are the lines between --- at the very top, one “name: value” per line.": "Diese Angaben füllst du oben im Dokument in der Titelkarte aus; „Zur Stelle“ und „Hinzufügen“ bringen dich hin. In der YAML-Ansicht sind es die Zeilen zwischen --- ganz oben, eine „Name: Wert“ pro Zeile."
- "{n} pictures in the pasted text were left out. Paste or drop each one on its own to add it.": "{n} Bilder im eingefügten Text wurden ausgelassen. Füg sie einzeln ein oder zieh sie in den Text."
+ "replace all": "alle ersetzen",
  "Add email address": "E-Mail-Adresse hinzufügen",
  "Change email address": "E-Mail-Adresse ändern",
  "Confirm": "Bestätigen",
@@ -1308,8 +1304,6 @@
  "Hand projects with other editors over to one of them instead of deleting them": "Projekte mit anderen Bearbeitenden an eine von ihnen übergeben, statt sie zu löschen",
  "Log out other devices": "Andere Geräte abmelden",
  "Logged out.": "Abgemeldet.",
- "Move {name} to the trash?": "{name} in den Papierkorb verschieben?",
- "New name": "Neuer Name",
  "Rename or delete {name}": "{name} umbenennen oder löschen",
  "Save build inputs": "Build-Eingaben speichern",
  "The trash was emptied.": "Der Papierkorb wurde geleert.",
