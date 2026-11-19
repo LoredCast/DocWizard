@@ -90,4 +90,4 @@ def test_descriptions_and_old_rows():
     assert activity.describe({"kind": "replace", "count": 5, "actorName": "Ann",
                               "detail": {"query": "colour", "replacement": "color", "docs": 2}}, say) \
         == "Ann replaced “colour” with “color” in 2 documents (5 times)"
-    assert activity._excerpt("word " * 100).endswith("…")
+    assert activity.excerpt("word " * 100).endswith("…")

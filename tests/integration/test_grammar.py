@@ -25,7 +25,8 @@ async def test_editor_is_told_what_this_server_offers(app, client, monkeypatch):
     monkeypatch.setattr(grammar, "harper_installed", lambda app: True)
     pid = await new_project(client)
     snap = await open_editor(client, pid)
-    assert snap["grammar"] == {"harper": True, "languagetool": False, "choice": "auto"}
+    assert snap["grammar"] == {"harper": True, "languagetool": False, "choice": "auto",
+                               "words": {"project": [], "mine": []}}
     assert "lang" in snap["project"]
     # Choosing in the settings.
     page = await client.get("/settings")

@@ -19,6 +19,7 @@ import { CommentsPanel } from "./comments.js";
 import { FieldsPanel, LayoutFields, fieldsExtension } from "./fields.js";
 import { Follower } from "./follow.js";
 import { ActivityDialog } from "./activity.js";
+import { ProjectFind } from "./project-replace.js";
 import { GrammarChecker, grammarExtension, showMatches } from "./grammar.js";
 import { figures } from "./figures.js";
 import { ImageInserter } from "./images.js";
@@ -113,7 +114,11 @@ const grammar = isMarkdown && !readOnly && !review && !navigator.connection?.sav
   ? new GrammarChecker({
     grammar: snap.grammar,
     docKey: docId,
-    onError: (message) => toast(t("Grammar checking stopped: {message}", { message })),
+    projectId: snap.project.id,
+    account: Boolean(snap.user && !snap.user.guest),
+    canProject: Boolean(snap.can?.edit),
+    onError: (message, { keepGoing = false } = {}) => toast(
+      keepGoing ? message : t("Grammar checking stopped: {message}", { message }), { error: keepGoing }),
   })
   : null;
 let library = new Map();
@@ -212,7 +217,8 @@ const session = new DocSession({
     isMarkdown ? writerField.init(() => !review && stored(marksKey, "on") === "off") : [],
     tools ? tools.extension({ writer: writerMode }) : [], isScript ? characterCompletion(() => characters) : [],
     grammar ? grammarExtension({ ignore: (m, w) => { grammar.ignore(m, w); checkGrammar(); },
-                                 addWord: (w) => { grammar.addWord(w); checkGrammar(); } }) : [],
+                                 addWord: (w, scope) => { grammar.addWord(w, scope).then(checkGrammar); checkGrammar(); },
+                                 scopes: () => grammar.scopes() }) : [],
     suggest ? suggest.extension : [],
     session.extension(version)] }),
   onStatus: showStatus,
@@ -510,6 +516,9 @@ function handleEvent(msg) {
       break;
     case "comments":
       comments.load();
+      break;
+    case "dictionary":
+      grammar?.reloadWords().then(checkGrammar);
       break;
     case "notifications":
       if (msg.users?.includes(snap.user?.id)) comments.load();
@@ -1320,6 +1329,12 @@ fieldsPanel = layoutFields && fieldsEl ? new FieldsPanel({
 $("#open-fields")?.addEventListener("click", () => fieldsPanel?.toggle());
 
 $("#open-find")?.addEventListener("click", () => toggleFind());
+const projectFind = offlineRecord ? null : new ProjectFind({
+  projectId, docId, view, canEdit: Boolean(snap.can.edit) && !review,
+  docUrl: (path) => `/p/${projectId}/${path.split("/").map(encodeURIComponent).join("/")}`,
+  settle: () => settle(),
+});
+$("#open-project-find")?.addEventListener("click", () => projectFind?.open());
 
 // -- Chapters and files ------------------------------------------------------
 const chapters = new ChaptersDrawer({
@@ -1545,6 +1560,9 @@ document.addEventListener("keydown", (event) => {
   if (mod && event.key === "s") {
     event.preventDefault();
     toast(session.status().state === "saved" ? t("Everything is saved.") : t("Saving automatically…"));
+  } else if (mod && event.shiftKey && !event.altKey && event.code === "KeyF" && projectFind) {
+    event.preventDefault();
+    projectFind.open();
   } else if (mod && event.key === "e" && !event.shiftKey) {
     event.preventDefault();
     $("#open-export").click();

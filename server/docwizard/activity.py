@@ -26,23 +26,23 @@ SOURCES = {"disk": "An outside edit", "sync:nextcloud": "Nextcloud", "sync:seafi
            "sync:webdav": "WebDAV", "sync:folder": "The server folder", "sync:git": "Git"}
 
 
-def _excerpt(text: str | None) -> str:
+def excerpt(text: str | None) -> str:
     text = " ".join((text or "").split())
     return text if len(text) <= MAX_EXCERPT else text[:MAX_EXCERPT - 1].rstrip() + "…"
 
 
 def record(c: sqlite3.Connection, project_id: str, kind: str, *, actor: str | int | None = None,
            actor_name: str | None = None, doc_id: str | None = None, path: str | None = None,
-           detail: dict | None = None, now: float | None = None) -> int:
+           detail: dict | None = None, count: int = 1, now: float | None = None) -> int:
     """Add one event; call it inside the write that makes the change."""
     now = time.time() if now is None else now
     if detail and "excerpt" in detail:
-        detail = {**detail, "excerpt": _excerpt(detail["excerpt"])}
+        detail = {**detail, "excerpt": excerpt(detail["excerpt"])}
     return c.execute(
-        "INSERT INTO activity(project_id, doc_id, path, kind, actor, actor_name, detail_json, started_at, at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO activity(project_id, doc_id, path, kind, actor, actor_name, detail_json, count, started_at, at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (project_id, doc_id, path, kind, str(actor) if actor is not None else None, actor_name,
-         json.dumps(detail, ensure_ascii=False) if detail else None, now, now)).lastrowid
+         json.dumps(detail, ensure_ascii=False) if detail else None, int(count), now, now)).lastrowid
 
 
 def name_of(c: sqlite3.Connection, actor: str | None) -> str | None:

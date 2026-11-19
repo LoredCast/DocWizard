@@ -147,6 +147,27 @@
 </section>
 {% endif %}
 {% if not guest %}
+<section class="card" id="dictionary" aria-labelledby="dictionary-title">
+  <div class="section-head"><h2 id="dictionary-title">{{ _("Project dictionary") }}</h2></div>
+  <p class="muted hint">{{ _("Names and terms the spelling check accepts in every document of this project, for everyone. Your own words are in your settings.") }}</p>
+  {% if dictionary %}
+  <ul class="word-list">
+    {% for w in dictionary %}
+    <li><span>{{ w }}</span>{% if may_edit %}<form method="post" class="inline"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="action" value="remove-word"><input type="hidden" name="word" value="{{ w }}"><button type="submit" class="link" aria-label="{{ _('Remove {word}', word=w) }}">×</button></form>{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="muted">{{ _("No words yet. Choose “Add to project dictionary” on a spelling mark, or add them here.") }}</p>{% endif %}
+  {% if may_edit %}
+  <form method="post" class="row">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="add-word">
+    <input name="words" required aria-label="{{ _('Words to add') }}" placeholder="{{ _('Words, separated by spaces') }}" spellcheck="false" autocomplete="off">
+    <button type="submit">{{ _("Add") }}</button>
+  </form>
+  {% endif %}
+</section>
+{% endif %}
+{% if not guest %}
 <section class="card" aria-labelledby="members-title">
   <div class="section-head"><h2 id="members-title">{{ _("Members") }}</h2></div>
   <ul class="plain member-list">

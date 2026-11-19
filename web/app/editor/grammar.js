@@ -63,10 +63,11 @@ function card(view, hit, options) {
     el("div", { class: "grammar-actions" },
       el("button", { type: "button", class: "link", onclick: () => { options.ignore(match, word); close(); view.focus(); } },
         t("Ignore")),
-      match.kind === "spelling" && options.addWord
-        ? el("button", { type: "button", class: "link", onclick: () => { options.addWord(word); close(); view.focus(); } },
-          t("Add to dictionary"))
-        : null));
+      ...(match.kind === "spelling" && options.addWord
+        ? (options.scopes?.() ?? [["local", t("Add to dictionary")]]).map(([scope, label]) =>
+          el("button", { type: "button", class: "link", onclick: () => { options.addWord(word, scope); close(); view.focus(); } },
+            label))
+        : [])));
   dom.addEventListener("keydown", (e) => {
     if (e.key === "Escape") { e.preventDefault(); close(); view.focus(); }
   });
@@ -149,18 +150,49 @@ function save(key, list) {
   try { localStorage.setItem(key, JSON.stringify(list.slice(-2000))); } catch { /* private window */ }
 }
 
+// Words the checkers accept (§6.8): the project's dictionary, shared by everyone in it; the
+// person's own, in all their projects; and, for guests, this browser's. Words an account kept
+// in this browser before move to the account the first time.
 export class GrammarChecker {
-  constructor({ grammar, docKey, onError }) {
+  constructor({ grammar, docKey, projectId, account = false, canProject = false, onError }) {
     this.grammar = grammar;
     this.docKey = docKey;
+    this.projectId = projectId;
+    this.account = account;
+    this.canProject = canProject;
     this.onError = onError;
     this.worker = null;
     this.id = 0;
     this.pending = new Map();
-    this.words = load(DICT_KEY);
+    this.local = load(DICT_KEY);
+    this.setWords(grammar.words ?? { project: [], mine: [] });
     // Ignored findings, per document: "message\u0000word".
     this.ignored = new Set(load(`${IGNORE_KEY}:${docKey}`));
     this.failed = false;
+    if (account && projectId && this.local.length) this.moveLocalWords();
+  }
+
+  setWords({ project = [], mine = [] }) {
+    this.project = project;
+    this.mine = mine;
+    this.words = [...new Set([...project, ...mine, ...(this.account ? [] : this.local)])];
+  }
+
+  async moveLocalWords() {
+    try {
+      this.setWords(await api("POST", `/api/projects/${this.projectId}/dictionary`, { scope: "mine", words: this.local }));
+      this.local = [];
+      try { localStorage.removeItem(DICT_KEY); } catch { /* private window */ }
+    } catch { /* stays in this browser until the next try */ }
+  }
+
+  // The "Add to …" choices on a spelling card.
+  scopes() {
+    if (!this.account) return [["local", t("Add to dictionary")]];
+    return [
+      ...(this.canProject ? [["project", t("Add to project dictionary")]] : []),
+      ["mine", t("Add to my dictionary")],
+    ];
   }
 
   ignore(match, word) {
@@ -168,9 +200,24 @@ export class GrammarChecker {
     save(`${IGNORE_KEY}:${this.docKey}`, [...this.ignored]);
   }
 
-  addWord(word) {
+  async addWord(word, scope = "local") {
     if (!this.words.includes(word)) this.words.push(word);
-    save(DICT_KEY, this.words);
+    if (scope === "local" || !this.account) {
+      if (!this.local.includes(word)) this.local.push(word);
+      save(DICT_KEY, this.local);
+      return;
+    }
+    try {
+      this.setWords(await api("POST", `/api/projects/${this.projectId}/dictionary`, { scope, word }));
+    } catch (error) {
+      this.onError?.(error.message, { keepGoing: true });
+    }
+  }
+
+  async reloadWords() {
+    try {
+      this.setWords(await api("GET", `/api/projects/${this.projectId}/dictionary`));
+    } catch { /* keep the words we have */ }
   }
 
   filter(text, matches) {

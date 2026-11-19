@@ -512,6 +512,39 @@ class Room:
             return self.version
         return await self._commit([cs], [{"clientID": client_id, "changes": cs.to_json()}], author)
 
+    async def replace_ranges(self, version: int, edits: list[tuple[int, int, str, str]], *, author: str | None,
+                             label: str) -> tuple[int, int]:
+        """Apply a project-wide replacement (§8.12): *edits* are ``(from, to, expected, insert)``
+        at *version*. Each range is mapped to now and replaced only if it still holds the
+        expected text, so edits made since the preview are kept. One named version before, one
+        update for all. Returns (replaced, skipped)."""
+        changes = await self._changes_from(version)
+        if changes is None:
+            raise PushError("stale", "This document changed too much since the search. Search again.")
+        base_len = changes[0].length if changes else len(self.buf)
+        mapped, skipped = [], 0
+        for frm, to, expected, insert in sorted(edits):
+            if not 0 <= frm <= to <= base_len:
+                skipped += 1
+                continue
+            for cs in changes:
+                frm, to = map_range(cs, frm, to)
+            if (mapped and frm < mapped[-1][1]) or not (self.buf.is_boundary(frm) and self.buf.is_boundary(to)) \
+                    or self.buf.slice(frm, to) != expected:
+                skipped += 1
+                continue
+            mapped.append((frm, to, insert))
+        if not mapped:
+            return 0, skipped
+        cs = ChangeSet.of(mapped, len(self.buf))
+        new_len = cs.new_length
+        if new_len > self.rooms.cfg.limits.max_document_bytes:
+            raise PushError("too_large", "The document would exceed the size limit.")
+        await self.check_quota(new_len - len(self.buf))
+        await self.snapshot(label, user_of(author))
+        await self._commit([cs], [{"clientID": "system:replace", "changes": cs.to_json()}], author)
+        return len(mapped), skipped
+
     async def merge(self, peer: Peer, merge_id: str, base: str, text: str) -> dict:
         """Reconcile a client's offline text (§8.6)."""
         permissions.require(peer.role, "edit")
@@ -571,12 +604,8 @@ class Room:
     async def _activity(self, kind: str, *, detail: dict | None = None, count: int = 1) -> None:
         """Record an event about this document; the edit itself is committed either way."""
         try:
-            def work(c):
-                rid = activity.record(c, self.project_id, kind, doc_id=self.doc_id, path=self.path, detail=detail)
-                if count != 1:
-                    c.execute("UPDATE activity SET count = ? WHERE id = ?", (count, rid))
-
-            await self.db.write(work)
+            await self.db.write(lambda c: activity.record(c, self.project_id, kind, doc_id=self.doc_id,
+                                                          path=self.path, detail=detail, count=count))
         except Exception:  # noqa: BLE001
             log.exception("recording activity failed", extra=fields(doc=self.doc_id))
 

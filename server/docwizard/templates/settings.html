@@ -56,6 +56,21 @@
     {% if saved == "profile" %}<p role="status">{{ _("Saved") }}</p>{% endif %}
     <div class="buttons"><button type="submit" class="primary">{{ _("Save") }}</button></div>
   </form>
+  <h2 id="words">{{ _("My dictionary") }}</h2>
+  <p class="muted">{{ _("Words the spelling check accepts in all your projects. Each project also has its own dictionary, shared by everyone in it.") }}</p>
+  {% if my_words %}
+  <ul class="word-list">
+    {% for w in my_words %}
+    <li><span>{{ w }}</span><form method="post" action="/settings/words" class="inline"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="action" value="remove"><input type="hidden" name="word" value="{{ w }}"><button type="submit" class="link" aria-label="{{ _('Remove {word}', word=w) }}">×</button></form></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  <form method="post" action="/settings/words" class="row">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input name="words" required aria-label="{{ _('Words to add') }}" placeholder="{{ _('Words, separated by spaces') }}" spellcheck="false" autocomplete="off">
+    <button type="submit">{{ _("Add") }}</button>
+  </form>
+  {% if saved == "words" %}<p role="status">{{ _("Saved") }}</p>{% endif %}
   <h2 id="email">{{ _("Email address") }}</h2>
   {% if saved == "email-sent" %}<p role="status">{{ _("We sent a link to confirm the address. It works for 2 days.") }}</p>
   {% elif saved == "email-verified" %}<p role="status">{{ _("Your email address is confirmed.") }}</p>

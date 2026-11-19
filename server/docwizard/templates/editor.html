@@ -24,6 +24,7 @@
       <span class="menu-heading" id="menu-write">{{ _("Write") }}</span>
       <button type="button" id="open-chapters" data-open-chapters aria-expanded="false" aria-controls="chapters">{{ _("Chapters") }}</button>
       <button type="button" id="open-find" title="{{ _('Find and replace (Ctrl+F)') }}">{{ _("Find and replace") }}</button>
+      <button type="button" id="open-project-find" title="{{ _('Find and replace in every document of the project (Ctrl+Shift+F)') }}">{{ _("Find in all chapters") }}</button>
       {% if doc.kind == "markdown" %}<button type="button" id="open-refs" aria-pressed="false" title="{{ _('References (Ctrl+Alt+R)') }}">{{ _("References") }}</button>
       <button type="button" id="open-fields" aria-pressed="false" title="{{ _('Title, author and the other details this template prints') }}">{{ _("Document details") }}</button>
       {% if not review %}<button type="button" id="toggle-raw" aria-pressed="false" title="{{ _('Edit the Markdown as plain text, without rendering titles, pictures or tables') }}">{{ _("Plain text editing") }}</button>{% endif %}
@@ -240,6 +241,28 @@
   </div>
 </dialog>
 {% endif %}
+<dialog id="project-find-dialog" class="wide" aria-labelledby="project-find-title">
+  <div class="form">
+    <h2 id="project-find-title">{{ _("Find in all chapters") }}</h2>
+    <form class="find-fields" id="project-find-form">
+      <label>{{ _("Find") }} <input name="query" type="search" autocomplete="off" spellcheck="false" required></label>
+      <label>{{ _("Replace with") }} <input name="replacement" autocomplete="off" spellcheck="false"></label>
+      <div class="find-options">
+        <label class="choice"><input type="checkbox" name="caseSensitive"> {{ _("Match case") }}</label>
+        <label class="choice"><input type="checkbox" name="wholeWord"> {{ _("Whole words") }}</label>
+        <label class="choice" title="{{ _('JavaScript regular expressions; the replacement can use $1 or $<name>') }}"><input type="checkbox" name="regexp"> {{ _("Regular expression") }}</label>
+        <label class="choice"><input type="checkbox" name="allFiles"> {{ _("Also bibliographies and other files") }}</label>
+        <button type="submit">{{ _("Search") }}</button>
+      </div>
+    </form>
+    <p class="muted" id="project-find-summary" role="status"></p>
+    <ul class="match-list" id="project-find-results"></ul>
+    <div class="buttons">
+      <button type="button" data-close-dialog>{{ _("Close") }}</button>
+      <button type="button" class="primary" id="project-find-replace" disabled>{{ _("Replace") }}</button>
+    </div>
+  </div>
+</dialog>
 <dialog id="versions-dialog" class="wide" aria-labelledby="versions-title">
   <div class="form">
     <h2 id="versions-title">{{ _("Versions") }}</h2>
