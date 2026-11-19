@@ -6,6 +6,7 @@ import { EditorSelection, EditorView, keymap, syntaxTree } from "codemirror";
 import { el, t } from "../ui/dom.js";
 import { crossRefTargets } from "./figures.js";
 import { insertTable } from "./tables.js";
+import { focusEditor } from "./table-view.js";
 
 // -- Popover ---------------------------------------------------------------
 // Anchored under a button or the cursor; on phones, a sheet at the bottom of the editor.
@@ -273,7 +274,7 @@ export class InsertTools {
     const pick = (r, c) => {
       this.pop.close(false);
       insertTable(view, r, c, (i) => t("Column {n}", { n: i + 1 }));
-      view.focus();
+      focusEditor(view);
     };
     for (let r = 1; r <= MAX; r++) {
       for (let c = 1; c <= MAX; c++) {

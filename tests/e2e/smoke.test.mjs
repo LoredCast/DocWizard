@@ -195,9 +195,41 @@ for (const vp of VIEWPORTS) {
       assert.equal(await page.locator(".cm-table-view").count(), 0, "plain text shows the table's Markdown");
       await raw.click();
       await page.locator(".cm-table-view").waitFor();
-      // A click on a cell opens the table's source there, with the table tools.
-      await page.locator(".cm-table-view td", { hasText: "Berlin" }).click();
+      // The table is edited as a table: a click puts the caret in the cell, with the table tools;
+      // typing, Tab, Enter and the table bar change the Markdown, which never shows.
+      const source = () => page.evaluate(async () => {
+        const { EditorView } = await import("codemirror");
+        const text = EditorView.findFromDOM(document.querySelector(".cm-editor")).state.doc.toString();
+        return text.slice(text.indexOf("| City"), text.indexOf("\n\nAfter"));
+      });
+      const berlin = page.locator(".cm-table-view td", { hasText: "Berlin" });
+      if (vp.hasTouch) await berlin.tap();
+      else await berlin.click();
       await page.locator("#table-bar:not([hidden])").waitFor();
+      assert.equal(await page.evaluate(() => document.activeElement.textContent), "Berlin");
+      await page.keyboard.press("End");
+      await page.keyboard.type(" | Mitte");
+      await page.keyboard.press("Tab");
+      await page.keyboard.type("961");
+      assert.match(await source(), /\| Berlin \\\| Mitte +\| +961 \|/);
+      await page.keyboard.press("Enter"); // the last row: a new one
+      await page.keyboard.type("12");
+      const addColumn = page.locator('#table-bar [data-table="column"]');
+      if (vp.hasTouch) await addColumn.tap();
+      else await addColumn.click();
+      await page.keyboard.type("New");
+      const lines = (await source()).split("\n");
+      assert.equal(lines.length, 4);
+      assert.match(lines[3], /^\| +\| +12 \| New +\| +\| +\| +\| *$/);
+      assert.equal(await page.locator(".cm-table-view").count(), 1, "the table stays a table");
+      // Undo works in a cell; Escape goes back to the text below the table, with its columns padded.
+      await page.keyboard.press("ControlOrMeta+z");
+      assert.equal(await page.evaluate(() => document.activeElement.textContent), "");
+      await page.keyboard.press("Escape");
+      await page.waitForFunction(() => document.activeElement.classList.contains("cm-content"));
+      await page.locator("#table-bar[hidden]").waitFor({ state: "attached" });
+      const padded = (await source()).split("\n");
+      assert.ok(padded.every((l) => l.length === padded[0].length), "the columns are padded again");
       noProblems(page);
     });
 

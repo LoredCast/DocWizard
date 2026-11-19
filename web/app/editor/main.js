@@ -34,7 +34,7 @@ import { ChaptersDrawer } from "./chapters.js";
 import { addColumn, addRow, cycleAlign, deleteColumn, deleteRow, deleteTable, tableAt } from "./tables.js";
 import { setWriterMode, writerField, writerMode } from "./writer-mode.js";
 import { livePreview } from "./live-preview.js";
-import { tableView } from "./table-view.js";
+import { editingTable, focusEditor as focusTableOrEditor, showTableSource, tableView } from "./table-view.js";
 
 wireCommon();
 
@@ -182,7 +182,7 @@ const rawKey = "dw.raw";
 const rendering = new Compartment();
 let raw = isMarkdown && !review && stored(rawKey, "off") === "on";
 const richExtensions = isMarkdown ? [
-  livePreview({ reading: review }), titleCard ? titleCard.extension() : [], figureField ?? [], tableView({ reading: review }),
+  livePreview({ reading: review }), titleCard ? titleCard.extension() : [], figureField ?? [], tableView({ reading: review, locked: (state) => Boolean(state.field(suggestField, false)?.on) }),
 ] : [];
 
 // The search panel in the app's colours (CodeMirror's own are light grey gradients).
@@ -315,8 +315,15 @@ function toggleFind(v = view) {
   else openSearchPanel(v);
   return POPOVER; // the panel takes the focus
 }
-const TABLE_CMDS = { row: addRow, column: addColumn, align: cycleAlign, "delete-row": deleteRow,
-                     "delete-column": deleteColumn, delete: deleteTable };
+const TABLE_CMDS = {
+  row: addRow, column: addColumn, align: cycleAlign, "delete-row": deleteRow, "delete-column": deleteColumn,
+  delete: deleteTable,
+  // The table's Markdown, until the cursor leaves it.
+  source: (v) => {
+    const table = tableAt(v.state, v.state.selection.main.head);
+    if (table) v.dispatch({ effects: showTableSource.of(table.from) });
+  },
+};
 const tableBar = $("#table-bar");
 
 // "Show Markdown marks" on (the line with the cursor shows its source) or off (writer mode).
@@ -341,6 +348,8 @@ function applyRaw() {
   updateFormatBar();
 }
 $("#toggle-raw")?.addEventListener("click", () => setRaw(!raw));
+// The table bar comes and goes with the caret in a table's cells.
+for (const type of ["focusin", "focusout"]) $("#editor").addEventListener(type, () => setTimeout(() => updateFormatBar(), 0));
 
 if (formatBar) {
   formatBar.hidden = readOnly || !isMarkdown || review;
@@ -354,7 +363,7 @@ if (formatBar) {
     if (!btn || readOnly || !isMarkdown || review) return;
     const cmd = FORMAT_CMDS[btn.dataset.cmd];
     if (cmd) {
-      if (cmd(view, btn) !== POPOVER) view.focus();
+      if (cmd(view, btn) !== POPOVER) focusTableOrEditor(view);
       updateFormatBar();
     }
   });
@@ -363,7 +372,7 @@ if (formatBar) {
     const cmd = btn && TABLE_CMDS[btn.dataset.table];
     if (!cmd || readOnly) return;
     cmd(view);
-    view.focus();
+    focusTableOrEditor(view);
     updateFormatBar();
   });
 }
@@ -373,7 +382,8 @@ function updateFormatBar() {
     if (tableBar) tableBar.hidden = true;
     return;
   }
-  if (tableBar) tableBar.hidden = !tableAt(view.state, view.state.selection.main.head);
+  // Tables show as tables, edited cell by cell (editor/table-view.js); in plain text, as Markdown.
+  if (tableBar) tableBar.hidden = !tableAt(view.state, view.state.selection.main.head) || (!raw && isMarkdown && !editingTable(view));
   const marks = formatBar.querySelector('[data-cmd="marks"]');
   marks?.setAttribute("aria-pressed", String(!writerMode(view.state)));
   if (marks) marks.hidden = raw; // in plain text every mark shows anyway
