@@ -382,6 +382,13 @@ A document opens with the cursor where it was when it was last open in this brow
 - Formatted text pasted from Word, LibreOffice, Google Docs or a web page (`editor/paste.js`, `editor/paste-html.js`) arrives as Pandoc Markdown: the clipboard's `text/html` is turned into headings, bold, italics, strikethrough, sub- and superscripts, links (Google's redirect links unwrapped), bullet and numbered lists (Word's `mso-list` paragraphs too), quotes, code and pipe tables. Characters that would otherwise read as Markdown (`*`, `` ` ``, `$`, `@key`, a leading `#` or `1.`) are escaped. Pictures in the HTML are left out with a note, since their addresses (`file:///…`, expiring Google links) can't be fetched; pasted or dropped on their own, they upload as figures. The browser's own plain-text paste is kept when the HTML adds nothing, inside code, math and the front matter, for copies from code editors (`white-space: pre`), and with `Ctrl+Shift+V`. After a formatted paste a small note offers *Paste as plain text*, which swaps in the clipboard's plain text until the next edit.
 - Keyboard first: command palette on `Ctrl/Cmd+K`, and every action reachable from the keyboard.
 
+**Writing studio** (`editor/manuscript.js` for the pure models, `editor/studio.js` for the UI; Markdown documents, not in the review view)
+
+- The **corkboard** (*Write → Corkboard*, or `#corkboard` in the address) shows the document as lanes of cards: a lane per chapter (`#` heading), a card per scene. Scenes are `##` headings, the layout's scene breaks (`***`, or what the text already uses) and, in scripts, scene headings (`INT.`/`EXT.` lines or `##` headings). A card shows the scene's title or first sentence and its word count. Cards move by dragging or with `Alt+↑/↓/←/→`, lanes with their ↑/↓ buttons; `Enter` on a card goes to the scene. A move is one minimal change (`{from, to, insert}`) with `userEvent: "move.corkboard"`, so undo, collaboration and suggest mode treat it as any edit; scene breaks stay between scenes, and the text before the first chapter stays first. With several build inputs, a strip above the board opens the other chapters. The board is read-only where the text is.
+- **Script breakdown** (*Write → Script breakdown*, script layouts): scenes with number, setting (`INT`, `EXT`, `INT./EXT`, `INNEN`, `AUSSEN`), location, time of day, length in eighths of a page and cast; the cast with speeches, words and scenes; locations with their scenes and times. Each tab downloads as CSV (cells starting with `=`, `+`, `-` or `@` are quoted so spreadsheets don't run them). *Highlight* on a character marks their cues, parentheticals and lines in the editor until the chip in the status bar is closed.
+- **Table read** (*Write → Table read*): the browser's speech synthesis (`speechSynthesis`) reads the script from the cursor, one voice per character (chosen in the bar and remembered per project, `dw.voices.<project>`), action and scene headings optionally in a narrator voice; the line being read is marked. Nothing is sent to the server.
+- **Session targets** (*Write → Daily target*): a daily goal in words, pages or Normseiten (German standard pages: 60 characters to a line, 30 lines to a page, chapters on a new page; the default unit with the `normseite` layout). The status bar shows today's progress against it, counted from the first count of the day per document in this browser (`dw.today.<project>`), and turns green when it is reached.
+
 ### 6.4 Preview
 
 - **HTML preview** is served from a separate **preview origin** (by default the publish host under `/_preview/`), never from the app origin, because documents may contain raw HTML:
@@ -396,6 +403,12 @@ A document opens with the cursor where it was when it was last open in this brow
   - LaTeX: after a `pdf-latex` render, `render/synctex.py` turns the job's `document.synctex.gz` into `synctex.json` next to the PDF, with project-relative paths (read without following links and within a size limit). The innermost line box under the point, and in it the last glue, kern or math record before the point, gives the file and line.
   - Everything else (Typst PDFs, and LaTeX made from Markdown, whose SyncTeX points into pandoc's intermediate file): the words around the click are looked up in the build's input files, following each side with a small lookahead so rendered citations, footnote marks and hyphenation don't break the match; equally good matches are ranked by how near they are to where the page lies in the build.
   - The HTML preview is a sandboxed page on another origin without scripts, so it can't report clicks; jumping back works from the PDF.
+- **PDFs made in the browser** (`preview/local.js`, `workers/render.js`). Where the server has the browser renderer installed (`deploy/fetch_tools.py --browser-render web/vendor/browser-render`: the official pandoc 3.9 WebAssembly build, typst.ts 0.7 with Typst 0.14.2, the WASI shim and open fonts, each checked against a pinned SHA-256), the PDF preview of a Markdown document can be made in the browser: *In this browser* next to *PDF*, remembered per browser (`dw.localRender`). It renders 400 ms after typing pauses, from the text in the editor, without a round trip; the offline editor and an editor whose connection dropped use it too.
+  - `GET /api/projects/{id}/render-kit?doc=<id>` (`api/browser_render.py`) gives what the worker would get for a Typst PDF: pandoc's options as a defaults file (from the same `jobs.pandoc_steps`), the layout's files and filters (only the citation style in use), `options.json`, the project's text files and pictures (up to 12 MB in all; more are listed as `skipped`), and the fonts the layout names from the renderer's set. It has an ETag and is kept in IndexedDB (`kits`), so the preview also works offline; an open editor asks again at most every 30 s.
+  - The worker runs pandoc with an in-memory WASI file system (`src/` is the folder pandoc runs in, `layout/` the layout, `dwlocale.lua` at the root for the filters' `require`), then Typst with the same files mapped in, and posts the PDF bytes, which `PdfPreview.showData` shows. Both programs stay loaded; a newer request replaces one still waiting.
+  - The page's CSP stays without `'unsafe-eval'` (`'wasm-unsafe-eval'` is enough): Typst's glue code builds a few trivial functions from strings, which the worker answers without eval.
+  - Double-clicking a spot in a PDF made in the browser asks `source-at` with the last server render, or else looks for the words around the spot in the text.
+  - The server's render stays the reference: downloads, exports, publishing, LaTeX and Typst packages from `@preview` go through the worker.
 - **Layout options panel** is generated from the layout's variable schema ([§9.3](#93-layouts)).
 
 ### 6.5 Offline and caching
@@ -410,6 +423,7 @@ A document opens with the cursor where it was when it was last open in this brow
   - `citations`: cached CSL-JSON per source, with ETag
   - `layouts`: layout metadata for the options panel
   - `projects`: `{projectId, name, savedAt, count}` for projects kept **available offline** as a whole
+  - `kits`: the last render kit of each document previewed in the browser ([§6.4](#64-preview))
 - Unconfirmed edits survive reloads and offline periods and are sent on reconnect ([§8.6](#86-reconnect-and-offline)).
 - **Whole projects offline.** "Available offline" on the project page fetches an editor snapshot of every document (`POST /api/projects/{id}/offline`, only those whose version changed since the browser's copies) and keeps them with `kept: <projectId>`, which pruning skips. Every signed-in page refreshes kept projects at most every 5 minutes while online, so a train or plane trip starts from recent text. Offline, `/p/<project>` lists that project's documents from IndexedDB, and each opens in the editor shell, also documents never opened in this browser.
 - **The outbox.** Documents with waiting edits are sent as soon as any signed-in page is online, not only when the document is opened again: `POST /api/documents/{id}/merge` reconciles them like the socket's `merge` ([§8.6](#86-reconnect-and-offline)), idempotently by a merge id stored before sending. An open editor holds the Web Lock `dw-doc:<id>` for its document, and the outbox skips documents whose lock is taken, so no copy is written by two tabs. The page then says how many documents were sent and how many passages need a look.
@@ -421,6 +435,7 @@ A document opens with the cursor where it was when it was last open in this brow
 
 - `workers/citations.js` holds the citation library, does fuzzy search and formats chip labels.
 - `workers/grammar.js` runs the Harper grammar checker ([§6.8](#68-grammar-and-spelling)).
+- `workers/render.js` makes PDF previews with pandoc and Typst as WebAssembly ([§6.4](#64-preview)).
 - `workers/stats.js` computes word and character counts and the outline for long documents. With a script layout (one that names the `screenplay` filter; the layout's public data says `script: true`) it follows the filter's rules to add scene headings to the outline, list the characters for cue autocomplete, and estimate pages by counting lines as the PDF sets them (61 characters for action, 35 for dialogue, 55 lines to a page); the status bar shows that as pages and minutes.
 
 The main thread runs only the editor and the UI.
@@ -801,6 +816,7 @@ flowchart LR
   Concurrent jobs therefore can't read, write, signal or trace each other: different users, `0700` directories. Process limits count per job. The worker's own socket (mode `0600`) is closed to jobs. As defence in depth, job ids are random 128-bit values and `jobs/run/` is mode `0711`, so its entries can't be listed.
 - **Namespaces (extra layer):** where bubblewrap can run (bare metal, or Docker with a seccomp profile that allows user namespaces), each job also gets its own mount and PID namespace and sees only its directory and a read-only toolchain.
 - **Shared caches**: layouts (copied once per content hash) and the Typst package cache live in a separate cache volume. The app writes it and the worker mounts it **read-only**, so a compromised job can't tamper with files other projects use ([§18.1](#181-containers)).
+- **Several workers.** `render.extra_workers` lists more worker folders, each with its socket (`worker.sock`) and its `run/` folder, on this machine or on another one sharing the folder. The app counts `concurrency` slots per worker and sends each job to the least busy reachable one; a worker that can't be reached is skipped for 15 s. Preview tokens ([§6.4](#64-preview)) are kept in the database (`preview_tokens`, hashed), so several app processes behind one proxy can serve the same preview URLs. The admin health page lists each worker.
 - **Worker protocol**: newline-delimited JSON over a Unix socket in the shared jobs volume. Requests are `{"run": "<id>"}` and `{"cancel": "<id>"}`; the response is `{"done": "<id>", "status": "ok|error|timeout", "diagnostics": […]}`.
 - **Diagnostics**: Typst errors (file, line, column, message) and errors from the LaTeX log are parsed and shown in the editor gutter.
 - **LaTeX build directories** persist per project in `jobs/latex/<build-id>/`, so latexmk reuses auxiliary files between runs. `build-id` is an HMAC of the project id, so it can't be guessed.
@@ -1406,6 +1422,10 @@ The goal is to own as little difficult code as possible, not to minimize the pac
 | CodeMirror helpers: `style-mod`, `w3c-keyname`, `crelt` | Internal dependencies, same maintainer | Editor route | MIT |
 | Temml | LaTeX to MathML in the editor | When a document contains math | MIT |
 | PDF.js (optional) | Better PDF preview, SyncTeX | On demand | Apache-2.0 |
+| pandoc (WebAssembly, optional) | PDF preview made in the browser ([§6.4](#64-preview)) | When chosen | GPL-2.0-or-later |
+| typst.ts web compiler (optional) | Typst in the browser for that preview | When chosen | Apache-2.0 |
+| @bjorn3/browser_wasi_shim (optional) | WASI for pandoc in the browser | When chosen | MIT or Apache-2.0 |
+| Tinos, Carlito, Cousine, Noto Serif, Noto Sans (optional) | Fonts for that preview | When chosen | Apache-2.0, OFL-1.1 |
 
 The exact package list and versions are recorded in `web/vendor/MANIFEST`.
 
@@ -1644,6 +1664,7 @@ memory_mb           = 1536
 preview_debounce_ms = 300
 default_layout      = "default"
 fast_lane           = 1      # slots LaTeX can't take (§9.2)
+extra_workers       = []     # more worker folders, each with worker.sock and run/ (§9.2)
 user_previews       = 1      # per person, at a time
 user_exports        = 2      # per person, queued or running
 per_user_rpm        = 0      # renders per person per minute; 0: no limit

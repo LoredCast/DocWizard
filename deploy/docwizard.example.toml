@@ -55,6 +55,9 @@ timeout_seconds = 90                              # admins can set another per a
 memory_mb = 1536
 default_layout = "default"
 fast_lane = 1                                     # slots LaTeX can't take, so HTML and Typst previews never wait
+# More render workers, on this machine or on others sharing the folders (§9.2): each folder holds
+# that worker's socket (worker.sock) and its job folders (run/). Jobs go to the least busy one.
+# extra_workers = ["/var/lib/docwizard-jobs-2", "/mnt/render-b/jobs"]
 user_previews = 1                                 # previews per person at a time
 user_exports = 2                                  # exports per person queued or running; more get 429
 # For public hosting, also budget what one person can render (0: no limit):
