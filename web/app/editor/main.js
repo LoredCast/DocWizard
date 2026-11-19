@@ -35,6 +35,7 @@ import { addColumn, addRow, cycleAlign, deleteColumn, deleteRow, deleteTable, ta
 import { setWriterMode, writerField, writerMode } from "./writer-mode.js";
 import { livePreview } from "./live-preview.js";
 import { tableView } from "./table-view.js";
+import { Corkboard, DailyTarget, TableRead, openBreakdown, setHighlight, studioExtension } from "./studio.js";
 
 wireCommon();
 
@@ -211,7 +212,7 @@ const session = new DocSession({
     tools ? tools.extension({ writer: writerMode }) : [], isScript ? characterCompletion(() => characters) : [],
     grammar ? grammarExtension({ ignore: (m, w) => { grammar.ignore(m, w); checkGrammar(); },
                                  addWord: (w) => { grammar.addWord(w); checkGrammar(); } }) : [],
-    suggest ? suggest.extension : [],
+    suggest ? suggest.extension : [], isMarkdown ? studioExtension : [],
     session.extension(version)] }),
   onStatus: showStatus,
   onEvent: handleEvent,
@@ -528,6 +529,9 @@ function handleEvent(msg) {
 
 // -- Word count and outline (worker) -----------------------------------------
 let outline = [];
+let studio = null; // the writing studio: its daily target and corkboard, set up below
+let corkboard = null;
+const normseite = snap.layout?.id === "normseite" || snap.layout?.parent === "normseite";
 let statsTimer = null;
 let statsId = 0;
 const stats = new Worker(new URL("../workers/stats.js", import.meta.url), { type: "module" });
@@ -538,6 +542,8 @@ stats.onmessage = (event) => {
   const n = event.data.words.toLocaleString(locale);
   const notes = event.data.notes && isMarkdown ? t(" · {n} in notes", { n: event.data.notes.toLocaleString(locale) }) : "";
   $("#word-count").textContent = t("{n} words", { n }) + notes;
+  studio?.update({ words: event.data.words, ...(normseite ? { normseiten: event.data.normseiten ?? 0 } : {}),
+                   ...(event.data.script ? { pages: event.data.script.pages } : {}) });
   const sp = event.data.script;
   if (sp) {
     characters = sp.characters;
@@ -552,7 +558,7 @@ stats.onmessage = (event) => {
 };
 function countWords() {
   statsId += 1;
-  stats.postMessage({ id: statsId, text: view.state.doc.toString(), script: isScript });
+  stats.postMessage({ id: statsId, text: view.state.doc.toString(), script: isScript, normseite });
 }
 countWords();
 
@@ -568,6 +574,7 @@ async function checkGrammar() {
 if (grammar) grammarTimer = setTimeout(checkGrammar, 1500);
 
 function docChanged() {
+  corkboard?.docChanged();
   clearTimeout(statsTimer);
   statsTimer = setTimeout(countWords, 400);
   if (grammar) {
@@ -1327,6 +1334,55 @@ for (const button of document.querySelectorAll("[data-open-chapters]")) {
   // From the Actions menu, focus goes back to the menu's button, as the menu closes.
   button.addEventListener("click", () => chapters.toggle(button.closest("#toolbar-buttons") ? moreBtn : button));
 }
+
+// -- Writing studio: corkboard, breakdown, line highlights, table read, daily target -----------
+corkboard = isMarkdown ? new Corkboard({
+  host: split, view, script: isScript, projectId, docPath: snap.doc.path, offline: Boolean(offlineRecord),
+  locked: (state) => readOnly || review || state.readOnly || suggesting(),
+  openChapters: () => chapters.show(),
+}) : null;
+for (const button of document.querySelectorAll("[data-open-corkboard]")) {
+  button.hidden = !corkboard;
+  button.addEventListener("click", () => corkboard?.toggle(button.closest("#toolbar-buttons") ? moreBtn : button));
+}
+if (corkboard && location.hash === "#corkboard") {
+  history.replaceState(null, "", location.pathname + location.search);
+  requestAnimationFrame(() => corkboard.show());
+}
+const speakerChip = $("#speaker-chip");
+function setSpeaker(name) {
+  view.dispatch({ effects: setHighlight.of(name) });
+  if (speakerChip) {
+    speakerChip.hidden = !name;
+    speakerChip.textContent = name ? t("Highlighting {name} ×", { name }) : "";
+    speakerChip.title = t("Stop highlighting");
+  }
+}
+speakerChip?.addEventListener("click", () => setSpeaker(null));
+const breakdownButton = $("#open-breakdown");
+if (breakdownButton) {
+  breakdownButton.hidden = !isScript;
+  breakdownButton.addEventListener("click", () => openBreakdown(view, { name: snap.doc.path.split("/").pop(), onHighlight: setSpeaker }));
+}
+const tableRead = isScript && TableRead.supported()
+  ? new TableRead({ view, host: $(".editor-pane"), projectId, lang: documentLanguage(view.state.doc.toString(), snap.project.lang) })
+  : null;
+const readButton = $("#start-table-read");
+if (readButton) {
+  readButton.hidden = !tableRead;
+  readButton.addEventListener("click", () => tableRead?.start());
+}
+window.addEventListener("pagehide", () => tableRead?.stop());
+studio = isMarkdown && !readOnly && !review ? new DailyTarget({
+  button: $("#session-target"), projectId, docId,
+  units: isScript ? ["pages", "words"] : normseite ? ["normseiten", "words"] : ["words"],
+}) : null;
+const targetButton = $("#open-target");
+if (targetButton) {
+  targetButton.hidden = !studio;
+  targetButton.addEventListener("click", () => studio?.edit());
+}
+countWords();
 
 // -- Conflicts (§12.3) ------------------------------------------------------
 let conflicts = [];

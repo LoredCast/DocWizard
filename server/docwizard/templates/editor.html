@@ -26,6 +26,10 @@
       {% if doc.kind == "markdown" %}<button type="button" id="open-refs" aria-pressed="false" title="{{ _('References (Ctrl+Alt+R)') }}">{{ _("References") }}</button>
       <button type="button" id="open-fields" aria-pressed="false" title="{{ _('Title, author and the other details this template prints') }}">{{ _("Document details") }}</button>
       {% if not review %}<button type="button" id="toggle-raw" aria-pressed="false" title="{{ _('Edit the Markdown as plain text, without rendering titles, pictures or tables') }}">{{ _("Plain text editing") }}</button>{% endif %}
+      {% if not review %}<button type="button" id="open-corkboard" data-open-corkboard aria-pressed="false" aria-controls="corkboard" title="{{ _('Chapters and scenes as cards to rearrange') }}">{{ _("Corkboard") }}</button>
+      <button type="button" id="open-breakdown" hidden title="{{ _('Scenes, cast and locations of the script') }}">{{ _("Breakdown") }}</button>
+      <button type="button" id="start-table-read" hidden title="{{ _('Read the script aloud from the cursor, a voice for each character') }}">{{ _("Table read") }}</button>
+      <button type="button" id="open-target" hidden>{{ _("Daily target") }}</button>{% endif %}
       <a class="button" id="switch-view" title="{{ _('Edit the Markdown') if review else _('Read the document as it prints, without Markdown, to comment and suggest') }}" href="?view={{ 'source' if review else 'review' }}">{{ _("Edit the source") if review else _("Review view") }}</a>{% endif %}
     </div>
     <div class="menu-group" role="group" aria-labelledby="menu-review">
@@ -242,6 +246,8 @@
 <footer class="statusbar" id="statusbar">
   <span id="word-count"></span>
   <span id="script-stats"></span>
+  <button type="button" class="link" id="session-target" hidden></button>
+  <button type="button" class="link" id="speaker-chip" hidden></button>
   {% if doc.kind == "markdown" %}<button type="button" class="link" id="open-outline" title="{{ _('Outline (Ctrl+Alt+O)') }}">{{ _("Outline") }}</button>{% endif %}
   <span id="doc-kind">{{ "Markdown" if doc.kind == "markdown" else doc.kind|capitalize }}</span>
   <span data-layout-name>{{ layout.name }}</span>
