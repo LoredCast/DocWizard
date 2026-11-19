@@ -73,6 +73,9 @@ class AccountsConfig:
 @dataclass
 class RenderConfig:
     worker_socket: str = ""  # default: <jobs_dir>/worker.sock
+    # More render workers (§9.2): the jobs directory of each, shared with that worker; its socket is
+    # <dir>/worker.sock. Jobs go to the least busy worker. Give every worker the same --concurrency.
+    extra_workers: list[str] = field(default_factory=list)
     spawn_worker: bool = False  # development: start the worker as a child process
     concurrency: int = 2  # jobs at once; give the worker the same number (DOCWIZARD_WORKER_CONCURRENCY)
     timeout_seconds: int = 90  # users.render_timeout_seconds overrides it for the projects someone owns
