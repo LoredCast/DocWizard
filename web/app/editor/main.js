@@ -20,6 +20,7 @@ import { FieldsPanel, LayoutFields, fieldsExtension } from "./fields.js";
 import { Follower } from "./follow.js";
 import { ActivityDialog } from "./activity.js";
 import { ProjectFind } from "./project-replace.js";
+import { Preflight } from "./preflight.js";
 import { GrammarChecker, grammarExtension, showMatches } from "./grammar.js";
 import { figures } from "./figures.js";
 import { ImageInserter } from "./images.js";
@@ -915,6 +916,16 @@ $("#open-export").addEventListener("click", () => {
   $("#export-status").textContent = "";
   exportDialog.showModal();
 });
+// The check before submitting, and anonymized exports for double-blind review (§9.11).
+const preflight = offlineRecord ? null : new Preflight({
+  projectId, docId, docUrl: (path) => `/p/${projectId}/${path.split("/").map(encodeURIComponent).join("/")}`,
+  onAnonymize: () => {
+    $("#export-anonymize").checked = true;
+    $("#open-export").click();
+  },
+});
+$("#open-preflight")?.addEventListener("click", () => preflight?.open());
+$("#export-preflight")?.addEventListener("click", () => { exportDialog.close(); preflight?.open(); });
 $("#export-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const status = $("#export-status");
@@ -927,7 +938,8 @@ $("#export-form").addEventListener("submit", async (event) => {
   for (const b of buttons) b.disabled = true;
   try {
     const { job } = await api("POST", `/api/projects/${projectId}/export`,
-                              { target: targetName, doc: docId, options: layoutOptions });
+                              { target: targetName, doc: docId, options: layoutOptions,
+                                anonymize: $("#export-anonymize")?.checked === true });
     for (let i = 0; i < 600; i++) {
       await new Promise((r) => setTimeout(r, i < 10 ? 500 : 1500));
       const s = await api("GET", `/api/jobs/${job}`);

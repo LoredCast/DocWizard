@@ -41,6 +41,7 @@
       <span class="menu-heading" id="menu-share">{{ _("Share and export") }}</span>
       {% if can(role, "share", project) and not guest %}<button type="button" id="open-share" class="pinned">{{ _("Share") }}</button>{% endif %}
       <button type="button" id="open-export" title="{{ _('PDF, Word, e-book and more (Ctrl+E)') }}">{{ _("Download or print") }}</button>
+      <button type="button" id="open-preflight" title="{{ _('Word and page limits, references, citations and open comments') }}">{{ _("Check before submitting") }}</button>
       {% if can(role, "publish", project) and not guest %}<button type="button" id="open-publish">{{ _("Publish") }}</button>{% endif %}
       <button type="button" id="open-versions">{{ _("Version history") }}</button>
     </div>
@@ -156,6 +157,8 @@
         <label class="choice"><input type="radio" name="target" value="md-source"{% if doc.kind == "latex" %} checked{% endif %}> {{ _("Project source (zip)") }}</label>
       </details>
     </fieldset>
+    <label class="choice" title="{{ _('Leaves out authors, affiliations, acknowledgements, funding and passages marked .unblind, also from the file’s metadata') }}"><input type="checkbox" name="anonymize" id="export-anonymize"> {{ _("Anonymize for double-blind review") }}</label>
+    <p class="muted hint"><button type="button" class="link" id="export-preflight">{{ _("Check before submitting") }}</button></p>
     <p id="export-conflicts" class="error"></p>
     <p id="export-status" class="muted" role="status"></p>
     <div class="buttons">
@@ -260,6 +263,20 @@
     <div class="buttons">
       <button type="button" data-close-dialog>{{ _("Close") }}</button>
       <button type="button" class="primary" id="project-find-replace" disabled>{{ _("Replace") }}</button>
+    </div>
+  </div>
+</dialog>
+<dialog id="preflight-dialog" class="wide" aria-labelledby="preflight-title">
+  <div class="form">
+    <h2 id="preflight-title">{{ _("Check before submitting") }}</h2>
+    <p class="muted">{{ _("Checks the documents the PDF is built from. Limits come from word-limit:, page-limit: and abstract-word-limit: in the front matter.") }}</p>
+    <p id="preflight-state" role="status"></p>
+    <ul class="preflight-list" id="preflight-list"></ul>
+    <div class="buttons">
+      <button type="button" id="preflight-pages">{{ _("Count the PDF's pages") }}</button>
+      <button type="button" id="preflight-again">{{ _("Check again") }}</button>
+      <button type="button" id="preflight-anonymize">{{ _("Export anonymized") }}</button>
+      <button type="button" data-close-dialog>{{ _("Close") }}</button>
     </div>
   </div>
 </dialog>

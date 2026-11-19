@@ -82,12 +82,19 @@ _F = {
                      "bibliography:\n  - references.json\n  - zotero:thesis"),
     "csl": ("Citation style", "Usually set with the layout option. Here: a bundled style such as apa, or a .csl "
             "file in this project.", "csl: ${}", "csl: apa"),
+    "word-limit": ("Word limit", "The most words the text may have, for the check before submitting. Footnotes, "
+                   "front matter and the bibliography don't count.", "word-limit: ${}", "word-limit: 8000"),
+    "abstract-word-limit": ("Abstract word limit", "The most words the abstract may have, for the check before "
+                            "submitting.", "abstract-word-limit: ${}", "abstract-word-limit: 250"),
+    "page-limit": ("Page limit", "The most pages the PDF may have, for the check before submitting.",
+                   "page-limit: ${}", "page-limit: 12"),
     "nocite": ("Sources not cited", "Sources to list in the bibliography without citing them. @* lists every "
                "source.", "nocite: |\n  ${}", "nocite: |\n  @doe2020, @roe2021"),
 }
 
 # Fields every document can use, whatever its layout prints.
-GENERAL_KEYS = ["lang", "otherlangs", "bibliography", "csl", "nocite", "thanks", "keywords", "short-title"]
+GENERAL_KEYS = ["lang", "otherlangs", "bibliography", "csl", "nocite", "thanks", "keywords", "short-title",
+                "word-limit", "page-limit", "abstract-word-limit"]
 
 # A title block entry and the front matter fields it is filled from.
 _SOURCES = {"byline": ["author"], "place-date": ["place", "date"]}
