@@ -119,11 +119,17 @@ export class InsertTools {
     this.readOnly = readOnly;
   }
 
-  // Ctrl+K opens the link popover; clicks on footnote numbers open the footnote card; in writer
+  // Ctrl+K on a selection opens the link popover; clicks on footnote numbers open the footnote card; in writer
   // mode, a click on a link opens the link popover.
   extension({ writer = () => false } = {}) {
     return [
-      keymap.of([{ key: "Mod-k", run: (view) => { this.view = view; this.link(); return true; } }]),
+      // With text selected, Ctrl+K links it; otherwise it opens the command palette (main.js).
+      keymap.of([{ key: "Mod-k", run: (view) => {
+        if (view.state.selection.main.empty || this.readOnly(view.state)) return false;
+        this.view = view;
+        this.link();
+        return true;
+      } }]),
       EditorView.domEventHandlers({
         click: (event, view) => {
           this.view = view;
