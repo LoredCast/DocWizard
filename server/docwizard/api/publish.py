@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 
+from .. import activity
 from ..http.request import HTTPError, Request, bad_request
 from ..http.response import Response, json_response
 from ..render.publish import PublishError, check_slug, unlisted_slug
@@ -74,6 +75,9 @@ def register(app) -> None:
             raise HTTPError(409, "slug_taken", "This address is already taken. Choose another.") from None
         if current is not None and current["slug"] != slug:
             app.publisher.remove_site(current["slug"])
+        if current is None:
+            await activity.log(app, project["id"], "publish", req, doc_id=doc["id"], path=doc["path"],
+                               detail={"url": app.publisher.url_for(slug)})
         return await run(req, doc, pub_id)
 
     async def run(req: Request, doc, pub_id: int) -> Response:
@@ -98,6 +102,7 @@ def register(app) -> None:
         pub = await get_pub(doc["id"])
         if pub is not None:
             await app.publisher.unpublish(pub["id"])
+            await activity.log(app, doc["project_id"], "unpublish", req, doc_id=doc["id"], path=doc["path"])
             await app.db.execute("INSERT INTO audit_log(actor, action, target, meta_json) VALUES (?, 'unpublish', ?, ?)",
                                  (f"user:{req.user.id}", doc["id"], json.dumps({"slug": pub["slug"]})))
         return json_response({"publication": None})

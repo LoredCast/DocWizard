@@ -17,6 +17,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable
@@ -24,6 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .. import activity
 from ..auth import permissions
 from ..logs import fields
 from ..projects import files, history
@@ -116,6 +118,9 @@ class Room:
         self.dirty_since: float | None = None
         self.last_op = 0.0
         self.last_activity = time.monotonic()
+        # Edits per author since the last materialization, for the project's activity (§8.12):
+        # {author: [changes, first_at, last_at]}. Written when the room materializes.
+        self.edit_tally: dict[str, list[float]] = {}
         self.closed = False
         self.task = asyncio.create_task(self._run(), name=f"room-{self.doc_id}")
 
@@ -324,6 +329,11 @@ class Room:
             log.exception("commit failed", extra=fields(doc=self.doc_id))
             raise PushError("not_saved", "The change could not be saved. It will be sent again.") from None
         self.ops_since_snapshot += len(changesets)
+        if author is not None and re.fullmatch(r"g?\d+", str(author)):
+            now = time.time()
+            tally = self.edit_tally.setdefault(str(author), [0, now, now])
+            tally[0] += len(changesets)
+            tally[2] = now
         for i, cs in enumerate(changesets):
             self.recent.append((start_version + i, cs))
         for peer in self.peers.values():
@@ -523,6 +533,8 @@ class Room:
         if not result.changes.empty_changes:
             await self._commit([result.changes], [{"clientID": client_id, "changes": result.changes.to_json()}],
                                author, merge_id)
+            if not source.startswith("offline:"):
+                await self._activity("outside", detail={"source": source})
         elif merge_id is not None:
             # Record the merge id so a repeated merge gets the same answer.
             cs = ChangeSet.empty(len(self.buf))
@@ -546,6 +558,7 @@ class Room:
             ids = await self.db.write(record)
             for cid, k in zip(ids, result.conflicts):
                 self.anchors[("conflict", cid)] = [k.anchor_from, k.anchor_to]
+            await self._activity("conflict", detail={"source": source}, count=len(result.conflicts))
             self.broadcast({"t": "conflicts", "doc": self.doc_id, "count": len(result.conflicts)})
         return len(result.conflicts)
 
@@ -554,6 +567,28 @@ class Room:
         """Reconcile a text edited elsewhere (sync, upload) with the current one (§12.3)."""
         return await self._reconcile(base, theirs, source=source, author=author, label=label,
                                      client_id=f"system:{source}")
+
+    async def _activity(self, kind: str, *, detail: dict | None = None, count: int = 1) -> None:
+        """Record an event about this document; the edit itself is committed either way."""
+        try:
+            def work(c):
+                rid = activity.record(c, self.project_id, kind, doc_id=self.doc_id, path=self.path, detail=detail)
+                if count != 1:
+                    c.execute("UPDATE activity SET count = ? WHERE id = ?", (count, rid))
+
+            await self.db.write(work)
+        except Exception:  # noqa: BLE001
+            log.exception("recording activity failed", extra=fields(doc=self.doc_id))
+
+    async def flush_activity(self) -> None:
+        """Write the edit counts gathered since the last call into the timeline (§8.12)."""
+        if not self.edit_tally:
+            return
+        tally, self.edit_tally = self.edit_tally, {}
+        try:
+            await self.db.write(lambda c: activity.add_edits(c, self.project_id, self.doc_id, self.path, tally))
+        except Exception:  # noqa: BLE001
+            log.exception("recording edits failed", extra=fields(doc=self.doc_id))
 
     async def snapshot(self, label: str | None = None, user_id: int | None = None) -> int:
         await self.persist_anchors()
@@ -585,6 +620,7 @@ class Room:
     async def materialize(self, force: bool = False) -> None:
         """Write the current text to the project folder (§11.2)."""
         await self.persist_anchors()
+        await self.flush_activity()
         text, version = self.text(), self.version
         data = files.encode_text(text, self.line_ending)
         digest = files.sha256(data)

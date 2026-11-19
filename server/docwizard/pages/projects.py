@@ -8,6 +8,7 @@ import secrets
 import time
 from urllib.parse import quote
 
+from .. import activity
 from ..api import grammar
 from ..api.projects import (GUEST_FORBIDDEN, create_project_with_starter, empty_trash, enforce_quota, project_access,
                             rename_file, restore_file, trash_file)
@@ -152,6 +153,7 @@ def register(app) -> None:
                 doc_id = await app.db.write(lambda c: svc.create_document(c, pid, path, ""))
                 room = await app.rooms.get(doc_id)
                 await room.call(room.materialize)
+                await activity.log(app, pid, "create", req, doc_id=doc_id, path=room.path)
                 return redirect(doc_url(pid, files.normalize(path)))
             if action == "layout":
                 await project_access(app, req, pid, "change_layout")
@@ -196,15 +198,19 @@ def register(app) -> None:
                 new = form.get("new_path", "").strip()
                 if new and "." not in new.rsplit("/", 1)[-1] and "." in form.get("path", "").rsplit("/", 1)[-1]:
                     new += "." + form["path"].rsplit(".", 1)[1]
-                await rename_file(app, pid, form.get("path", ""), new)
+                renamed = await rename_file(app, pid, form.get("path", ""), new)
+                if renamed != form.get("path", ""):
+                    await activity.log(app, pid, "rename", req, path=renamed, detail={"from": form.get("path", "")})
             elif action == "delete-file":
                 await project_access(app, req, pid, "edit")
                 await trash_file(app, pid, form.get("path", ""))
+                await activity.log(app, pid, "delete", req, path=form.get("path", ""))
             elif action == "restore-file":
                 await project_access(app, req, pid, "edit")
                 kind = "document" if form.get("doc_id") else "asset"
-                await restore_file(app, pid, kind, form.get("doc_id") or form.get("path", ""),
-                                   form.get("deleted_at", ""))
+                restored = await restore_file(app, pid, kind, form.get("doc_id") or form.get("path", ""),
+                                              form.get("deleted_at", ""))
+                await activity.log(app, pid, "restore", req, path=restored, doc_id=form.get("doc_id") or None)
                 return redirect(back + "#trash")
             elif action == "empty-trash":
                 project, _ = await project_access(app, req, pid, "delete_project")
