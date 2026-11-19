@@ -6,6 +6,7 @@ import { PresenceSender, PresenceView, peersField } from "../collab/presence.js"
 import { Socket } from "../collab/socket.js";
 import { HtmlPreview, headingId } from "../preview/html.js";
 import { PdfPreview } from "../preview/pdf.js";
+import { LocalRenderer } from "../preview/local.js";
 import { getCitations, getDoc, getDocByUrl, prune, putCitations, putLayout } from "../store/idb.js";
 import { $, api, confirmDialog, el, t, toast, wireCommon } from "../ui/dom.js";
 import { AnchorLoader, anchorsField, conflictGutter } from "./anchors.js";
@@ -692,6 +693,55 @@ if (isLatex) {
 }
 
 $(`input[name="preview-target"][value="${target === "html" ? "html" : "pdf"}"]`).checked = true;
+
+// PDFs made in this browser (§6.4): as you type, without the server, and offline. Chosen with
+// "In this browser"; the offline editor, and an editor whose connection dropped, always use it.
+const canLocal = Boolean(snap.browserRender) && pdfTarget === "pdf-typst";
+let localOn = canLocal && (Boolean(offlineRecord) || stored("dw.localRender", "off") === "on");
+let local = null;
+let lastServerPdf = null;
+const localToggle = $("#local-render");
+if (localToggle) {
+  localToggle.closest("label").hidden = !canLocal;
+  localToggle.checked = localOn;
+  localToggle.disabled = Boolean(offlineRecord);
+  localToggle.addEventListener("change", () => {
+    localOn = localToggle.checked;
+    store("dw.localRender", localOn ? "on" : "off");
+    if (localOn && target !== "pdf-typst") $('input[name="preview-target"][value="pdf"]').click();
+    else requestPreview(0);
+  });
+}
+
+function showDiagnostic(text, title = text) {
+  const diag = $("#diagnostic");
+  diag.textContent = text;
+  diag.className = text ? "diagnostic-error" : "";
+  diag.title = text ? title : "";
+}
+
+let localSeq = 0;
+async function renderLocally() {
+  local ??= new LocalRenderer({ projectId, docId, offline: Boolean(offlineRecord) });
+  const mine = ++localSeq;
+  setPreviewState(t("Rendering in this browser…"));
+  try {
+    const out = await local.render(view.state.doc.toString());
+    if (!out || mine !== localSeq || target !== "pdf-typst") return;
+    showDiagnostic("");
+    clearPreviewError("pdf");
+    pdf.showData(out.pdf);
+    pane.dataset.madeIn = "browser";
+    setPreviewState(t("Preview"), true);
+  } catch (err) {
+    if (mine !== localSeq) return;
+    setPreviewState(t("Preview failed"));
+    const message = String(err.message ?? err);
+    showDiagnostic(err.status === 404 || message === "not available offline"
+      ? t("The PDF preview isn't available offline yet: open it once while online.")
+      : message.split("\n")[0], message);
+  }
+}
 const darkPaper = $("#dark-paper");
 darkPaper.checked = stored("dw.darkPaper", "off") === "on";
 html.setDark(darkPaper.checked);
@@ -781,13 +831,20 @@ darkPaper.addEventListener("change", () => {
   html.setDark(darkPaper.checked);
 });
 
-function requestPreview(delay = target === "html" ? 300 : 1000) {
+function requestPreview(delay) {
   clearTimeout(previewTimer);
   if (!previewVisible()) return;
+  const inBrowser = canLocal && target === "pdf-typst";
+  delay ??= inBrowser && localOn ? 400 : target === "html" ? 300 : 1000;
   previewTimer = setTimeout(() => {
+    if (inBrowser && localOn) {
+      renderLocally();
+      return;
+    }
     const sent = socket.send({ t: "render", doc: docId, version: session.version(), target,
                                layout: snap.layout.id, options: layoutOptions });
     if (sent) setPreviewState(t("Rendering…"));
+    else if (inBrowser) renderLocally();
   }, delay);
 }
 
@@ -806,6 +863,8 @@ function showRendered(msg) {
     diag.title = "";
   }
   if (msg.target !== target) return;
+  if (msg.url && msg.target !== "html") lastServerPdf = msg.url;
+  if (localOn && msg.target === "pdf-typst") return;
   if (!msg.url) {
     // "limited": a render limit of the server; the next edit tries again.
     setPreviewState(msg.status === "limited" ? t("Preview paused") : t("Preview failed"));
@@ -819,6 +878,7 @@ function showRendered(msg) {
     html.show(msg.url);
   } else {
     clearPreviewError("pdf");
+    delete pane.dataset.madeIn;
     pdf.show(msg.url);
   }
 }
@@ -849,8 +909,12 @@ function cursorMoved() {
 // with SyncTeX; otherwise the server finds the words around the spot in the build's files.
 let picking = 0;
 async function findInSource(pick) {
-  const key = /\/api\/renders\/([0-9a-f]{64})\//.exec(pick.url ?? "")?.[1];
-  if (!key) return;
+  // A PDF made in this browser asks with the server's last build, or else looks for the words.
+  const key = /\/api\/renders\/([0-9a-f]{64})\//.exec(pick.url ?? lastServerPdf ?? "")?.[1];
+  if (!key) {
+    if (!findWords(pick)) toast(t("This spot couldn't be found in the source."));
+    return;
+  }
   const mine = ++picking;
   try {
     const hit = await api("POST", `/api/projects/${projectId}/source-at`, {
@@ -868,6 +932,24 @@ async function findInSource(pick) {
     if (mine !== picking) return;
     toast(err.status === 404 ? t("This spot couldn't be found in the source.") : err.message, { error: err.status !== 404 });
   }
+}
+
+// The words around a picked spot, found in the text: the longest run of them that occurs once.
+function findWords({ words = [], at = 0 }) {
+  const text = view.state.doc.toString();
+  const gap = "[^\\p{L}\\p{N}]+";
+  for (let size = Math.min(6, words.length); size >= 2; size--) {
+    for (let start = Math.max(0, at - size + 1); start <= Math.min(at, words.length - size); start++) {
+      const re = new RegExp(words.slice(start, start + size).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(gap), "giu");
+      const hits = [...text.matchAll(re)];
+      if (hits.length !== 1) continue;
+      const pos = hits[0].index;
+      const line = view.state.doc.lineAt(pos);
+      jumpToLine(line.number, pos - line.from);
+      return true;
+    }
+  }
+  return false;
 }
 
 function takeScrollRatio() {

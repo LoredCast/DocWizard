@@ -34,6 +34,7 @@ export class PdfPreview {
     this.viewer = null;
     this.pages = null;
     this.url = null;
+    this.data = null;
     this.doc = null;
     this.sizes = [];
     this.visible = true;
@@ -72,12 +73,21 @@ export class PdfPreview {
   show(url) {
     if (!url || url === this.url) return;
     this.url = url;
+    this.data = null;
+    this.ensureViewer();
+    this.load();
+  }
+
+  // A PDF made in the browser (§6.4): its bytes, not a URL.
+  showData(bytes) {
+    this.url = null;
+    this.data = bytes;
     this.ensureViewer();
     this.load();
   }
 
   reload() {
-    if (!this.url) return;
+    if (!this.url && !this.data) return;
     this.ensureViewer();
     this.load();
   }
@@ -85,13 +95,15 @@ export class PdfPreview {
   async load() {
     const seq = ++this.seq;
     const url = this.url;
+    const data = this.data;
     try {
-      const [pdfjs, res] = await Promise.all([loadPdfJs(), fetch(url, { credentials: "same-origin" })]);
+      const [pdfjs, res] = await Promise.all([loadPdfJs(), data ? null : fetch(url, { credentials: "same-origin" })]);
       if (seq !== this.seq) return;
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const buf = await res.arrayBuffer();
+      if (res && !res.ok) throw new Error(`HTTP ${res.status}`);
+      // PDF.js takes the bytes it is given, so it gets a copy of a PDF kept for a reload.
+      const bytes = data ? data.slice() : new Uint8Array(await res.arrayBuffer());
       if (seq !== this.seq) return;
-      const doc = await pdfjs.getDocument({ data: new Uint8Array(buf), verbosity: pdfjs.VerbosityLevel?.ERRORS ?? 0 }).promise;
+      const doc = await pdfjs.getDocument({ data: bytes, verbosity: pdfjs.VerbosityLevel?.ERRORS ?? 0 }).promise;
       if (seq !== this.seq) {
         doc.destroy();
         return;

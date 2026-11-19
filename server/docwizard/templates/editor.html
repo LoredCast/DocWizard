@@ -108,6 +108,7 @@
       <span class="spacer"></span>
       <label class="choice"><input type="radio" name="preview-target" value="html" checked> HTML</label>
       <label class="choice"><input type="radio" name="preview-target" value="pdf"> PDF</label>
+      <label class="choice" hidden title="{{ _('Make the PDF here as you type, also offline') }}"><input type="checkbox" id="local-render"> {{ _("In this browser") }}</label>
       <label class="choice"><input type="checkbox" id="dark-paper"> {{ _("Dark paper") }}</label>
       <button type="button" id="open-options" title="{{ _('Template and page setup') }}">{{ _("Page setup") }}</button>
     </div>

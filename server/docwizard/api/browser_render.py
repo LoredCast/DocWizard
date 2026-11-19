@@ -18,7 +18,7 @@ import re
 from pathlib import Path
 
 from ..http.request import HTTPError, Request, bad_request
-from ..http.response import Response, json_response
+from ..http.response import Response
 from ..render import jobs
 from .projects import document_access, project_access
 
@@ -200,8 +200,14 @@ def register(app) -> None:
         approved = app.layouts.filters_approved(layout)
         data = await asyncio.to_thread(build_kit, app, project, doc_path, snap, layout, options, inputs,
                                        layout_dir, approved)
-        resp = json_response(data)
-        resp.set_header("cache-control", "private, no-store")
+        body = json.dumps(data, separators=(",", ":"), sort_keys=True).encode()
+        etag = '"' + hashlib.sha256(body).hexdigest()[:32] + '"'
+        if req.headers.get("if-none-match") == etag:
+            resp = Response(b"", status=304)
+        else:
+            resp = Response(body, content_type="application/json")
+        resp.set_header("etag", etag)
+        resp.set_header("cache-control", "private, no-cache")
         return resp
 
     app.router.add("GET", "/api/projects/{id}/render-kit", kit, guest=True)
