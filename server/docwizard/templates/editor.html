@@ -9,7 +9,8 @@
 {% endblock %}
 {% block crumbs %}<a class="wordmark" href="/">DocWizard</a><span>/</span><a href="/p/{{ project.id }}" id="crumb-project">{{ project.name }}</a><span>/</span><button type="button" class="crumb-doc" id="crumb-doc" data-open-chapters aria-expanded="false" aria-controls="chapters" title="{{ _('Chapters and files') }}"><span class="crumb-name">{{ doc.path }}</span></button>{% endblock %}
 {% block actions %}
-<span class="presence" id="presence" aria-label="{{ _('Also here') }}"></span>
+<span class="presence" id="presence" role="group" aria-label="{{ _('Also here') }}"></span>
+<span class="presence-elsewhere" id="presence-elsewhere" hidden></span>
 <span class="status" id="save-state" role="status">{{ _("Saved") }}</span>
 {# The actions used most stay in the bar on wide screens; the rest are grouped in the Actions menu. #}
 <button type="button" class="tb-quick" data-proxy="open-comments">{{ _("Comments") }}</button>
@@ -32,6 +33,7 @@
       <span class="menu-heading" id="menu-review">{{ _("Review") }}</span>
       <button type="button" id="new-comment" title="{{ _('Comment on the selection (Ctrl+Alt+M)') }}">{{ _("Comment") }}</button>
       <button type="button" id="open-comments" class="pinned" aria-pressed="false">{{ _("Comments") }}</button>
+      {% if not guest %}<button type="button" id="open-activity" title="{{ _('Recent edits, comments, renames and syncs in this project') }}">{{ _("Project activity") }}</button>{% endif %}
       <button type="button" id="new-suggestion" aria-pressed="false" title="{{ _('Suggest changes: what you type becomes suggestions (Ctrl+Alt+G)') }}">{{ _("Track changes") }}</button>
     </div>
     <div class="menu-group" role="group" aria-labelledby="menu-share">
@@ -61,6 +63,7 @@
 <div class="split" id="split">
   <section class="pane editor-pane" aria-label="{{ _('Editor') }}">
     {% if review %}<p class="review-banner" id="review-banner">{{ _("You're reviewing {path}. Select text, then choose Comment or Suggest change.", path=doc.path) if can(role, "comment", project) else _("You're reading {path}.", path=doc.path) }}</p>{% endif %}
+    <p class="follow-banner" id="follow-banner" role="status" hidden></p>
     <p class="suggest-banner" id="suggest-banner" role="status" hidden><strong>{{ _("Tracking changes") }}</strong> <span class="muted">{{ _("What you type becomes suggestions to accept or reject.") }}</span> <button type="button" class="link" id="suggest-off">{{ _("Stop") }}</button></p>
     <div class="format-bar" id="format-bar" role="toolbar" aria-label="{{ _('Formatting') }}"{% if doc.kind != "markdown" or not can(role, "edit", project) %} hidden{% endif %}>
       <button type="button" data-cmd="undo" aria-label="{{ _('Undo') }}" title="{{ _('Undo (Ctrl+Z)') }}">↶</button>
@@ -224,6 +227,19 @@
     </div>
   </form>
 </dialog>
+{% if not guest %}
+<dialog id="activity-dialog" class="wide" aria-labelledby="activity-title">
+  <div class="form">
+    <h2 id="activity-title">{{ _("Project activity") }}</h2>
+    <ol class="activity-list" id="activity-items" aria-live="polite"></ol>
+    <div class="buttons">
+      <button type="button" id="activity-more" hidden>{{ _("Show older activity") }}</button>
+      <a class="spacer" href="/p/{{ project.id }}#activity">{{ _("On the project page") }}</a>
+      <button type="button" data-close-dialog>{{ _("Close") }}</button>
+    </div>
+  </div>
+</dialog>
+{% endif %}
 <dialog id="versions-dialog" class="wide" aria-labelledby="versions-title">
   <div class="form">
     <h2 id="versions-title">{{ _("Versions") }}</h2>

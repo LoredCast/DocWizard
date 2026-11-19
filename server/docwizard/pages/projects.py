@@ -115,6 +115,16 @@ def register(app) -> None:
                     svc.list_trash(c, project["id"]) if may_edit and not guest else [])
 
         tree, members, shares, trash = await app.db.read(load)
+        # The project's recent activity (§8.12); guests don't see who did what.
+        timeline, timeline_more = [], False
+        if not guest:
+            limit = 100 if req.query.get("activity") == "more" else 12
+            timeline = await app.db.read(lambda c: activity.list_for(c, project["id"], limit=limit + 1))
+            timeline_more, timeline = len(timeline) > limit, timeline[:limit]
+            gettext = lambda message, **values: app.t(req, message, **values)  # noqa: E731
+            for item in timeline:
+                item["text"] = activity.describe(item, gettext)
+                item["when"] = activity.iso(item["at"])
         try:
             build_inputs = json.loads(project["build_inputs"]) if project["build_inputs"] else []
         except ValueError:
@@ -131,7 +141,7 @@ def register(app) -> None:
         return app.page(req, "project.html", project=project, role=role, tree=tree, members=members, trash=trash,
                         build_inputs=build_inputs if isinstance(build_inputs, list) else [build_inputs],
                         may_sync=may_sync, sync=sync, sync_options=sync_options,
-                        shares=shares, may_share=may_share, link_roles=_link_roles(app, role),
+                        shares=shares, may_share=may_share, timeline=timeline, timeline_more=timeline_more, link_roles=_link_roles(app, role),
                         new_link=req.query.get("link"), layouts=_layout_choices(app, req, project), doc_url=doc_url,
                         languages=languages.choices(),
                         full_languages={t for t, _ in languages.choices() if languages.full_support(t)},

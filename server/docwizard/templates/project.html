@@ -89,6 +89,25 @@
   {% endif %}
 </section>
 
+{% if not guest %}
+<section class="card activity-card" id="activity" aria-labelledby="activity-title">
+  <div class="section-head"><h2 id="activity-title">{{ _("Activity") }}</h2></div>
+  {% if timeline %}
+  <ol class="plain activity-list">
+    {% for a in timeline %}
+    <li class="activity-item activity-{{ a.kind }}">
+      <span class="spacer">{% if a.currentPath and a.kind not in ("delete",) %}<a href="{{ doc_url(project.id, a.currentPath) }}">{{ a.text }}</a>{% else %}{{ a.text }}{% endif %}</span>
+      <time class="muted" datetime="{{ a.when }}" title="{{ a.when }}">{{ a.at|reltime }}</time>
+    </li>
+    {% endfor %}
+  </ol>
+  {% if timeline_more %}<p><a href="?activity=more#activity">{{ _("Show older activity") }}</a></p>{% endif %}
+  {% else %}
+  <p class="muted">{{ _("Nothing has happened yet. Edits, comments, renames and syncs show up here.") }}</p>
+  {% endif %}
+</section>
+{% endif %}
+
 {% if may_edit or not guest %}<h2 class="settings-title">{{ _("Settings") }}</h2>{% endif %}
 <div class="settings-grid">
 {% if can(role, "edit") %}

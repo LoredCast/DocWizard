@@ -17,6 +17,8 @@ import {
 } from "./commands.js";
 import { CommentsPanel } from "./comments.js";
 import { FieldsPanel, LayoutFields, fieldsExtension } from "./fields.js";
+import { Follower } from "./follow.js";
+import { ActivityDialog } from "./activity.js";
 import { GrammarChecker, grammarExtension, showMatches } from "./grammar.js";
 import { figures } from "./figures.js";
 import { ImageInserter } from "./images.js";
@@ -219,6 +221,8 @@ const session = new DocSession({
 });
 const presenceSender = new PresenceSender(session, socket, docId);
 const presence = new PresenceView(session, showPeers);
+let follower = null;
+let peerList = [];
 
 const view = new EditorView({
   state: session.makeState(snap.text, snap.version),
@@ -237,8 +241,13 @@ const view = new EditorView({
     }
     if (trs.some((tr) => tr.selection || tr.docChanged)) references?.cursorMoved();
     if (trs.some((tr) => tr.docChanged)) fieldsPanel?.docChanged();
+    follower?.moved();
   },
 });
+follower = new Follower({ view, projectId, docId, docUrl: (path) => `/p/${projectId}/${path.split("/").map(encodeURIComponent).join("/")}` });
+follower.show(peerList);
+const activityDialog = new ActivityDialog({ projectId, docUrl: (path) => `/p/${projectId}/${path.split("/").map(encodeURIComponent).join("/")}` });
+$("#open-activity")?.addEventListener("click", () => activityDialog.open());
 const { text: _text, version: _version, clientID: _clientID, ...meta } = snap;
 session.keep = { url: location.pathname, meta, pinned: Boolean(snap.doc.pinned) };
 session.start(view);
@@ -461,12 +470,10 @@ function showStatus({ state, waiting }) {
   if (menuStatus) menuStatus.textContent = label;
 }
 
+// The people in this document, as buttons that follow their cursor (§8.7).
 function showPeers(peers) {
-  const slot = $("#presence");
-  slot.replaceChildren(...peers.map((p, i) => el("span", { class: "peer" },
-    el("span", { class: "dot", style: `--peer: var(--peer-${p.color})`, "aria-hidden": "true" }),
-    el("span", { class: "name" }, `${p.name}${i < peers.length - 1 ? "," : ""}`))));
-  slot.title = peers.length ? t("Also here: {names}", { names: peers.map((p) => p.name).join(", ") }) : "";
+  peerList = peers;
+  follower?.show(peers);
 }
 
 socket.onError((msg) => toast(msg.message ?? t("The connection reported an error."), { error: true }));
