@@ -28,7 +28,14 @@ TEXT_KINDS = {
     ".bib": "bib",
     ".txt": "text", ".json": "text", ".csl": "text", ".css": "text", ".html": "text",
     ".typ": "text", ".lua": "text", ".yaml": "text", ".yml": "text", ".ris": "text", ".xml": "text",
+    # Data sheets: text documents the editor shows as a grid (§6.3); data.lua draws tables and charts from them.
+    ".csv": "text", ".tsv": "text",
 }
+SHEET_EXTENSIONS = (".csv", ".tsv")
+
+
+def is_sheet(path: str) -> bool:
+    return path.lower().endswith(SHEET_EXTENSIONS)
 
 
 class PathError(ValueError):

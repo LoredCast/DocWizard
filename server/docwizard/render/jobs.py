@@ -137,6 +137,9 @@ def metadata(layout: Layout, project_options: dict, inputs: list[str], layout_di
                 meta.setdefault(k, v)
     if "link-citations" in defaults:
         meta.setdefault("link-citations", defaults["link-citations"])
+    # Fonts for the pictures diagram.lua and data.lua draw with Typst, as for the document (§9.6).
+    if layout_dir is not None:
+        meta["dw-font-paths"] = [f"{layout_dir}/fonts", fonts_dir()]
     meta.setdefault("pagetitle", os.path.splitext(os.path.basename(inputs[0]))[0] if inputs else "Document")
     # Design settings that pandoc itself handles. The document's front matter still wins.
     design = layout.design
@@ -229,7 +232,9 @@ def pandoc_steps(layout: Layout, layout_dir: Path, target: str, inputs: list[str
     common = [*inputs, "--from", "markdown", "--standalone", "--metadata-file", "../options.json",
               "--resource-path", f".:{L}/_csl",
               # The document's languages come first, so the layout's filters and citeproc see them (§9.8).
-              "--lua-filter", f"{L}/_builtin/lang.lua"]
+              "--lua-filter", f"{L}/_builtin/lang.lua",
+              # Tables and charts from data files, and diagrams, before crossref.lua numbers them (§9.7).
+              "--lua-filter", f"{L}/_builtin/data.lua", "--lua-filter", f"{L}/_builtin/diagram.lua"]
     for name in layout.manifest.get("filters", []):
         if name in BUILTIN_FILTERS:
             common += ["--lua-filter", f"{L}/_builtin/{name}.lua"]

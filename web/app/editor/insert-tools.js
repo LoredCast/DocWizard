@@ -3,9 +3,32 @@
 // to pick the size from) and cross-references (a list of the document's figures, tables,
 // equations and sections). Each one writes ordinary Pandoc Markdown.
 import { EditorSelection, EditorView, keymap, syntaxTree } from "codemirror";
-import { el, t } from "../ui/dom.js";
+import { api, el, t, toast } from "../ui/dom.js";
 import { crossRefTargets } from "./figures.js";
 import { insertTable } from "./tables.js";
+import { insertMath, mathPalette } from "./math-palette.js";
+
+// Diagrams drawn when the document renders (filters/diagram.lua): a starting point for each kind.
+export const DIAGRAMS = [
+  { id: "flowchart", label: "Flowchart", hint: "Mermaid", text:
+    "```{.mermaid #fig:flow caption=\"Caption\"}\nflowchart LR\n  A[Start] --> B{Question?}\n  B -->|yes| C(Do this)\n  B -->|no| D(Do that)\n```" },
+  { id: "graph", label: "Graph", hint: "Graphviz", text:
+    "```{.dot #fig:graph caption=\"Caption\"}\ndigraph {\n  rankdir=LR\n  Idea -> Draft -> Paper\n  Draft -> Feedback -> Draft\n}\n```" },
+  { id: "drawing", label: "Drawing", hint: "Typst", text:
+    "```{.typst .diagram #fig:drawing caption=\"Caption\"}\n#stack(dir: ltr, spacing: 1em,\n  circle(radius: 1cm, fill: aqua.lighten(40%))[A],\n  rect(width: 2cm, height: 2cm, fill: yellow.lighten(40%))[B],\n)\n```" },
+];
+
+// *text* as a block of its own at the selection: blank lines around it, the cursor after it.
+export function blockInsertion(state, text) {
+  const range = state.selection.main;
+  const before = state.sliceDoc(Math.max(0, range.from - 2), range.from);
+  const after = state.sliceDoc(range.to, range.to + 2);
+  const lead = range.from === 0 || before.endsWith("\n\n") ? "" : before.endsWith("\n") ? "\n" : "\n\n";
+  const trail = range.to === state.doc.length ? "\n" : after.startsWith("\n\n") ? "" : after.startsWith("\n") ? "\n" : "\n\n";
+  const insert = `${lead}${text}${trail}`;
+  return { changes: { from: range.from, to: range.to, insert },
+           selection: EditorSelection.cursor(range.from + lead.length + text.length) };
+}
 
 // -- Popover ---------------------------------------------------------------
 // Anchored under a button or the cursor; on phones, a sheet at the bottom of the editor.
@@ -113,8 +136,9 @@ const linkText = (s) => s.replace(/([[\]\\])/g, "\\$1");
 const linkUrl = (s) => s.replace(/[()\s<>]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`);
 
 export class InsertTools {
-  constructor({ view, host, readOnly = () => false }) {
+  constructor({ view, host, readOnly = () => false, projectId = null }) {
     this.view = view;
+    this.projectId = projectId;
     this.pop = new Popover(host);
     this.readOnly = readOnly;
   }
@@ -321,6 +345,66 @@ export class InsertTools {
         el("p", {}, t("Nothing to refer to yet.")),
         el("p", { class: "muted hint" }, t("Figures get a label when you add a picture. Headings, tables and equations get one with {#sec:name}, {#tbl:name} or {#eq:name} after them.")));
     this.pop.open({ anchor, content, label: t("Cross-reference"), wide: true, onClose: (r) => this.done(r) });
+  }
+
+  // -- Math and diagrams ---------------------------------------------------------
+  math(anchor) {
+    const { view } = this;
+    if (this.readOnly(view.state)) return;
+    const content = mathPalette({ onPick: (item, display) => {
+      this.pop.close(false);
+      insertMath(view, item, { display });
+      view.focus();
+    } });
+    this.pop.open({ anchor: anchor ?? cursorRect(view), content, label: t("Math"), wide: true,
+                    onClose: (r) => this.done(r) });
+  }
+
+  diagram(anchor) {
+    const { view } = this;
+    if (this.readOnly(view.state)) return;
+    this.menu(anchor ?? cursorRect(view), DIAGRAMS.map((d) => [t(d.label), d.hint, () => {
+      view.dispatch({ ...blockInsertion(view.state, d.text), scrollIntoView: true, userEvent: "input" });
+      view.focus();
+    }]));
+  }
+
+  // -- Tables and charts from data sheets ----------------------------------------------
+  // Lists the project's .csv and .tsv files (or makes data/table.csv) and inserts a
+  // ::: {.data src=…} table or ::: {.chart src=…} chart, drawn by filters/data.lua.
+  async data(anchor, kind = "table", projectId = this.projectId) {
+    const { view } = this;
+    if (this.readOnly(view.state) || !projectId) return;
+    let sheets = [];
+    try {
+      const { tree } = await api("GET", `/api/projects/${projectId}/tree`);
+      sheets = tree.filter((e) => /\.(csv|tsv)$/i.test(e.path)).map((e) => e.path).sort();
+    } catch { /* offline: only a new sheet */ }
+    const insert = (path) => {
+      const label = path.replace(/^.*\//, "").replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9]+/g, "-") || "data";
+      const text = kind === "chart"
+        ? `::: {.chart src="${path}" type=bar #fig:${label}}\n${t("Caption")}\n:::`
+        : `::: {.data src="${path}" #tbl:${label}}\n${t("Caption")}\n:::`;
+      const spec = blockInsertion(view.state, text);
+      const at = spec.changes.from + spec.changes.insert.indexOf(t("Caption"));
+      view.dispatch({ ...spec, selection: EditorSelection.range(at, at + t("Caption").length), scrollIntoView: true,
+                      userEvent: "input" });
+      view.focus();
+    };
+    const create = async () => {
+      let path = "data/table.csv";
+      for (let i = 2; sheets.includes(path); i++) path = `data/table-${i}.csv`;
+      const header = [t("Item"), t("Value")].join(",");
+      try {
+        await api("POST", `/api/projects/${projectId}/documents`, { path, text: `${header}\nA,1\nB,2\nC,3\n` });
+        toast(t("Made {path}: open it to fill in the table.", { path }));
+        insert(path);
+      } catch (e) { toast(e.message, { error: true }); }
+    };
+    this.menu(anchor ?? cursorRect(view), [
+      ...sheets.map((p) => [p, kind === "chart" ? t("Chart") : t("Table"), () => insert(p)]),
+      [t("New data sheet"), "data/table.csv", () => create()],
+    ]);
   }
 
   // -- The Insert menu ------------------------------------------------------------

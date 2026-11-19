@@ -73,6 +73,9 @@ const isScript = isMarkdown && Boolean(snap.layout?.script);
 let characters = [];
 
 const split = $("#split");
+// Data sheets (.csv, .tsv) open as a grid to type into; the CSV text is a switch away (§6.3).
+const isSheet = /\.(csv|tsv)$/i.test(snap.doc.path);
+let sheet = null;
 
 // -- Preferences ---------------------------------------------------------
 const root = document.documentElement;
@@ -171,7 +174,8 @@ const titleCard = isMarkdown && !review ? new TitleCardEditor({
 }) : null;
 // Links, footnotes, tables and cross-references through popovers; pictures as figures; writer mode.
 const tools = isMarkdown ? new InsertTools({ view: null, host: $("#editor").closest(".pane"),
-                                             readOnly: (state) => state.readOnly }) : null;
+                                             readOnly: (state) => state.readOnly,
+                                             projectId: offlineRecord ? null : projectId }) : null;
 const marksKey = "dw.marks";
 const figureField = isMarkdown ? figures({ projectId: offlineRecord ? null : projectId,
                                            locked: (state) => state.readOnly }) : null;
@@ -225,7 +229,7 @@ const view = new EditorView({
   parent: $("#editor"),
   dispatchTransactions(trs, v) {
     v.update(trs);
-    if (trs.some((tr) => tr.docChanged)) docChanged();
+    if (trs.some((tr) => tr.docChanged)) { docChanged(); sheet?.docChanged(); }
     if (trs.some((tr) => tr.selection || tr.docChanged)) {
       presenceSender.schedule();
       updateFormatBar();
@@ -242,6 +246,24 @@ const view = new EditorView({
 const { text: _text, version: _version, clientID: _clientID, ...meta } = snap;
 session.keep = { url: location.pathname, meta, pinned: Boolean(snap.doc.pinned) };
 session.start(view);
+if (isSheet) {
+  const { SheetView } = await import("./sheet.js");
+  const editorNode = $("#editor");
+  sheet = new SheetView({ view, host: editorNode.closest(".pane"), path: snap.doc.path, docId,
+                          readOnly: readOnly || review, canEdit: !readOnly && !offlineRecord });
+  const textKey = `dw.sheet-text.${docId}`;
+  const asText = el("button", { type: "button", "aria-pressed": "false", title: t("Edit the file as text") }, t("Text"));
+  const showText = (on) => {
+    asText.setAttribute("aria-pressed", String(on));
+    editorNode.hidden = !on;
+    sheet.node.classList.toggle("text-mode", on);
+    store(textKey, on ? "on" : "off");
+    if (!on) sheet.refresh();
+  };
+  asText.addEventListener("click", () => showText(asText.getAttribute("aria-pressed") !== "true"));
+  sheet.toolbar.append(asText);
+  showText(stored(textKey, "off") === "on");
+}
 
 // Where the cursor starts: where it was when this document was last open in this browser, or else
 // at the first line of text after the front matter (not on the title card). On touch screens the
@@ -296,8 +318,11 @@ const FORMAT_CMDS = {
       [t("Footnote"), "", (a) => tools.note({ anchor: a })],
       [t("Cross-reference"), t("Figure 1, Table 2"), (a) => tools.crossRef(a)],
       [t("Citation"), "[@]", () => { insertCitation(view); view.focus(); }],
-      [t("Math"), "$", () => { toggleInlineMath(view); view.focus(); }],
+      [t("Math"), t("Fractions, matrices, Greek letters"), (a) => tools.math(a)],
       [t("Table"), "", (a) => tools.table(a)],
+      [t("Diagram"), t("Flowchart, graph, drawing"), (a) => tools.diagram(a)],
+      [t("Table from data"), ".csv", (a) => tools.data(a, "table")],
+      [t("Chart"), t("Bar, line, pie from .csv"), (a) => tools.data(a, "chart")],
     ]);
     return POPOVER;
   },
