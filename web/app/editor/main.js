@@ -21,6 +21,7 @@ import { Follower } from "./follow.js";
 import { ActivityDialog } from "./activity.js";
 import { ProjectFind } from "./project-replace.js";
 import { Preflight } from "./preflight.js";
+import { QuoteCheck, SourceClips, SourceLibrary, SourceReader } from "./source-clips.js";
 import { GrammarChecker, grammarExtension, showMatches } from "./grammar.js";
 import { figures } from "./figures.js";
 import { ImageInserter } from "./images.js";
@@ -125,6 +126,7 @@ const grammar = isMarkdown && !readOnly && !review && !navigator.connection?.sav
 let library = new Map();
 let references = null; // the references panel, created below
 let fieldsPanel = null; // the fields panel, created below
+let sourceReader = null; // the source reader, created below
 // Clicking commented text opens its thread. On touch screens, a tap on it while the keyboard is
 // down opens the thread without focusing the text, so the keyboard stays down.
 const markClicks = EditorView.domEventHandlers({
@@ -1228,6 +1230,7 @@ async function openLinkedThread() {
   comments.focusThread(Number(m[1]));
 }
 sidePanel.addEventListener("toggle", () => {
+  if (!sidePanel.hidden && sourceReader?.open) sourceReader.hide();
   split.classList.toggle("with-panel", !sidePanel.hidden || Boolean(references?.open) || Boolean(fieldsPanel?.open));
   split.classList.toggle("comments-open", !sidePanel.hidden);
   if (!suggesting()) bubble?.update();
@@ -1314,6 +1317,7 @@ references = isMarkdown && refsPanel ? new ReferencesPanel({
   onToggle: (open) => {
     if (open && comments.open) comments.hide();
     if (open && fieldsPanel?.open) fieldsPanel.hide();
+    if (open && sourceReader?.open) sourceReader.hide();
     split.classList.toggle("with-panel", open || comments.open || Boolean(fieldsPanel?.open));
     split.classList.toggle("refs-open", open);
     $("#open-refs")?.setAttribute("aria-pressed", String(open));
@@ -1333,12 +1337,34 @@ fieldsPanel = layoutFields && fieldsEl ? new FieldsPanel({
   onToggle: (open) => {
     if (open && comments.open) comments.hide();
     if (open && references?.open) references.hide();
+    if (open && sourceReader?.open) sourceReader.hide();
     split.classList.toggle("with-panel", open || comments.open || Boolean(references?.open));
     split.classList.toggle("fields-open", open);
     $("#open-fields")?.setAttribute("aria-pressed", String(open));
   },
 }) : null;
 $("#open-fields")?.addEventListener("click", () => fieldsPanel?.toggle());
+
+// -- Source clips, quote checking and the source reader (§10.5) -----------------
+const sourceLibrary = isMarkdown && !offlineRecord
+  ? new SourceLibrary({ projectId, files: snap.files, library: () => library }) : null;
+const sourcePanel = $("#source-panel");
+sourceReader = sourceLibrary && sourcePanel ? new SourceReader({
+  view, sources: sourceLibrary, panel: sourcePanel, readOnly: readOnly || review,
+  onToggle: (open) => {
+    if (open && comments.open) comments.hide();
+    if (open && references?.open) references.hide();
+    if (open && fieldsPanel?.open) fieldsPanel.hide();
+    split.classList.toggle("source-open", open);
+    $("#open-source")?.setAttribute("aria-pressed", String(open));
+  },
+}) : null;
+const openSource = (key, page) => sourceReader?.show(key, page);
+if (sourceLibrary && !coarse) new SourceClips({ view, sources: sourceLibrary, onOpen: openSource });
+const quoteCheck = sourceLibrary ? new QuoteCheck({ view, sources: sourceLibrary, readOnly: readOnly || review, onOpen: openSource }) : null;
+$("#open-source")?.addEventListener("click", () => sourceReader?.toggle());
+$("#open-quotes")?.addEventListener("click", () => quoteCheck?.open());
+if (!sourceLibrary) for (const id of ["#open-source", "#open-quotes"]) $(id)?.remove();
 
 $("#open-find")?.addEventListener("click", () => toggleFind());
 const projectFind = offlineRecord ? null : new ProjectFind({

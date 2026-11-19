@@ -26,6 +26,8 @@
       <button type="button" id="open-find" title="{{ _('Find and replace (Ctrl+F)') }}">{{ _("Find and replace") }}</button>
       <button type="button" id="open-project-find" title="{{ _('Find and replace in every document of the project (Ctrl+Shift+F)') }}">{{ _("Find in all chapters") }}</button>
       {% if doc.kind == "markdown" %}<button type="button" id="open-refs" aria-pressed="false" title="{{ _('References (Ctrl+Alt+R)') }}">{{ _("References") }}</button>
+      <button type="button" id="open-source" aria-pressed="false" title="{{ _('Read a cited source next to the text; drag passages into it as quotations') }}">{{ _("Source reader") }}</button>
+      <button type="button" id="open-quotes" title="{{ _('Check every quotation against the PDF of its source') }}">{{ _("Verify quotes") }}</button>
       <button type="button" id="open-fields" aria-pressed="false" title="{{ _('Title, author and the other details this template prints') }}">{{ _("Document details") }}</button>
       {% if not review %}<button type="button" id="toggle-raw" aria-pressed="false" title="{{ _('Edit the Markdown as plain text, without rendering titles, pictures or tables') }}">{{ _("Plain text editing") }}</button>{% endif %}
       <a class="button" id="switch-view" title="{{ _('Edit the Markdown') if review else _('Read the document as it prints, without Markdown, to comment and suggest') }}" href="?view={{ 'source' if review else 'review' }}">{{ _("Edit the source") if review else _("Review view") }}</a>{% endif %}
@@ -121,6 +123,7 @@
   </aside>
   <aside class="pane side-panel refs-panel" id="refs-panel" aria-label="{{ _('References') }}" hidden></aside>
   <aside class="pane side-panel fields-panel" id="fields-panel" aria-label="{{ _('Document details') }}" hidden></aside>
+  <aside class="pane side-panel source-panel" id="source-panel" aria-label="{{ _('Source reader') }}" hidden></aside>
 </div>
 <dialog id="rename-dialog" aria-labelledby="rename-title">
   <form method="dialog" class="form" id="rename-form">
@@ -276,6 +279,18 @@
       <button type="button" id="preflight-pages">{{ _("Count the PDF's pages") }}</button>
       <button type="button" id="preflight-again">{{ _("Check again") }}</button>
       <button type="button" id="preflight-anonymize">{{ _("Export anonymized") }}</button>
+      <button type="button" data-close-dialog>{{ _("Close") }}</button>
+    </div>
+  </div>
+</dialog>
+<dialog id="quotes-dialog" class="wide" aria-labelledby="quotes-title">
+  <div class="form">
+    <h2 id="quotes-title">{{ _("Verify quotes") }}</h2>
+    <p class="muted">{{ _("Each quotation followed by a citation is looked up in the source's PDF: a project file named after the key, such as sources/doe2020.pdf, or the PDF attached in your Zotero library.") }}</p>
+    <p id="quotes-state" role="status"></p>
+    <ul class="preflight-list quote-check" id="quotes-list"></ul>
+    <div class="buttons">
+      <button type="button" id="quotes-again">{{ _("Check again") }}</button>
       <button type="button" data-close-dialog>{{ _("Close") }}</button>
     </div>
   </div>

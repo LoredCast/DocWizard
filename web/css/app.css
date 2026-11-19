@@ -1000,6 +1000,13 @@
   .quote-check .verdict.warn, .quote-check .verdict.fail { color: var(--danger); }
   .quote-check .verdict.info { color: var(--muted); }
 
+  /* The source reader takes the preview's place: the draft and the source side by side. */
+  .split.source-open, .split.source-open.with-panel, .split.no-preview.source-open { grid-template-columns: 1fr 1fr; position: relative; }
+  .split.source-open .preview-pane { display: none; }
+  @media (max-width: 900px) {
+    .split.source-open { grid-template-columns: 1fr; }
+    .split.source-open .source-panel { position: absolute; inset: 0; z-index: 2; }
+  }
   .source-panel { display: flex; flex-direction: column; min-width: 0; }
   .source-panel .source-pick { display: flex; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
   .source-panel .source-pick select { flex: 1 1 10rem; min-width: 0; }
