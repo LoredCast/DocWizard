@@ -84,7 +84,7 @@ def register(app) -> None:
         token, key, rel = req.param("token"), req.param("key"), req.param("path")
         if not _TOKEN.match(token) or not _KEY.match(key):
             raise not_found()
-        project_id = renderer.token_project(token)
+        project_id = await renderer.token_project(token)
         if project_id is None:
             raise not_found("This preview link expired.")
         base = renderer.renders_dir / key

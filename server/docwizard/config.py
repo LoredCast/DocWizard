@@ -73,6 +73,9 @@ class AccountsConfig:
 @dataclass
 class RenderConfig:
     worker_socket: str = ""  # default: <jobs_dir>/worker.sock
+    # More render workers (§9.2): the jobs directory of each, shared with that worker; its socket is
+    # <dir>/worker.sock. Jobs go to the least busy worker. Give every worker the same --concurrency.
+    extra_workers: list[str] = field(default_factory=list)
     spawn_worker: bool = False  # development: start the worker as a child process
     concurrency: int = 2  # jobs at once; give the worker the same number (DOCWIZARD_WORKER_CONCURRENCY)
     timeout_seconds: int = 90  # users.render_timeout_seconds overrides it for the projects someone owns
@@ -147,6 +150,18 @@ class GrammarConfig:
 
 
 @dataclass
+class AssistConfig:
+    """The writing helper (§8.10): an OpenAI-compatible model (Ollama, vLLM, llama.cpp, a hosted
+    API) that may only propose suggestions. Off while url is empty; each person also opts in."""
+    url: str = ""  # the API's base, e.g. http://ollama:11434/v1
+    model: str = ""
+    api_key: str = ""
+    max_chars: int = 6000  # the longest passage sent at once
+    per_user_rpm: int = 6  # requests per person per minute
+    timeout_seconds: int = 120
+
+
+@dataclass
 class OIDCProvider:
     """One [[oidc]] entry (§13.4)."""
     id: str = ""
@@ -174,6 +189,7 @@ class Config:
     sync: SyncConfig = field(default_factory=SyncConfig)
     smtp: SMTPConfig = field(default_factory=SMTPConfig)
     grammar: GrammarConfig = field(default_factory=GrammarConfig)
+    assist: AssistConfig = field(default_factory=AssistConfig)
     legal: LegalConfig = field(default_factory=LegalConfig)
     oidc: list[OIDCProvider] = field(default_factory=list)
 

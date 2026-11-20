@@ -264,7 +264,7 @@ docwizard/
 │   │       └── stats.js
 │   ├── css/app.css                  the only stylesheet (§25.13)
 │   ├── icons.svg                    icon sprite (§25.9)
-│   ├── i18n/                        en.json, de.json
+│   ├── i18n/                        de.json, fr.json, es.json
 │   ├── sw.js
 │   └── vendor/
 │       ├── MANIFEST                 versions, licenses, SHA-256
@@ -382,6 +382,13 @@ A document opens with the cursor where it was when it was last open in this brow
 - Formatted text pasted from Word, LibreOffice, Google Docs or a web page (`editor/paste.js`, `editor/paste-html.js`) arrives as Pandoc Markdown: the clipboard's `text/html` is turned into headings, bold, italics, strikethrough, sub- and superscripts, links (Google's redirect links unwrapped), bullet and numbered lists (Word's `mso-list` paragraphs too), quotes, code and pipe tables. Characters that would otherwise read as Markdown (`*`, `` ` ``, `$`, `@key`, a leading `#` or `1.`) are escaped. Pictures in the HTML are left out with a note, since their addresses (`file:///…`, expiring Google links) can't be fetched; pasted or dropped on their own, they upload as figures. The browser's own plain-text paste is kept when the HTML adds nothing, inside code, math and the front matter, for copies from code editors (`white-space: pre`), and with `Ctrl+Shift+V`. After a formatted paste a small note offers *Paste as plain text*, which swaps in the clipboard's plain text until the next edit.
 - Keyboard first: command palette on `Ctrl/Cmd+K`, and every action reachable from the keyboard.
 
+**Writing studio** (`editor/manuscript.js` for the pure models, `editor/studio.js` for the UI; Markdown documents, not in the review view)
+
+- The **corkboard** (*Write → Corkboard*, or `#corkboard` in the address) shows the document as lanes of cards: a lane per chapter (`#` heading), a card per scene. Scenes are `##` headings, the layout's scene breaks (`***`, or what the text already uses) and, in scripts, scene headings (`INT.`/`EXT.` lines or `##` headings). A card shows the scene's title or first sentence and its word count. Cards move by dragging or with `Alt+↑/↓/←/→`, lanes with their ↑/↓ buttons; `Enter` on a card goes to the scene. A move is one minimal change (`{from, to, insert}`) with `userEvent: "move.corkboard"`, so undo, collaboration and suggest mode treat it as any edit; scene breaks stay between scenes, and the text before the first chapter stays first. With several build inputs, a strip above the board opens the other chapters. The board is read-only where the text is.
+- **Script breakdown** (*Write → Script breakdown*, script layouts): scenes with number, setting (`INT`, `EXT`, `INT./EXT`, `INNEN`, `AUSSEN`), location, time of day, length in eighths of a page and cast; the cast with speeches, words and scenes; locations with their scenes and times. Each tab downloads as CSV (cells starting with `=`, `+`, `-` or `@` are quoted so spreadsheets don't run them). *Highlight* on a character marks their cues, parentheticals and lines in the editor until the chip in the status bar is closed.
+- **Table read** (*Write → Table read*): the browser's speech synthesis (`speechSynthesis`) reads the script from the cursor, one voice per character (chosen in the bar and remembered per project, `dw.voices.<project>`), action and scene headings optionally in a narrator voice; the line being read is marked. Nothing is sent to the server.
+- **Session targets** (*Write → Daily target*): a daily goal in words, pages or Normseiten (German standard pages: 60 characters to a line, 30 lines to a page, chapters on a new page; the default unit with the `normseite` layout). The status bar shows today's progress against it, counted from the first count of the day per document in this browser (`dw.today.<project>`), and turns green when it is reached.
+
 ### 6.4 Preview
 
 - **HTML preview** is served from a separate **preview origin** (by default the publish host under `/_preview/`), never from the app origin, because documents may contain raw HTML:
@@ -396,6 +403,12 @@ A document opens with the cursor where it was when it was last open in this brow
   - LaTeX: after a `pdf-latex` render, `render/synctex.py` turns the job's `document.synctex.gz` into `synctex.json` next to the PDF, with project-relative paths (read without following links and within a size limit). The innermost line box under the point, and in it the last glue, kern or math record before the point, gives the file and line.
   - Everything else (Typst PDFs, and LaTeX made from Markdown, whose SyncTeX points into pandoc's intermediate file): the words around the click are looked up in the build's input files, following each side with a small lookahead so rendered citations, footnote marks and hyphenation don't break the match; equally good matches are ranked by how near they are to where the page lies in the build.
   - The HTML preview is a sandboxed page on another origin without scripts, so it can't report clicks; jumping back works from the PDF.
+- **PDFs made in the browser** (`preview/local.js`, `workers/render.js`). Where the server has the browser renderer installed (`deploy/fetch_tools.py --browser-render web/vendor/browser-render`: the official pandoc 3.9 WebAssembly build, typst.ts 0.7 with Typst 0.14.2, the WASI shim and open fonts, each checked against a pinned SHA-256), the PDF preview of a Markdown document can be made in the browser: *In this browser* next to *PDF*, remembered per browser (`dw.localRender`). It renders 400 ms after typing pauses, from the text in the editor, without a round trip; the offline editor and an editor whose connection dropped use it too.
+  - `GET /api/projects/{id}/render-kit?doc=<id>` (`api/browser_render.py`) gives what the worker would get for a Typst PDF: pandoc's options as a defaults file (from the same `jobs.pandoc_steps`), the layout's files and filters (only the citation style in use), `options.json`, the project's text files and pictures (up to 12 MB in all; more are listed as `skipped`), and the fonts the layout names from the renderer's set. It has an ETag and is kept in IndexedDB (`kits`), so the preview also works offline; an open editor asks again at most every 30 s.
+  - The worker runs pandoc with an in-memory WASI file system (`src/` is the folder pandoc runs in, `layout/` the layout, `dwlocale.lua` at the root for the filters' `require`), then Typst with the same files mapped in, and posts the PDF bytes, which `PdfPreview.showData` shows. Both programs stay loaded; a newer request replaces one still waiting.
+  - The page's CSP stays without `'unsafe-eval'` (`'wasm-unsafe-eval'` is enough): Typst's glue code builds a few trivial functions from strings, which the worker answers without eval.
+  - Double-clicking a spot in a PDF made in the browser asks `source-at` with the last server render, or else looks for the words around the spot in the text.
+  - The server's render stays the reference: downloads, exports, publishing, LaTeX and Typst packages from `@preview` go through the worker.
 - **Layout options panel** is generated from the layout's variable schema ([§9.3](#93-layouts)).
 
 ### 6.5 Offline and caching
@@ -410,6 +423,7 @@ A document opens with the cursor where it was when it was last open in this brow
   - `citations`: cached CSL-JSON per source, with ETag
   - `layouts`: layout metadata for the options panel
   - `projects`: `{projectId, name, savedAt, count}` for projects kept **available offline** as a whole
+  - `kits`: the last render kit of each document previewed in the browser ([§6.4](#64-preview))
 - Unconfirmed edits survive reloads and offline periods and are sent on reconnect ([§8.6](#86-reconnect-and-offline)).
 - **Whole projects offline.** "Available offline" on the project page fetches an editor snapshot of every document (`POST /api/projects/{id}/offline`, only those whose version changed since the browser's copies) and keeps them with `kept: <projectId>`, which pruning skips. Every signed-in page refreshes kept projects at most every 5 minutes while online, so a train or plane trip starts from recent text. Offline, `/p/<project>` lists that project's documents from IndexedDB, and each opens in the editor shell, also documents never opened in this browser.
 - **The outbox.** Documents with waiting edits are sent as soon as any signed-in page is online, not only when the document is opened again: `POST /api/documents/{id}/merge` reconciles them like the socket's `merge` ([§8.6](#86-reconnect-and-offline)), idempotently by a merge id stored before sending. An open editor holds the Web Lock `dw-doc:<id>` for its document, and the outbox skips documents whose lock is taken, so no copy is written by two tabs. The page then says how many documents were sent and how many passages need a look.
@@ -421,6 +435,7 @@ A document opens with the cursor where it was when it was last open in this brow
 
 - `workers/citations.js` holds the citation library, does fuzzy search and formats chip labels.
 - `workers/grammar.js` runs the Harper grammar checker ([§6.8](#68-grammar-and-spelling)).
+- `workers/render.js` makes PDF previews with pandoc and Typst as WebAssembly ([§6.4](#64-preview)).
 - `workers/stats.js` computes word and character counts and the outline for long documents. With a script layout (one that names the `screenplay` filter; the layout's public data says `script: true`) it follows the filter's rules to add scene headings to the outline, list the characters for cue autocomplete, and estimate pages by counting lines as the PDF sets them (61 characters for action, 35 for dialogue, 55 lines to a page); the status bar shows that as pages and minutes.
 
 The main thread runs only the editor and the UI.
@@ -430,7 +445,7 @@ The main thread runs only the editor and the UI.
 - The visual design is defined in [§25](#25-design-guide): OLED black by default, light mode as an option, nothing decorative.
 - System font stack for the UI. Layouts bring their own fonts for output.
 - Small DOM helpers in `web/app/ui/`, `<template>` elements for repeated markup, event delegation.
-- i18n: JSON catalogs per language in `web/i18n/`, shared by server pages and JS. English and German first.
+- i18n: JSON catalogs per language in `server/docwizard/locale/`, keyed by the English text and shared by server pages and JS (the page carries its catalog). English, German (informal *du*), French (*vous*) and Spanish (*tú*); the account's choice, else a cookie, else the browser's `Accept-Language`. A test keeps the French and Spanish catalogs complete against the German one and their placeholders intact.
 - Accessibility: full keyboard operation, visible focus, ARIA labels on icon-only buttons, `prefers-reduced-motion` respected.
 
 ### 6.8 Grammar and spelling
@@ -704,6 +719,7 @@ sequenceDiagram
 - A snapshot goes into `doc_snapshots` every 500 operations or after 60 s idle.
 - Operations older than the newest snapshot are kept for 7 days (configurable) so reconnecting clients can catch up, then pruned.
 - **History.** Older automatic snapshots are not dropped but thinned by age (`projects/history.py`): every snapshot of the last hour, one per hour for two days, one per day for 60 days, one per week after that. The snapshot kept for a period is its last one. Each automatic snapshot records who edited since the one before (`authors`, display names from the operation log), and a kept snapshot inherits the authors of the ones dropped before it. The Versions dialog lists named versions and this history; any of them can be compared with the current text (a word-level diff with unchanged lines collapsed, `GET /api/documents/{id}/versions/{v}/compare`) and restored.
+- **Drafting timeline** (*Share and export → Drafting timeline*, `projects/timeline.py`, `editor/timeline.js`). `GET /api/documents/{id}/timeline` lists points to scrub through: the kept snapshots (named ones with their label) and, while the operations are kept, every pause of 5 s or more in one person's typing; more than 600 are merged, oldest first, except labelled ones. It also counts the characters each person wrote and removed in the kept operations. `GET /api/documents/{id}/timeline/<version>?since=<version>` gives the text at a point, rebuilt from the newest snapshot at or before it and the operations after it, and the passages written since the previous point as UTF-16 ranges with their author, followed through later operations; where the operations are gone, the passages come from a word comparison and carry the snapshot's authors. The dialog shows a slider (arrow keys, Home, End), *Play*, and the text with each person's passages in their presence color.
 - Rooms are unloaded from memory after 10 minutes without connections. The snapshot and operations in SQLite remain authoritative ([§11.2](#112-canonical-state)).
 
 ### 8.6 Reconnect and offline
@@ -751,6 +767,7 @@ Track changes in the document stays a non-goal ([§2](#2-goals-and-non-goals)); 
   - On touch screens the editor's own keyboard stays closed while suggesting (`inputmode="none"`): a tap puts the cursor and opens the keyboard for the textarea within the tap, and a selection gets a toolbar with Delete, Replace and Comment.
 - In place, the editor strikes and adds only the words a suggestion changes: words it keeps at either end of the passage stay as they are, so an insertion reads as new words, not as its passage struck and written again.
 - **Accept** (editors) replaces the anchored passage with the suggestion as an ordinary update from the authority (`system:suggestion`, authored by whoever accepted). If the passage no longer reads as when it was suggested, the server answers `409 changed` and the editor asks before replacing it anyway. **Reject** (editors) leaves the text alone. Either way the thread is resolved with `suggestion_state`, and the people in the thread are notified ([§8.9](#89-mentions-and-notifications)). With two or more open suggestions the panel offers **Accept all** and **Reject all**, which decide them one by one from the end of the text; any whose passage changed stay open.
+- **The writing helper** (`api/assist.py`, `editor/assist.js`), optional and opt-in twice: the admin names a language model behind an OpenAI-compatible API (`[assist] url`, `model`, `api_key`: Ollama, vLLM, llama.cpp's server or a hosted API), and each person turns it on in their settings (`preferences.assist`, off by default; the settings say that passages go to that model). *Write → Writing helper* sends the selection, or the paragraph at the cursor (at most `max_chars`, default 6,000), with a task (correct spelling and grammar, clearer, shorter, simpler, more formal, or an instruction of one's own) to `POST /api/documents/{id}/assist`. The app asks the model through the request policy (only that host, `per_user_rpm` per person) and files its answer as an ordinary suggestion thread by that person whose note names the helper and the model, anchored to exactly the passage sent (`409 changed` if the text there no longer reads so). The helper has no other way in: it can't edit text, accept suggestions or see more than the passage, and an editor decides on its suggestions like on any other. The browser never talks to the model, so the CSP keeps `connect-src 'self'`.
 
 ### 8.11 Word files in and out
 
@@ -809,6 +826,7 @@ flowchart LR
   Concurrent jobs therefore can't read, write, signal or trace each other: different users, `0700` directories. Process limits count per job. The worker's own socket (mode `0600`) is closed to jobs. As defence in depth, job ids are random 128-bit values and `jobs/run/` is mode `0711`, so its entries can't be listed.
 - **Namespaces (extra layer):** where bubblewrap can run (bare metal, or Docker with a seccomp profile that allows user namespaces), each job also gets its own mount and PID namespace and sees only its directory and a read-only toolchain.
 - **Shared caches**: layouts (copied once per content hash) and the Typst package cache live in a separate cache volume. The app writes it and the worker mounts it **read-only**, so a compromised job can't tamper with files other projects use ([§18.1](#181-containers)).
+- **Several workers.** `render.extra_workers` lists more worker folders, each with its socket (`worker.sock`) and its `run/` folder, on this machine or on another one sharing the folder. The app counts `concurrency` slots per worker and sends each job to the least busy reachable one; a worker that can't be reached is skipped for 15 s. Preview tokens ([§6.4](#64-preview)) are kept in the database (`preview_tokens`, hashed), so several app processes behind one proxy can serve the same preview URLs. The admin health page lists each worker.
 - **Worker protocol**: newline-delimited JSON over a Unix socket in the shared jobs volume. Requests are `{"run": "<id>"}` and `{"cancel": "<id>"}`; the response is `{"done": "<id>", "status": "ok|error|timeout", "diagnostics": […]}`.
 - **Diagnostics**: Typst errors (file, line, column, message) and errors from the LaTeX log are parsed and shown in the editor gutter.
 - **LaTeX build directories** persist per project in `jobs/latex/<build-id>/`, so latexmk reuses auxiliary files between runs. `build-id` is an HMAC of the project id, so it can't be guessed.
@@ -893,7 +911,7 @@ Manifest:
   - project layouts in `_layouts/<name>/` inside the project folder, so they sync with the project.
 - **Design settings**: how a layout renders is a flat object of typed settings in the manifest, `design` (for example `text.font`, `page.margin-left`, `heading.1.size`, `cover.fields`, `cite.style`). Children inherit their parent's settings key by key. The default layout's templates are static and read every setting: when a layout is cached, DocWizard generates `typst/design.typ` (a Typst dictionary, loaded as the pandoc partial `$design()$`), `html/design.css`, `html/cover.html` and `html/options.html` next to the templates. Every value is validated against the schema in `render/design.py` and written as a literal, so settings can't inject template or Typst code. The classic options (`fontsize`, `linestretch`, `papersize`, `section-numbering`, `toc`, `columns`, `titlepage`, `citation-style`) override the matching setting and take their default from it.
 - **Built-in layouts** follow published style guides, each with a README that cites the sections it implements: Chicago/Turabian, Oxford, APS, MLA, APA (student paper), MHRA and IEEE papers; the Vienna philosophy, Würzburg Germanistik and Göttingen value-chain-management guides; a general thesis layout and ACM (sigconf), Springer LNCS and Elsevier (elsarticle) formats for papers; Shunn's short story and novel manuscript formats, the German *Normseite* and a book manuscript; and scripts: a screenplay, a German *Drehbuch* and a two-column A/V script. Script layouts name their filters (`screenplay`, `avscript`) in the manifest; the filters turn plain Markdown written after Fountain's rules into script elements, which the default templates set from the `script.*` settings. In Typst a speech is one `dw-speech` call: a table whose repeating header and footer print the cue with `script.contd` and `script.more` when the speech breaks across a page, so it breaks between lines and is marked as the industry expects; the filter adds `script.contd` to a cue when the same character speaks again after action in a scene, and a cue ending in `^` sets the speech beside the previous one (`dw-dual`). Fountain files are converted on upload and offered as an export for script layouts (`projects/fountain.py`, app-side like `md-source`): the title page maps to front matter (Title, Author(s), Draft date, Contact), notes, boneyard, synopses and sections below level 1 become HTML comments (they don't print in Fountain either), `_underline_` becomes `[…]{.underline}`, `===` becomes `\newpage`, and action lines that Markdown would read as lists, code, citations or math are escaped.
-- **Starters**: a new project starts with files that fit its layout (`projects/starters.py`). The manifest's `starter` names the kind, and custom layouts inherit it; without one, script layouts start as a script and the rest as a paper. A paper is `paper.md` and `references.json`; a thesis or book is `thesis.md` (`book.md`) with the front matter and abstract, a file per chapter in `chapters/` and `references.json`, with those files as the project's build inputs in order; a novel is `novel.md` and chapter files without a bibliography; a short story or *Normseite* is one `story.md`; a screenplay or A/V script is `script.md` with a few lines of the script syntax. The text is in the interface language, or German for German layouts. When the layout's bibliography has no heading of its own (`bib.heading` is `none`), the starter names it with `reference-section-title`, so it never gets two.
+- **Starters**: a new project starts with files that fit its layout (`projects/starters.py`). The manifest's `starter` names the kind, and custom layouts inherit it; without one, script layouts start as a script and the rest as a paper. A paper is `paper.md` and `references.json`; a thesis or book is `thesis.md` (`book.md`) with the front matter and abstract, a file per chapter in `chapters/` and `references.json`, with those files as the project's build inputs in order; a novel is `novel.md` and chapter files without a bibliography; a short story or *Normseite* is one `story.md`; a screenplay or A/V script is `script.md` with a few lines of the script syntax. The text is in German for a German interface or a German layout, in English otherwise. When the layout's bibliography has no heading of its own (`bib.heading` is `none`), the starter names it with `reference-section-title`, so it never gets two.
 - **Layout editor** (`/layouts`): anyone with an account can copy a layout and change its design settings in a form built from the same schema, with a live PDF preview of a sample document (rendered from a draft copy of the layout that is deleted afterwards). A custom layout is a manifest in the database (`custom_layouts`) with `extends`, `design` (only what differs from the parent), the options authors get, and whether it is shared with everyone on the instance. Templates, files and filters always come from the parent, so custom layouts can't add code. Owners and admins change or delete them; a layout others are based on can't be deleted.
 - **Fonts**: Typst sees its embedded fonts, the fonts in `/usr/local/share/docwizard/fonts` (installed in the worker image by `deploy/fetch_tools.py`: Noto Serif and Sans, Tinos, Carlito, Cousine) and the layout's `fonts/` folder, never system fonts.
 - **Editing files**: users can also duplicate a layout folder and edit its files, since templates and CSS are just text documents.
@@ -1436,6 +1454,10 @@ The goal is to own as little difficult code as possible, not to minimize the pac
 | CodeMirror helpers: `style-mod`, `w3c-keyname`, `crelt` | Internal dependencies, same maintainer | Editor route | MIT |
 | Temml | LaTeX to MathML in the editor | When a document contains math | MIT |
 | PDF.js (optional) | Better PDF preview, SyncTeX | On demand | Apache-2.0 |
+| pandoc (WebAssembly, optional) | PDF preview made in the browser ([§6.4](#64-preview)) | When chosen | GPL-2.0-or-later |
+| typst.ts web compiler (optional) | Typst in the browser for that preview | When chosen | Apache-2.0 |
+| @bjorn3/browser_wasi_shim (optional) | WASI for pandoc in the browser | When chosen | MIT or Apache-2.0 |
+| Tinos, Carlito, Cousine, Noto Serif, Noto Sans (optional) | Fonts for that preview | When chosen | Apache-2.0, OFL-1.1 |
 
 The exact package list and versions are recorded in `web/vendor/MANIFEST`.
 
@@ -1674,11 +1696,19 @@ memory_mb           = 1536
 preview_debounce_ms = 300
 default_layout      = "default"
 fast_lane           = 1      # slots LaTeX can't take (§9.2)
+extra_workers       = []     # more worker folders, each with worker.sock and run/ (§9.2)
 user_previews       = 1      # per person, at a time
 user_exports        = 2      # per person, queued or running
 per_user_rpm        = 0      # renders per person per minute; 0: no limit
 latex_daily_limit   = 0      # LaTeX builds per person per day; 0: no limit
 allow_latex         = true   # users.allow_latex overrides it per account
+
+[assist]
+url                 = ""     # an OpenAI-compatible API for the writing helper (§8.10); empty: off
+model               = ""
+api_key             = ""
+max_chars           = 6000
+per_user_rpm        = 6
 
 [legal]
 terms_url    = "https://example.org/terms"
@@ -1720,7 +1750,7 @@ max_push_churn    = 1_000_000   # inserted + deleted code units per push
 | Sync | pytest with Nextcloud and Seafile containers | Every row of the [§12.2](#122-algorithm) table, conflicts, ETag races, renames in both directions keeping `doc_id` |
 | OIDC | pytest with a Keycloak container | Login, group mapping, logout |
 | Frontend unit | Node's built-in test runner | Pandoc syntax extensions, citation search, word count |
-| Browser smoke (CI) | Playwright with headless Chromium, `node --test tests/e2e/*.test.mjs` | At 390×844 and 1280×800: register and log in, create, rename and delete a file, the formatting toolbar, the phone's Edit/Preview switch with the HTML and PDF preview, the storage-quota message. Every page is checked for horizontal overflow, failed asset requests and page errors |
+| Browser smoke (CI) | Playwright with headless Chromium, `node --test tests/e2e/*.test.mjs` | At 390×844 and 1280×800: register and log in, create, rename and delete a file, the formatting toolbar, the phone's Edit/Preview switch with the HTML and PDF preview, the storage-quota message. Every page is checked for horizontal overflow, failed asset requests and page errors, and with axe-core (`tests/e2e/a11y.mjs`) for WCAG 2.1 A and AA violations: register, login, home, settings, project, editor and the PDF preview, and in `studio.test.mjs` the corkboard, the script breakdown, the drafting timeline and the status bar. `browser-render.test.mjs` makes a PDF in the browser, also offline |
 | Lint (CI) | `ruff check` (`E9`, `F`), `node --check`, template compilation | Syntax errors, undefined names and unused imports in Python, syntax of every frontend module, templates that don't compile |
 | End-to-end | Playwright (optional, dev-only) | Two browsers editing one document, offline reload and reconnect, share links, preview scroll sync without new history entries in Chromium, Firefox and WebKit, uploaded HTML/SVG never running on the app origin |
 | Performance | `scripts/` | Size budgets, render timings on a reference paper |
@@ -1959,7 +1989,7 @@ Editor font    [ Sans ▾ ]   Size [ 17 ▾ ]
 | Destructive button | `--danger` text and border. Always confirmed in a dialog that names the item |
 | Text input, select | Transparent background, 1px `--edge` border, `--radius`. Placeholder in `--muted` |
 | Checkbox, radio | Native, with `accent-color: var(--accent)` |
-| Link | `--accent`, no underline; underlined on hover and focus |
+| Link | `--accent`; underlined in running text (inside a paragraph), elsewhere only on hover and focus |
 | Table | Full width, no zebra stripes, 1px `--line` between rows, header text in `--muted`, sortable headers show ▴ or ▾. Row hover uses `--hover`. A whole row is clickable when it opens something |
 | Navigation | Plain text links; the current one in weight 600. No tab bars |
 | Dialog | Native `<dialog>`, `--bg` fill, 1px `--line` border, backdrop `rgb(0 0 0 / .6)`, max width 32rem. Title, text, then buttons right-aligned with the primary last |

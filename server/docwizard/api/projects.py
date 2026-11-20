@@ -12,7 +12,7 @@ from ..citations import lookup
 from ..netpolicy import FetchError, PolicyError
 from ..http.request import HTTPError, Request, bad_request, not_found
 from ..http.response import Response, json_response, user_content
-from ..projects import docx_import, files, fountain, history, starters
+from ..projects import docx_import, files, fountain, history, starters, timeline
 from ..projects.quota import QuotaExceeded
 from ..projects import service as svc
 from ..render import fields, languages
@@ -634,6 +634,32 @@ def register(app) -> None:
             newer = o["text"]
         return json_response(await asyncio.to_thread(history.compare, row["text"], newer))
 
+    async def get_timeline(req: Request) -> Response:
+        """The drafting timeline's points and who wrote how much (§8.5)."""
+        doc, _, _ = await document_access(app, req, req.param("id"), "read")
+        room = await app.rooms.get(doc["id"])
+        _, version = await room.call(lambda: _text_version(room))
+
+        def load(c):
+            return timeline.points(c, doc["id"], version), timeline.contributions(c, doc["id"])
+
+        pts, people = await app.db.read(load)
+        return json_response({"version": version, "points": pts, "people": people})
+
+    async def timeline_text(req: Request) -> Response:
+        """The text at a point of the timeline, with what was written since ?since=<version>."""
+        doc, _, _ = await document_access(app, req, req.param("id"), "read")
+        v, since = req.param("v"), req.query.get("since")
+        if not v.isdigit() or (since is not None and not since.isdigit()):
+            raise bad_request("Versions are numbers.")
+        room = await app.rooms.get(doc["id"])
+        current = await room.call(lambda: _text_version(room))
+        out = await app.db.read(lambda c: timeline.text_at(c, doc["id"], int(v), int(since) if since else None,
+                                                           (current[1], current[0])))
+        if out is None:
+            raise not_found("That version isn't kept.")
+        return json_response(out)
+
     r.add("GET", "/api/projects", list_projects)
     r.add("POST", "/api/projects", create_project)
     r.add("POST", "/api/projects/{id}/references", add_reference)
@@ -655,6 +681,8 @@ def register(app) -> None:
     r.add("PATCH", "/api/documents/{id}", patch_document, guest=True)
     r.add("DELETE", "/api/documents/{id}", delete_document, guest=True)
     r.add("GET", "/api/documents/{id}/versions", list_versions, guest=True)
+    r.add("GET", "/api/documents/{id}/timeline", get_timeline, guest=True)
+    r.add("GET", "/api/documents/{id}/timeline/{v}", timeline_text, guest=True)
     r.add("POST", "/api/documents/{id}/versions", create_version, guest=True)
     r.add("GET", "/api/documents/{id}/versions/{v}", version_text, guest=True)
     r.add("GET", "/api/documents/{id}/versions/{v}/compare", compare_version, guest=True)
@@ -663,6 +691,10 @@ def register(app) -> None:
 
 async def _text(room) -> str:
     return room.text()
+
+
+async def _text_version(room):
+    return room.text(), room.version
 
 
 def _json(value):

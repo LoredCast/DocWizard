@@ -55,6 +55,9 @@ timeout_seconds = 90                              # admins can set another per a
 memory_mb = 1536
 default_layout = "default"
 fast_lane = 1                                     # slots LaTeX can't take, so HTML and Typst previews never wait
+# More render workers, on this machine or on others sharing the folders (§9.2): each folder holds
+# that worker's socket (worker.sock) and its job folders (run/). Jobs go to the least busy one.
+# extra_workers = ["/var/lib/docwizard-jobs-2", "/mnt/render-b/jobs"]
 user_previews = 1                                 # previews per person at a time
 user_exports = 2                                  # exports per person queued or running; more get 429
 # For public hosting, also budget what one person can render (0: no limit):
@@ -85,6 +88,16 @@ default_quota_bytes = 2000000000                  # per account, trash included;
 # languagetool_url = "http://languagetool:8010"
 # languagetool_api_key = ""          # only for LanguageTool Premium
 # languagetool_username = ""
+
+# The writing helper (§8.10): a language model behind an OpenAI-compatible API (Ollama, vLLM,
+# llama.cpp's server, or a hosted one) that may only propose suggestions, never change text. Off
+# while url is empty; each person also turns it on in their settings. Passages go to this endpoint.
+# [assist]
+# url = "http://ollama:11434/v1"
+# model = "llama3.1:8b"
+# api_key = ""                       # sent as a bearer token, for hosted APIs
+# max_chars = 6000                   # the longest passage sent at once
+# per_user_rpm = 6                   # requests per person per minute
 
 # Mail for password resets and invitations (§13.2). Without it, admins hand out
 # the links from the admin area.
