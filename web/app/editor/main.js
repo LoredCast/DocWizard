@@ -35,6 +35,7 @@ import { addColumn, addRow, cycleAlign, deleteColumn, deleteRow, deleteTable, ta
 import { setWriterMode, writerField, writerMode } from "./writer-mode.js";
 import { livePreview } from "./live-preview.js";
 import { tableView } from "./table-view.js";
+import { SlideTools } from "./slides.js";
 
 wireCommon();
 
@@ -76,6 +77,11 @@ const split = $("#split");
 // Data sheets (.csv, .tsv) open as a grid to type into; the CSV text is a switch away (§6.3).
 const isSheet = /\.(csv|tsv)$/i.test(snap.doc.path);
 let sheet = null;
+// Slide decks: the slide sorter and the presenter view, which shows the web deck (§6.3).
+const isDeck = isMarkdown && Boolean(snap.layout?.slides);
+let slideTools = null;
+let deckUrl = null;
+let deckVersion = -1;
 
 // -- Preferences ---------------------------------------------------------
 const root = document.documentElement;
@@ -229,7 +235,7 @@ const view = new EditorView({
   parent: $("#editor"),
   dispatchTransactions(trs, v) {
     v.update(trs);
-    if (trs.some((tr) => tr.docChanged)) { docChanged(); sheet?.docChanged(); }
+    if (trs.some((tr) => tr.docChanged)) { docChanged(); sheet?.docChanged(); slideTools?.docChanged(); }
     if (trs.some((tr) => tr.selection || tr.docChanged)) {
       presenceSender.schedule();
       updateFormatBar();
@@ -607,6 +613,31 @@ function showOutline() {
 }
 $("#open-outline")?.addEventListener("click", showOutline);
 
+// A first draft of slides for this document, in a new project (§6.3).
+$("#make-deck")?.addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    const made = await api("POST", `/api/documents/${docId}/companion-deck`);
+    toast(t("The slides are ready in a new project."));
+    location.href = made.url;
+  } catch (err) {
+    toast(err.message, { error: true });
+  } finally {
+    button.disabled = false;
+  }
+});
+
+if (isDeck) {
+  slideTools = new SlideTools({
+    view, readOnly, options: () => layoutOptions, getUrl: () => deckUrl,
+    requestHtml: () => socket.send({ t: "render", doc: docId, version: session.version(), target: "html",
+                                     layout: snap.layout.id, options: layoutOptions }),
+  });
+  $("#open-sorter")?.addEventListener("click", () => slideTools.openSorter());
+  $("#open-presenter")?.addEventListener("click", () => slideTools.openPresenter());
+}
+
 // -- Citations ---------------------------------------------------------
 let citationsEtag = "";
 async function loadCitations() {
@@ -823,6 +854,11 @@ function showRendered(msg) {
     diag.className = "";
     diag.title = "";
   }
+  if (msg.target === "html" && msg.url && (msg.version ?? 0) >= deckVersion) {
+    deckVersion = msg.version ?? 0;
+    deckUrl = msg.url;
+    slideTools?.rendered(msg.url);
+  }
   if (msg.target !== target) return;
   if (!msg.url) {
     // "limited": a render limit of the server; the next edit tries again.
@@ -931,12 +967,15 @@ $("#export-form").addEventListener("submit", async (event) => {
   const how = button.value; // "pdf", "print" or "export"
   const targetName = button.dataset.target ?? new FormData(event.target).get("target");
   if (!targetName) return;
+  // The handout is the slides' PDF with the handout option on.
+  const handout = !button.dataset.target && event.target.querySelector("input[name=target]:checked")?.hasAttribute("data-handout");
+  const options = handout ? { ...layoutOptions, handout: true } : layoutOptions;
   status.textContent = how === "print" ? t("Preparing to print…") : t("Exporting…");
   const buttons = [...event.target.querySelectorAll("button[type=submit]")];
   for (const b of buttons) b.disabled = true;
   try {
     const { job } = await api("POST", `/api/projects/${projectId}/export`,
-                              { target: targetName, doc: docId, options: layoutOptions });
+                              { target: targetName, doc: docId, options });
     for (let i = 0; i < 600; i++) {
       await new Promise((r) => setTimeout(r, i < 10 ? 500 : 1500));
       const s = await api("GET", `/api/jobs/${job}`);

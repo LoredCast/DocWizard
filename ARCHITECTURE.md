@@ -367,6 +367,11 @@ A document opens with the cursor where it was when it was last open in this brow
 
 **Other features**
 
+- **Data sheets** (`editor/sheet.js`, `editor/sheet-model.js`): `.csv` and `.tsv` documents open as a grid. Cells are typed into in place, rows and columns added, removed and sorted from the toolbar, and ranges pasted from Excel, LibreOffice or Google Sheets (tab-separated) or copied back. A cell starting with `=` is a formula: numbers, cell references, `+ - * / ^`, and `SUM`, `AVERAGE`, `MIN`, `MAX`, `COUNT`, `ROUND`, `ABS` over ranges, worked out as you type and in renders (`filters/dwsheet.lua` follows the same rules). Each edit changes only the cells' own text, so collaboration, history and undo work as for any document; *Text* shows the CSV itself. A sheet can name an HTTPS address to refresh from (§11.3a). *Insert ▾ → Table from data / Chart* writes the `::: {.data}` or `::: {.chart}` block (§9.7).
+- **Math palette** (`editor/math-palette.js`): *Insert ▾ → Math* shows fractions, roots, sums, matrices, cases, Greek letters, symbols and arrows, drawn with Temml, with a search. A pick inserts the LaTeX with its first placeholder selected, inside the math at the cursor or as new `$…$` (or `$$…$$` on its own line).
+- **Diagrams**: *Insert ▾ → Diagram* adds a Mermaid flowchart, a Graphviz graph or a Typst (CeTZ) drawing to start from; the render draws it (§9.7).
+- **Slide decks** (`editor/slides.js`, `editor/slides-model.js`), for documents of a slide layout: the *Slide sorter* shows every slide as a card (title, first lines, a mark for notes) and moves a slide by dragging it or with `Alt+←`/`Alt+→`, as one edit that moves its Markdown. *Present* opens the presenter view: the current and next slide from the web deck (by `#slide-N` fragments of the HTML preview, so nothing runs in the preview), the speaker notes, a timer, and an audience window for the projector that follows along. The slide numbers come from reading the Markdown the way `slides.lua` does (a cross-check test keeps them equal).
+- **Make slides**: for other Markdown documents, a new project with the slides layout and a draft deck (`projects/deck.py`): chapters become section slides, sections slides with the first sentence of each paragraph (or the document's own list items) as points and the paragraphs as notes, figures and charts slides of their own; citations, pictures, data sheets and bibliographies come along.
 - Citation autocomplete after `[@` or `@`, fed by the citation worker ([§10.4](#104-editor-support)).
 - Front matter help ([§9.4](#94-document-metadata)): the **Fields** panel lists the fields the project's layout prints, with what each one means, where it appears, an example, and whether the document has it filled in; one click adds a missing field in the layout's order or jumps to it. Inside the front matter, typing a name suggests the fields (the layout's own first) and hovering a key explains it.
 - *Find and replace* (`Ctrl+F`, or the magnifier in the toolbar and *Actions*), CodeMirror's search panel in the app's colours and language.
@@ -938,6 +943,7 @@ link-citations: true
 | `tex-source`, `typ-source` | pandoc intermediate files | For hand-off or further editing |
 | `epub` | pandoc → `epub3` with the layout's HTML CSS, `--mathml`, one file per chapter | E-books and reading on tablets; page breaks become CSS breaks |
 | `fountain` | in the app (`projects/fountain.py`) | Script layouts only; for other screenwriting apps |
+| `pptx` | pandoc → PowerPoint, with `--slide-level` from the layout option and the layout's `--reference-doc` when it names one | Slide layouts; speaker notes become PowerPoint's notes |
 
 ### 9.6 Engine settings
 
@@ -959,8 +965,11 @@ These ship with DocWizard and are pre-approved:
 - `quotes.lua`: runs after citeproc. Quotation marks in each passage's language, and language-scoped passages in Typst.
 - `runin.lua`: headings that run into their paragraph (APA levels 4–5, IEEE level 3), when the layout asks for them.
 - `screenplay.lua` and `avscript.lua`: script elements for the script layouts (§9.3).
+- `data.lua`: `::: {.data src=…}` becomes a table and `::: {.chart src=…}` a chart from a project's `.csv` or `.tsv` sheet, with the sheet's formulas worked out (`dwsheet.lua`, the same rules as the editor's grid). Charts (bar, column, stacked, line, area, scatter, pie) are SVG drawn by the filter itself: no scripts, no network, the same picture every time. A caption and a `#tbl:`/`#fig:` id number them like any table or figure.
+- `diagram.lua`: code blocks of class `mermaid` (flowcharts), `dot`/`graphviz` and `cetz` (or `typst` with `.diagram`) become pictures, drawn in the job by Graphviz's `dot` and Typst. Mermaid flowcharts are translated to Graphviz, since Mermaid itself needs a browser. In Typst output CeTZ drawings stay Typst code. A diagram that can't be drawn shows the problem in the document and the log. `dwgraphics.lua` holds what both share: Typst and SVG to PDF or PNG for LaTeX and office formats, data URLs for HTML, and figures with captions.
+- `slides.lua`: the slide layouts. Headings at the slide level start slides, higher ones section slides, `---` an untitled slide; `::: notes` are speaker notes and `::: columns` sets columns. Typst gets `#dw-slide(…)[…]` calls the layout's template draws as slides or as a handout; HTML gets one `<div class="slide" id="slide-N">` a slide for the scroll-snap deck. Other formats keep the headings.
 
-The order in a render is `lang.lua`, the layout's filters, `runin.lua`, Zotero resolution, citeproc, `quotes.lua`. The filters share `dwlocale.lua` and its data, `locales.json`.
+The order in a render is `lang.lua`, `data.lua`, `diagram.lua`, the layout's filters, `runin.lua`, Zotero resolution, citeproc, `quotes.lua`. The filters share `dwlocale.lua` and its data, `locales.json`.
 
 ### 9.8 Document languages
 
@@ -1073,6 +1082,10 @@ A crash at any point loses nothing that was committed. The database is never rol
 - Symlinks are never followed (`O_NOFOLLOW`), and resolved paths must stay inside the project.
 - Writes are atomic: temp file, `fsync`, `rename`.
 - Per-user quotas count project files and assets. Renders and caches don't count.
+
+### 11.3a Data sources
+
+A `.csv` or `.tsv` document can name an HTTPS address (`data_sources`, `api/data.py`). *Refresh* fetches it through the outbound request policy (no private addresses unless an admin allows them, at most 5 MB in 20 seconds, the quota checked) and applies the new text as an ordinary edit by the person who pressed it, so open grids, the history and every collaborator see it like any other change. Nothing is fetched on a schedule.
 
 ### 11.4 Backups
 
@@ -1416,6 +1429,7 @@ The exact package list and versions are recorded in `web/vendor/MANIFEST`.
 | pandoc ≥ 3.9 | Parsing, citeproc, every writer | Worker | GPL-2.0-or-later |
 | Typst (pinned) | Fast PDF | Worker | Apache-2.0 |
 | TeX Live (optional image variant) | LaTeX documents and layouts | Worker | various free licenses |
+| Graphviz (`dot`) | Graphviz diagrams and Mermaid flowcharts (§9.7) | Worker | EPL-1.0 |
 | bubblewrap (optional) | Per-job sandbox outside Docker | Worker host | LGPL-2.0-or-later |
 | git (optional) | Git sync ([§12.7](#127-git-repositories)) | App | GPL-2.0-only |
 | Reverse proxy (Caddy recommended) | TLS, static files, publish origin | Proxy | Apache-2.0 (Caddy) |

@@ -844,7 +844,7 @@ def typst_overrides(variables: dict) -> str:
     Front matter and project options arrive as metadata. Booleans are only read when the
     layout declares them: then the metadata always has a value, its default included.
     """
-    lines = ["#let dw = dw + ("]
+    lines = ["#let dw = dw + (", '  "overrides": true,  // keeps this a dictionary when no option is set']
     lines.append('$if(papersize)$  "page-paper": "$papersize$",$endif$')
     lines.append('$if(fontsize)$  "text-size": ($fontsize$) / 1pt,$endif$')
     lines.append('$if(linestretch)$  "text-leading": $linestretch$,$endif$')

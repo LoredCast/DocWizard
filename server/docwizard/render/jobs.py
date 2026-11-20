@@ -26,6 +26,7 @@ OUTPUTS = {
     "pdf-latex": "document.pdf",
     "docx": "document.docx",
     "odt": "document.odt",
+    "pptx": "document.pptx",
     "epub": "document.epub",
     "md-resolved": "document.md",
     "md-gfm": "document.md",
@@ -43,7 +44,7 @@ PREVIEW_TARGETS = {"html", "pdf-typst", "pdf-latex"}
 LATEXMK = ["-interaction=nonstopmode", "-halt-on-error", "-file-line-error", "-no-shell-escape", "-synctex=1",
            "-jobname=document", "-outdir={job}/out", "-auxdir={job}/tmp/latex"]
 LATEX_ENGINES = {"lualatex", "xelatex", "pdflatex"}
-BUILTIN_FILTERS = {"crossref", "pagebreak", "wordcount", "screenplay", "avscript"}
+BUILTIN_FILTERS = {"crossref", "pagebreak", "wordcount", "screenplay", "avscript", "slides"}
 
 
 @dataclass
@@ -281,8 +282,10 @@ def pandoc_steps(layout: Layout, layout_dir: Path, target: str, inputs: list[str
         for css in layout.targets.get("html", {}).get("css", []):
             args += ["--css", f"{L}/{css}"]
         return [{"tool": "pandoc", "args": [*args, "-o", out]}], copies
-    if target in ("docx", "odt"):
+    if target in ("docx", "odt", "pptx"):
         args = [*common, "--to", target]
+        if target == "pptx" and str(options.get("slide-level", "")) in ("1", "2", "3"):
+            args += ["--slide-level", str(options["slide-level"])]
         ref = spec.get("reference")
         if ref and (layout_dir / ref).is_file():
             args += ["--reference-doc", f"{L}/{ref}"]

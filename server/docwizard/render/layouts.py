@@ -112,7 +112,8 @@ class Layout:
         return {"id": self.id, "name": self.name, "version": self.manifest.get("version", ""),
                 "description": self.description, "targets": sorted(self.targets), "defaultPdf": self.default_pdf,
                 "variables": self.variables, "hash": self.content_sha256[:12], "custom": self.custom,
-                "parent": self.parent, "script": "screenplay" in self.manifest.get("filters", [])}
+                "parent": self.parent, "script": "screenplay" in self.manifest.get("filters", []),
+                "slides": "slides" in self.manifest.get("filters", [])}
 
     def option_defaults(self) -> dict:
         return {k: v.get("default") for k, v in self.variables.items() if "default" in v}
