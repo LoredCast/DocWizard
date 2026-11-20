@@ -188,7 +188,7 @@ export class SlideTools {
     document.addEventListener("keydown", onKey, true);
     document.body.append(root);
     this.presenter = { root, now, next, clock, count, title, notes, nextTitle, waiting, pauseBtn, onKey, deck, index,
-                       started: Date.now(), paused: null, audience: null, timer: null };
+                       started: Date.now(), paused: null, audience: null, timer: null, asked: Date.now() };
     this.presenter.timer = setInterval(() => this.tick(), 500);
     root.tabIndex = -1;
     root.focus();
@@ -272,6 +272,11 @@ export class SlideTools {
   tick() {
     const p = this.presenter;
     if (!p) return;
+    // A preview request can be overtaken by a newer one, or limited: ask again while there is no deck.
+    if (!this.getUrl() && Date.now() - p.asked > 4000) {
+      p.asked = Date.now();
+      this.requestHtml();
+    }
     const ms = (p.paused ?? Date.now()) - p.started;
     const sec = Math.floor(ms / 1000);
     const h = Math.floor(sec / 3600);
