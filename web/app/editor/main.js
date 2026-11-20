@@ -5,7 +5,8 @@ import { DocSession } from "../collab/peer.js";
 import { PresenceSender, PresenceView, peersField } from "../collab/presence.js";
 import { Socket } from "../collab/socket.js";
 import { HtmlPreview, headingId } from "../preview/html.js";
-import { PdfPreview } from "../preview/pdf.js";
+import { PdfPreview, paragraphAt } from "../preview/pdf.js";
+import { CommandPalette } from "./palette.js";
 import { LocalRenderer } from "../preview/local.js";
 import { openTimeline } from "./timeline.js";
 import { openAssist } from "./assist.js";
@@ -750,7 +751,9 @@ const html = new HtmlPreview(frame, {
   onError: (url) => showPreviewError("html", url),
 });
 const pdf = new PdfPreview(pane, {
-  onLoad: () => clearPreviewError("pdf"),
+  bar: $("#pdf-bar"),
+  labels: { page: t("Page {n}"), matches: t("{i} of {n}"), noMatches: t("No matches") },
+  onLoad: () => { clearPreviewError("pdf"); lastPara = null; followParagraph(0); },
   onError: (url) => showPreviewError("pdf", url),
   onPick: (pick) => findInSource(pick),
   hint: t("Double-click to show this in the source"),
@@ -957,10 +960,12 @@ function showRendered(msg) {
   }
 }
 
-// One-way scroll sync: the heading above the cursor (§6.4).
+// One-way scroll sync (§6.4): the HTML preview follows the heading above the cursor; the PDF
+// preview the paragraph at the cursor, marked in the pages, or else the heading.
 let lastHeading = null;
-function cursorMoved() {
-  if (!isMarkdown || !outline.length || !previewVisible()) return;
+let lastPara = null;
+let paraTimer = null;
+function currentHeading() {
   const line = view.state.doc.lineAt(view.state.selection.main.head).number;
   let current = null;
   for (const h of outline) {
@@ -970,13 +975,65 @@ function cursorMoved() {
   }
   // Which of the headings with this title it is, for the PDF.
   const nth = current ? outline.filter((o) => !o.scene && o.line < current.line && o.title === current.title).length : 0;
+  return { current, nth };
+}
+function cursorMoved() {
+  if (!previewVisible()) return;
+  if (target !== "html") {
+    followParagraph();
+    return;
+  }
+  if (!isMarkdown || !outline.length) return;
+  const { current } = currentHeading();
   const id = current ? headingId(current.title) : "";
-  const key = `${target}:${id}:${nth}`;
+  const key = `html:${id}`;
   if (key === lastHeading) return;
   lastHeading = key;
-  // The PDF follows along too: it scrolls to the heading's page once that page has text.
-  if (target === "html") html.scrollTo(id);
-  else pdf.scrollToHeading(current?.title ?? "", nth).then((done) => { if (!done && lastHeading === key) lastHeading = null; });
+  html.scrollTo(id);
+}
+
+function followParagraph(delay = 250) {
+  clearTimeout(paraTimer);
+  paraTimer = setTimeout(syncParagraph, delay);
+}
+
+let paraSeq = 0;
+async function syncParagraph() {
+  if (!previewVisible() || target === "html" || !pdf.doc) return;
+  const state = view.state;
+  const head = state.selection.main.head;
+  const text = state.doc.toString();
+  const para = paragraphAt(text, head, { latex: isLatex });
+  const lineNo = state.doc.lineAt(head).number;
+  const key = para ? `p:${para.from}:${para.to}:${pdf.url}` : `h:${lineNo}:${pdf.url}`;
+  if (key === lastPara) return;
+  lastPara = key;
+  const mine = ++paraSeq;
+  // LaTeX: SyncTeX says exactly where the line is set.
+  if (isLatex) {
+    const keyHash = /\/api\/renders\/([0-9a-f]{64})\//.exec(pdf.url ?? "")?.[1];
+    if (keyHash) {
+      try {
+        const { boxes } = await api("POST", `/api/projects/${projectId}/pdf-at`, { key: keyHash, doc: docId, line: lineNo });
+        if (mine !== paraSeq) return;
+        if (boxes?.length && pdf.showBoxes(boxes)) return;
+      } catch { /* no SyncTeX for this build: match the words */ }
+    }
+  }
+  if (para) {
+    const done = await pdf.showParagraph({ words: para.words, at: para.at, hint: head / Math.max(1, text.length) });
+    if (mine !== paraSeq || done) return;
+  } else {
+    pdf.clearParagraph();
+  }
+  // No paragraph, or its words aren't in the PDF (a table, code, math): the heading above.
+  if (!isMarkdown) return;
+  const { current, nth } = currentHeading();
+  const hkey = `pdf:${current?.title ?? ""}:${nth}:${pdf.url}`;
+  if (hkey === lastHeading) return;
+  lastHeading = hkey;
+  const ok = await pdf.scrollToHeading(current?.title ?? "", nth);
+  if (!ok && lastHeading === hkey) lastHeading = null;
 }
 
 // From the PDF preview back to the source (§6.4): double-click (double-tap) a spot. LaTeX answers
@@ -1756,9 +1813,142 @@ if (publishButton) {
   });
 }
 
+// -- Command palette (Ctrl/Cmd+K) ------------------------------------------
+// Everything to go to or do in one list: documents, headings, page setup, the Actions menu,
+// formatting and insert tools, the preview and the PDF's controls.
+function caretRect() {
+  const pos = view.state.selection.main.head;
+  const c = view.coordsAtPos(pos) ?? view.coordsAtPos(Math.max(0, pos - 1));
+  if (c) return c;
+  const r = view.contentDOM.getBoundingClientRect();
+  return { left: r.left + 16, right: r.left + 16, top: r.top, bottom: r.top + 20 };
+}
+const shown_ = (node) => node && !node.hidden && !node.closest("[hidden]") && !node.disabled;
+const labelOf = (node) => (node.textContent ?? "").replace(/\s+/g, " ").trim();
+
+function paletteItems() {
+  const items = [];
+  const add = (item) => items.push({ kind: "action", ...item });
+  const canWrite = !readOnly && !review;
+
+  // Headings (and scenes in a screenplay), in document order.
+  for (const h of outline) {
+    items.push({ id: "", kind: "heading", label: h.title || t("(untitled)"), group: h.scene ? t("Scene") : t("Heading"),
+                 detail: h.scene ? "" : `H${h.level}`, run: () => jumpToLine(h.line) });
+  }
+  // The project's other documents.
+  for (const f of snap.files ?? []) {
+    if (f.type !== "document" || f.path === snap.doc.path) continue;
+    items.push({ id: `file:${f.path}`, kind: "file", label: f.path, group: t("Document"),
+                 run: () => { location.href = docUrl(f.path); } });
+  }
+  // Formatting and inserting.
+  if (canWrite && isMarkdown && formatBar && !formatBar.hidden) {
+    const fmt = (id, label, cmd, hint = "") => add({ id: `fmt:${id}`, label, group: t("Format"), hint,
+                                                       run: () => { FORMAT_CMDS[cmd](view, null); view.focus(); updateFormatBar(); } });
+    fmt("bold", t("Bold"), "bold", "Ctrl+B");
+    fmt("italic", t("Italic"), "italic", "Ctrl+I");
+    fmt("strike", t("Strikethrough"), "strike");
+    fmt("code", t("Inline code"), "code");
+    fmt("heading", t("Heading"), "heading");
+    fmt("quote", t("Blockquote"), "quote");
+    fmt("bullet", t("Bullet list"), "bullet");
+    fmt("ordered", t("Numbered list"), "ordered");
+    fmt("task", t("Task list"), "task");
+    const ins = (id, label, run, keywords = "") => add({ id: `insert:${id}`, label, group: t("Insert"), keywords, run });
+    ins("link", t("Link"), () => tools.link(), "url address");
+    ins("footnote", t("Footnote"), () => tools.note({}), "note");
+    ins("xref", t("Cross-reference"), () => tools.crossRef(caretRect()), "figure table equation section reference");
+    ins("cite", t("Citation"), () => { insertCitation(view); view.focus(); }, "cite reference bibliography");
+    ins("math", t("Math"), () => { toggleInlineMath(view); view.focus(); }, "equation formula");
+    ins("table", t("Table"), () => tools.table(caretRect()));
+    if (images) ins("image", t("Image"), () => images.pick(view), "picture figure photo");
+  }
+  // The Actions menu, as it is now (what's hidden or not allowed here stays out).
+  for (const node of document.querySelectorAll("#toolbar-buttons button, #toolbar-buttons a.button")) {
+    if (!shown_(node) || node.id === "open-palette") continue;
+    const group = node.closest(".menu-group")?.querySelector(".menu-heading")?.textContent ?? "";
+    const pressed = node.getAttribute("aria-pressed");
+    add({ id: `menu:${node.id || labelOf(node)}`, label: labelOf(node), group,
+          detail: pressed === "true" ? t("on") : "", keywords: node.title ?? "", run: () => node.click() });
+  }
+  if ($("#open-outline")) add({ id: "outline", label: t("Outline"), group: t("Write"), hint: "Ctrl+Alt+O", run: showOutline });
+  if (isMarkdown && !review) {
+    add({ id: "marks", label: writerMode(view.state) ? t("Show Markdown marks") : t("Hide Markdown marks"),
+          group: t("Write"), keywords: "writer mode", run: () => setMarks(writerMode(view.state)) });
+  }
+  // Page setup: the dialog, the template, and each of the layout's settings.
+  const options = $("#open-options");
+  if (options) {
+    add({ id: "setup", label: t("Page setup"), group: t("Layout"), keywords: "layout options template margins font",
+          run: () => options.click() });
+    if (snap.can.change_layout) {
+      add({ id: "setup:template", label: t("Change template"), group: t("Layout"), keywords: "layout",
+            run: async () => { options.click(); await loadLayoutPicker(); $("#options-layout")?.focus(); } });
+    }
+    for (const [name, spec] of Object.entries(snap.layout?.variables ?? {})) {
+      add({ id: `setup:${name}`, label: t(spec.label ?? name), group: t("Page setup"), keywords: name,
+            run: () => {
+              options.click();
+              const field = document.getElementById(`option-${name.replace(/[^a-z0-9]/gi, "-")}`);
+              field?.focus();
+              field?.scrollIntoView({ block: "center" });
+            } });
+    }
+  }
+  // The preview.
+  add({ id: "preview", label: previewVisible() ? t("Hide preview") : t("Show preview"), group: t("Preview"),
+        run: () => $("#toggle-preview").click() });
+  if (!isLatex) {
+    add({ id: "preview:html", label: t("Preview as HTML"), group: t("Preview"), detail: target === "html" ? t("on") : "",
+          run: () => { $('input[name="preview-target"][value="html"]').click(); showPreview(); } });
+    add({ id: "preview:pdf", label: t("Preview as PDF"), group: t("Preview"), detail: target !== "html" ? t("on") : "",
+          run: () => { $('input[name="preview-target"][value="pdf"]').click(); showPreview(); } });
+  }
+  add({ id: "preview:dark", label: t("Dark paper"), group: t("Preview"), detail: darkPaper.checked ? t("on") : "",
+        run: () => darkPaper.click() });
+  if (target !== "html") {
+    const pdfCmd = (id, label, run, keywords = "") => add({ id: `pdf:${id}`, label, group: "PDF", keywords,
+                                                             run: () => { showPreview(); run(); } });
+    pdfCmd("find", t("Find in PDF"), () => setTimeout(() => pdf.openFind(), 50), "search");
+    pdfCmd("zoom-in", t("Zoom in"), () => pdf.stepZoom(1), "bigger larger");
+    pdfCmd("zoom-out", t("Zoom out"), () => pdf.stepZoom(-1), "smaller");
+    pdfCmd("fit", t("Fit width"), () => pdf.setZoom("fit"), "zoom");
+    pdfCmd("page", t("Fit page"), () => pdf.setZoom("page"), "zoom");
+    pdfCmd("100", t("Actual size (100 %)"), () => pdf.setZoom(1), "zoom");
+    for (let n = 1; n <= Math.min(pdf.sizes.length, 500); n++) {
+      items.push({ id: "", kind: "page", label: t("Page {n}", { n }), group: "PDF", keywords: String(n),
+                   run: () => { showPreview(); pdf.goToPage(n); } });
+    }
+  }
+  return items;
+}
+
+// Commands about the preview open it first.
+function showPreview() {
+  if (previewVisible()) return;
+  if (narrow.matches) setMobilePreview(true);
+  else $("#toggle-preview").click();
+}
+
+const palette = new CommandPalette({
+  sources: paletteItems,
+  goToLine: (n) => jumpToLine(n),
+  labels: { placeholder: t("Go to a document or heading, or type a command…"), empty: t("Nothing matches."),
+            line: t("Go to line {n}"), recent: t("Recent"), title: t("Command palette") },
+});
+$("#open-palette")?.addEventListener("click", () => palette.open());
+
 // -- Keyboard -------------------------------------------------------------
 document.addEventListener("keydown", (event) => {
   const mod = event.metaKey || event.ctrlKey;
+  // Ctrl/Cmd+K: the command palette (the editor keeps it for linking selected text).
+  if (mod && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "k") {
+    if (event.defaultPrevented || palette.isOpen) return;
+    event.preventDefault();
+    palette.open();
+    return;
+  }
   if (mod && event.key === "s") {
     event.preventDefault();
     toast(session.status().state === "saved" ? t("Everything is saved.") : t("Saving automatically…"));

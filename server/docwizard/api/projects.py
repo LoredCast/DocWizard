@@ -210,6 +210,25 @@ def register(app) -> None:
                               "layoutOptions": _json(p["layout_options"]),
                               "buildInputs": _json(p["build_inputs"]), "lang": p.get("lang"), "tree": tree})
 
+    async def put_home_state(req: Request) -> Response:
+        """The member's own tags and archive state for the project, for the home page (§6.2)."""
+        project, _ = await project_access(app, req, req.param("id"), "read")
+        body = await req.json_object()
+        try:
+            tags = svc.normalize_tags(body["tags"]) if "tags" in body else None
+        except ValueError as exc:
+            raise bad_request(str(exc)) from None
+        archived = body.get("archived")
+        if archived is not None and not isinstance(archived, bool):
+            raise bad_request("archived must be true or false.")
+        uid = req.user.id
+        try:
+            state = await app.db.write(lambda c: svc.set_home_state(c, project["id"], uid, tags=tags,
+                                                                   archived=archived))
+        except ValueError as exc:
+            raise bad_request(str(exc)) from None
+        return json_response(state)
+
     async def patch_project(req: Request) -> Response:
         project, role = await project_access(app, req, req.param("id"), "change_layout")
         body = await req.json_object()
@@ -650,6 +669,7 @@ def register(app) -> None:
     r.add("GET", "/api/projects/{id}", get_project, guest=True)
     r.add("PATCH", "/api/projects/{id}", patch_project, guest=True)
     r.add("DELETE", "/api/projects/{id}", delete_project)
+    r.add("PUT", "/api/projects/{id}/home", put_home_state)
     r.add("GET", "/api/projects/{id}/tree", tree, guest=True)
     r.add("POST", "/api/projects/{id}/documents", create_document, guest=True)
     r.add("PUT", "/api/projects/{id}/assets/{path:path}", put_asset, guest=True)

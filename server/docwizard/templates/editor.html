@@ -22,6 +22,7 @@
     <span class="status menu-status" id="menu-save-state" aria-hidden="true">{{ _("Saved") }}</span>
     <div class="menu-group" role="group" aria-labelledby="menu-write">
       <span class="menu-heading" id="menu-write">{{ _("Write") }}</span>
+      <button type="button" id="open-palette" title="{{ _('Go to any file or heading, or run any command (Ctrl+K)') }}">{{ _("Command palette") }}</button>
       <button type="button" id="open-chapters" data-open-chapters aria-expanded="false" aria-controls="chapters">{{ _("Chapters") }}</button>
       <button type="button" id="open-find" title="{{ _('Find and replace (Ctrl+F)') }}">{{ _("Find and replace") }}</button>
       {% if doc.kind == "markdown" %}<button type="button" id="open-refs" aria-pressed="false" title="{{ _('References (Ctrl+Alt+R)') }}">{{ _("References") }}</button>
@@ -88,7 +89,7 @@
       <button type="button" data-cmd="ordered" aria-pressed="false" aria-label="{{ _('Numbered list') }}" title="{{ _('Numbered list') }}">1.</button>
       <button type="button" data-cmd="task" aria-pressed="false" aria-label="{{ _('Task list') }}" title="{{ _('Task list') }}">[ ]</button>
       <span class="format-sep" aria-hidden="true"></span>
-      <button type="button" data-cmd="link" aria-pressed="false" aria-label="{{ _('Link') }}" title="{{ _('Link (Ctrl+K)') }}">{{ _("Link") }}</button>
+      <button type="button" data-cmd="link" aria-pressed="false" aria-label="{{ _('Link') }}" title="{{ _('Link (select text, then Ctrl+K)') }}">{{ _("Link") }}</button>
       <button type="button" data-cmd="image" aria-label="{{ _('Image') }}" title="{{ _('Image (or paste or drop one into the text)') }}">{{ _("Image") }}</button>
       <button type="button" data-cmd="table" aria-label="{{ _('Table') }}" title="{{ _('Insert a table') }}">{{ _("Table") }}</button>
       <button type="button" data-cmd="insert" aria-haspopup="menu" aria-label="{{ _('More to insert') }}" title="{{ _('Footnote, cross-reference, citation, math') }}">{{ _("Insert") }} ▾</button>
@@ -118,6 +119,26 @@
       <label class="choice" hidden title="{{ _('Make the PDF here as you type, also offline') }}"><input type="checkbox" id="local-render"> {{ _("In this browser") }}</label>
       <label class="choice"><input type="checkbox" id="dark-paper"> {{ _("Dark paper") }}</label>
       <button type="button" id="open-options" title="{{ _('Template and page setup') }}">{{ _("Page setup") }}</button>
+    </div>
+    <div class="pdf-bar" id="pdf-bar" role="toolbar" aria-label="{{ _('PDF') }}" hidden>
+      <button type="button" data-pdf-zoom-out aria-label="{{ _('Zoom out') }}" title="{{ _('Zoom out (−)') }}">−</button>
+      <select data-pdf-zoom aria-label="{{ _('Zoom') }}">
+        <option value="fit">{{ _("Fit width") }}</option>
+        <option value="page">{{ _("Fit page") }}</option>
+        {% for z in [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4] %}<option value="{{ z }}">{{ (z * 100)|int }} %</option>{% endfor %}
+      </select>
+      <button type="button" data-pdf-zoom-in aria-label="{{ _('Zoom in') }}" title="{{ _('Zoom in (+)') }}">+</button>
+      <span class="pdf-bar-sep" aria-hidden="true"></span>
+      <label class="pdf-page-jump"><span class="pdf-page-label">{{ _("Page") }}</span> <input type="number" data-pdf-page min="1" inputmode="numeric" aria-label="{{ _('Page') }}"> <span class="muted">/ <span data-pdf-pages>–</span></span></label>
+      <span class="spacer"></span>
+      <button type="button" data-pdf-open-find title="{{ _('Find in the PDF (Ctrl+F in the preview)') }}">{{ _("Find") }}</button>
+      <div class="pdf-find" data-pdf-find-row hidden>
+        <input type="search" data-pdf-find placeholder="{{ _('Find in PDF…') }}" aria-label="{{ _('Find in the PDF') }}" autocomplete="off" spellcheck="false">
+        <span class="muted" data-pdf-find-count role="status"></span>
+        <button type="button" data-pdf-find-prev aria-label="{{ _('Previous match') }}" title="{{ _('Previous match (Shift+Enter)') }}">↑</button>
+        <button type="button" data-pdf-find-next aria-label="{{ _('Next match') }}" title="{{ _('Next match (Enter)') }}">↓</button>
+        <button type="button" data-pdf-find-close aria-label="{{ _('Close') }}" title="{{ _('Close (Esc)') }}">×</button>
+      </div>
     </div>
     <div class="preview-empty" id="preview-error" role="alert" hidden></div>
     <iframe id="preview" title="{{ _('Preview') }}" sandbox referrerpolicy="no-referrer"></iframe>

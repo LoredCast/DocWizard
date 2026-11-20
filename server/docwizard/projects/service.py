@@ -47,14 +47,78 @@ def get_project(conn: sqlite3.Connection, project_id: str) -> sqlite3.Row | None
 
 
 def list_projects(conn: sqlite3.Connection, user_id: int) -> list[dict]:
+    """The user's projects with their own tags and archive state (§6.2), by name."""
     rows = conn.execute(
-        "SELECT p.id, p.name, p.layout_id, p.updated_at, m.role,"
+        "SELECT p.id, p.name, p.layout_id, p.updated_at, m.role, m.tags, m.archived_at,"
+        " coalesce(nullif(o.display_name, ''), o.username) AS owner_name,"
         " (SELECT count(*) FROM project_members WHERE project_id = p.id) AS members"
         " FROM projects p JOIN project_members m ON m.project_id = p.id AND m.user_id = ?"
+        " LEFT JOIN users o ON o.id = p.owner_id"
         " WHERE p.deleted_at IS NULL ORDER BY p.name COLLATE NOCASE",
         (user_id,),
     ).fetchall()
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        item = dict(r)
+        item["tags"] = tags_of(item["tags"])
+        item["archived"] = item.pop("archived_at") is not None
+        item["shared"] = item["role"] != "owner"
+        out.append(item)
+    return out
+
+
+MAX_TAGS = 12
+MAX_TAG_LENGTH = 32
+
+
+def tags_of(raw: str | None) -> list[str]:
+    try:
+        value = json.loads(raw) if raw else []
+    except ValueError:
+        return []
+    return [t for t in value if isinstance(t, str)] if isinstance(value, list) else []
+
+
+def normalize_tags(value) -> list[str]:
+    """Tags as typed: a list, or one string separated by commas. Spaces are collapsed, the same tag
+    in another case counts once (the first spelling wins), and empty ones are dropped."""
+    items = value.split(",") if isinstance(value, str) else value if isinstance(value, list) else None
+    if items is None:
+        raise ValueError("Give the tags as a list.")
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if not isinstance(item, str):
+            raise ValueError("Tags are text.")
+        tag = " ".join(item.replace("#", " ").split())
+        if not tag:
+            continue
+        if len(tag) > MAX_TAG_LENGTH:
+            raise ValueError(f"Keep each tag to {MAX_TAG_LENGTH} characters.")
+        if tag.casefold() in seen:
+            continue
+        seen.add(tag.casefold())
+        out.append(tag)
+    if len(out) > MAX_TAGS:
+        raise ValueError(f"Use at most {MAX_TAGS} tags for a project.")
+    return out
+
+
+def set_home_state(conn: sqlite3.Connection, project_id: str, user_id: int, *,
+                   tags: list[str] | None = None, archived: bool | None = None) -> dict:
+    """Change the member's own tags and archive state for a project. Returns both."""
+    row = conn.execute("SELECT m.tags, m.archived_at FROM project_members m JOIN projects p ON p.id = m.project_id"
+                       " WHERE m.project_id = ? AND m.user_id = ? AND p.deleted_at IS NULL",
+                       (project_id, user_id)).fetchone()
+    if row is None:
+        raise ValueError("You're not a member of this project.")
+    new_tags = tags_of(row["tags"]) if tags is None else tags
+    archived_at = row["archived_at"]
+    if archived is not None:
+        archived_at = (archived_at or time.time()) if archived else None
+    conn.execute("UPDATE project_members SET tags = ?, archived_at = ? WHERE project_id = ? AND user_id = ?",
+                 (json.dumps(new_tags) if new_tags else None, archived_at, project_id, user_id))
+    return {"tags": new_tags, "archived": archived_at is not None}
 
 
 def create_project(conn: sqlite3.Connection, owner_id: int, name: str, layout_id: str) -> str:
