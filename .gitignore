@@ -10,3 +10,4 @@ node_modules/
 /secrets/
 *.whl
 /web/vendor/harper/
+/web/vendor/browser-render/

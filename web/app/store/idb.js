@@ -7,10 +7,12 @@
 //   layouts:   {id, owner, layout}
 //   projects:  {projectId, owner, name, savedAt}: projects kept available offline as a whole;
 //              their documents' records carry kept: projectId and aren't pruned
+//   kits:      {key: "<projectId>:<docId>", owner, etag, kit, savedAt}: the last render kit of a
+//              document previewed in the browser (§6.4), so the PDF preview also works offline
 // Everything here is best effort: private windows and full disks just mean no offline copy.
 
 const DB_NAME = "docwizard";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const KEEP = 50;
 const OWNER_KEY = "dw.owner";
 let dbPromise = null;
@@ -36,6 +38,7 @@ function open() {
         if (!db.objectStoreNames.contains("citations")) db.createObjectStore("citations", { keyPath: "projectId" });
         if (!db.objectStoreNames.contains("layouts")) db.createObjectStore("layouts", { keyPath: "id" });
         if (!db.objectStoreNames.contains("projects")) db.createObjectStore("projects", { keyPath: "projectId" });
+        if (!db.objectStoreNames.contains("kits")) db.createObjectStore("kits", { keyPath: "key" });
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => resolve(null);
@@ -138,6 +141,11 @@ export const getCitations = (projectId) => run("citations", "readonly", (s) => s
 export const putCitations = (projectId, etag, items) => run("citations", "readwrite",
   (s) => s.put({ projectId, owner: currentOwner(), etag, items }));
 
+export const getKit = (key) => run("kits", "readonly", (s) => s.get(key)).then(mine);
+
+export const putKit = (key, etag, kit) => run("kits", "readwrite",
+  (s) => s.put({ key, owner: currentOwner(), etag, kit, savedAt: Date.now() }));
+
 export const putLayout = (layout) => run("layouts", "readwrite",
   (s) => s.put({ id: layout.id, owner: currentOwner(), layout }));
 
@@ -183,5 +191,5 @@ export async function forgetAccount() {
     };
     return null;
   });
-  for (const name of ["recent", "citations", "layouts", "projects"]) await run(name, "readwrite", (s) => s.clear());
+  for (const name of ["recent", "citations", "layouts", "projects", "kits"]) await run(name, "readwrite", (s) => s.clear());
 }
