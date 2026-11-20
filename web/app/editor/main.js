@@ -7,6 +7,9 @@ import { Socket } from "../collab/socket.js";
 import { HtmlPreview, headingId } from "../preview/html.js";
 import { PdfPreview, paragraphAt } from "../preview/pdf.js";
 import { CommandPalette } from "./palette.js";
+import { LocalRenderer } from "../preview/local.js";
+import { openTimeline } from "./timeline.js";
+import { openAssist } from "./assist.js";
 import { getCitations, getDoc, getDocByUrl, prune, putCitations, putLayout } from "../store/idb.js";
 import { $, api, confirmDialog, el, t, toast, wireCommon } from "../ui/dom.js";
 import { AnchorLoader, anchorsField, conflictGutter } from "./anchors.js";
@@ -36,6 +39,7 @@ import { addColumn, addRow, cycleAlign, deleteColumn, deleteRow, deleteTable, ta
 import { setWriterMode, writerField, writerMode } from "./writer-mode.js";
 import { livePreview } from "./live-preview.js";
 import { tableView } from "./table-view.js";
+import { Corkboard, DailyTarget, TableRead, openBreakdown, setHighlight, studioExtension } from "./studio.js";
 
 wireCommon();
 
@@ -92,7 +96,7 @@ const socket = new Socket();
 // The review view keeps the text focusable (read-only), so keyboard users can select passages too;
 // on touch screens that would bring up the keyboard, so there it isn't.
 const coarse = window.matchMedia("(pointer: coarse)").matches;
-const base = baseExtensions({ kind, readOnly: readOnly || review, reading: review, live: false,
+const base = baseExtensions({ kind, readOnly: readOnly || review, reading: review, live: false, label: t("Text of {name}", { name: snap.doc.path }),
                               editable: review ? !coarse : !readOnly });
 let bubble = null; // the review view's selection toolbar
 
@@ -212,7 +216,7 @@ const session = new DocSession({
     tools ? tools.extension({ writer: writerMode }) : [], isScript ? characterCompletion(() => characters) : [],
     grammar ? grammarExtension({ ignore: (m, w) => { grammar.ignore(m, w); checkGrammar(); },
                                  addWord: (w) => { grammar.addWord(w); checkGrammar(); } }) : [],
-    suggest ? suggest.extension : [],
+    suggest ? suggest.extension : [], isMarkdown ? studioExtension : [],
     session.extension(version)] }),
   onStatus: showStatus,
   onEvent: handleEvent,
@@ -529,6 +533,9 @@ function handleEvent(msg) {
 
 // -- Word count and outline (worker) -----------------------------------------
 let outline = [];
+let studio = null; // the writing studio: its daily target and corkboard, set up below
+let corkboard = null;
+const normseite = snap.layout?.id === "normseite" || snap.layout?.parent === "normseite";
 let statsTimer = null;
 let statsId = 0;
 const stats = new Worker(new URL("../workers/stats.js", import.meta.url), { type: "module" });
@@ -539,6 +546,8 @@ stats.onmessage = (event) => {
   const n = event.data.words.toLocaleString(locale);
   const notes = event.data.notes && isMarkdown ? t(" · {n} in notes", { n: event.data.notes.toLocaleString(locale) }) : "";
   $("#word-count").textContent = t("{n} words", { n }) + notes;
+  studio?.update({ words: event.data.words, ...(normseite ? { normseiten: event.data.normseiten ?? 0 } : {}),
+                   ...(event.data.script ? { pages: event.data.script.pages } : {}) });
   const sp = event.data.script;
   if (sp) {
     characters = sp.characters;
@@ -553,7 +562,7 @@ stats.onmessage = (event) => {
 };
 function countWords() {
   statsId += 1;
-  stats.postMessage({ id: statsId, text: view.state.doc.toString(), script: isScript });
+  stats.postMessage({ id: statsId, text: view.state.doc.toString(), script: isScript, normseite });
 }
 countWords();
 
@@ -569,6 +578,7 @@ async function checkGrammar() {
 if (grammar) grammarTimer = setTimeout(checkGrammar, 1500);
 
 function docChanged() {
+  corkboard?.docChanged();
   clearTimeout(statsTimer);
   statsTimer = setTimeout(countWords, 400);
   if (grammar) {
@@ -681,6 +691,7 @@ const pdf = new PdfPreview(pane, {
   onError: (url) => showPreviewError("pdf", url),
   onPick: (pick) => findInSource(pick),
   hint: t("Double-click to show this in the source"),
+  label: t("PDF preview"),
   scrollRatio: takeScrollRatio(),
 });
 if (isLatex) {
@@ -688,6 +699,55 @@ if (isLatex) {
 }
 
 $(`input[name="preview-target"][value="${target === "html" ? "html" : "pdf"}"]`).checked = true;
+
+// PDFs made in this browser (§6.4): as you type, without the server, and offline. Chosen with
+// "In this browser"; the offline editor, and an editor whose connection dropped, always use it.
+const canLocal = Boolean(snap.browserRender) && pdfTarget === "pdf-typst";
+let localOn = canLocal && (Boolean(offlineRecord) || stored("dw.localRender", "off") === "on");
+let local = null;
+let lastServerPdf = null;
+const localToggle = $("#local-render");
+if (localToggle) {
+  localToggle.closest("label").hidden = !canLocal;
+  localToggle.checked = localOn;
+  localToggle.disabled = Boolean(offlineRecord);
+  localToggle.addEventListener("change", () => {
+    localOn = localToggle.checked;
+    store("dw.localRender", localOn ? "on" : "off");
+    if (localOn && target !== "pdf-typst") $('input[name="preview-target"][value="pdf"]').click();
+    else requestPreview(0);
+  });
+}
+
+function showDiagnostic(text, title = text) {
+  const diag = $("#diagnostic");
+  diag.textContent = text;
+  diag.className = text ? "diagnostic-error" : "";
+  diag.title = text ? title : "";
+}
+
+let localSeq = 0;
+async function renderLocally() {
+  local ??= new LocalRenderer({ projectId, docId, offline: Boolean(offlineRecord) });
+  const mine = ++localSeq;
+  setPreviewState(t("Rendering in this browser…"));
+  try {
+    const out = await local.render(view.state.doc.toString());
+    if (!out || mine !== localSeq || target !== "pdf-typst") return;
+    showDiagnostic("");
+    clearPreviewError("pdf");
+    pdf.showData(out.pdf);
+    pane.dataset.madeIn = "browser";
+    setPreviewState(t("Preview"), true);
+  } catch (err) {
+    if (mine !== localSeq) return;
+    setPreviewState(t("Preview failed"));
+    const message = String(err.message ?? err);
+    showDiagnostic(err.status === 404 || message === "not available offline"
+      ? t("The PDF preview isn't available offline yet: open it once while online.")
+      : message.split("\n")[0], message);
+  }
+}
 const darkPaper = $("#dark-paper");
 darkPaper.checked = stored("dw.darkPaper", "off") === "on";
 html.setDark(darkPaper.checked);
@@ -777,13 +837,20 @@ darkPaper.addEventListener("change", () => {
   html.setDark(darkPaper.checked);
 });
 
-function requestPreview(delay = target === "html" ? 300 : 1000) {
+function requestPreview(delay) {
   clearTimeout(previewTimer);
   if (!previewVisible()) return;
+  const inBrowser = canLocal && target === "pdf-typst";
+  delay ??= inBrowser && localOn ? 400 : target === "html" ? 300 : 1000;
   previewTimer = setTimeout(() => {
+    if (inBrowser && localOn) {
+      renderLocally();
+      return;
+    }
     const sent = socket.send({ t: "render", doc: docId, version: session.version(), target,
                                layout: snap.layout.id, options: layoutOptions });
     if (sent) setPreviewState(t("Rendering…"));
+    else if (inBrowser) renderLocally();
   }, delay);
 }
 
@@ -802,6 +869,8 @@ function showRendered(msg) {
     diag.title = "";
   }
   if (msg.target !== target) return;
+  if (msg.url && msg.target !== "html") lastServerPdf = msg.url;
+  if (localOn && msg.target === "pdf-typst") return;
   if (!msg.url) {
     // "limited": a render limit of the server; the next edit tries again.
     setPreviewState(msg.status === "limited" ? t("Preview paused") : t("Preview failed"));
@@ -815,6 +884,7 @@ function showRendered(msg) {
     html.show(msg.url);
   } else {
     clearPreviewError("pdf");
+    delete pane.dataset.madeIn;
     pdf.show(msg.url);
   }
 }
@@ -899,8 +969,12 @@ async function syncParagraph() {
 // with SyncTeX; otherwise the server finds the words around the spot in the build's files.
 let picking = 0;
 async function findInSource(pick) {
-  const key = /\/api\/renders\/([0-9a-f]{64})\//.exec(pick.url ?? "")?.[1];
-  if (!key) return;
+  // A PDF made in this browser asks with the server's last build, or else looks for the words.
+  const key = /\/api\/renders\/([0-9a-f]{64})\//.exec(pick.url ?? lastServerPdf ?? "")?.[1];
+  if (!key) {
+    if (!findWords(pick)) toast(t("This spot couldn't be found in the source."));
+    return;
+  }
   const mine = ++picking;
   try {
     const hit = await api("POST", `/api/projects/${projectId}/source-at`, {
@@ -918,6 +992,24 @@ async function findInSource(pick) {
     if (mine !== picking) return;
     toast(err.status === 404 ? t("This spot couldn't be found in the source.") : err.message, { error: err.status !== 404 });
   }
+}
+
+// The words around a picked spot, found in the text: the longest run of them that occurs once.
+function findWords({ words = [], at = 0 }) {
+  const text = view.state.doc.toString();
+  const gap = "[^\\p{L}\\p{N}]+";
+  for (let size = Math.min(6, words.length); size >= 2; size--) {
+    for (let start = Math.max(0, at - size + 1); start <= Math.min(at, words.length - size); start++) {
+      const re = new RegExp(words.slice(start, start + size).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(gap), "giu");
+      const hits = [...text.matchAll(re)];
+      if (hits.length !== 1) continue;
+      const pos = hits[0].index;
+      const line = view.state.doc.lineAt(pos);
+      jumpToLine(line.number, pos - line.from);
+      return true;
+    }
+  }
+  return false;
 }
 
 function takeScrollRatio() {
@@ -1223,6 +1315,15 @@ $("#open-versions").addEventListener("click", () => {
   versionsDialog.showModal();
   loadVersions();
 });
+// The writing helper (§8.10), for people who turned it on: its answers become suggestions.
+const assistButton = $("#open-assist");
+if (assistButton && snap.assist && !offlineRecord) {
+  assistButton.hidden = false;
+  assistButton.addEventListener("click", () => openAssist({
+    view, session, docId, onSuggested: () => { comments.load(); if (!narrow.matches) comments.show(); },
+  }));
+}
+$("#open-timeline")?.addEventListener("click", () => openTimeline({ docId, name: snap.doc.path }));
 $("#version-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const label = event.target.elements.label.value.trim();
@@ -1384,6 +1485,55 @@ for (const button of document.querySelectorAll("[data-open-chapters]")) {
   // From the Actions menu, focus goes back to the menu's button, as the menu closes.
   button.addEventListener("click", () => chapters.toggle(button.closest("#toolbar-buttons") ? moreBtn : button));
 }
+
+// -- Writing studio: corkboard, breakdown, line highlights, table read, daily target -----------
+corkboard = isMarkdown ? new Corkboard({
+  host: split, view, script: isScript, projectId, docPath: snap.doc.path, offline: Boolean(offlineRecord),
+  locked: (state) => readOnly || review || state.readOnly || suggesting(),
+  openChapters: () => chapters.show(),
+}) : null;
+for (const button of document.querySelectorAll("[data-open-corkboard]")) {
+  button.hidden = !corkboard;
+  button.addEventListener("click", () => corkboard?.toggle(button.closest("#toolbar-buttons") ? moreBtn : button));
+}
+if (corkboard && location.hash === "#corkboard") {
+  history.replaceState(null, "", location.pathname + location.search);
+  requestAnimationFrame(() => corkboard.show());
+}
+const speakerChip = $("#speaker-chip");
+function setSpeaker(name) {
+  view.dispatch({ effects: setHighlight.of(name) });
+  if (speakerChip) {
+    speakerChip.hidden = !name;
+    speakerChip.textContent = name ? t("Highlighting {name} ×", { name }) : "";
+    speakerChip.title = t("Stop highlighting");
+  }
+}
+speakerChip?.addEventListener("click", () => setSpeaker(null));
+const breakdownButton = $("#open-breakdown");
+if (breakdownButton) {
+  breakdownButton.hidden = !isScript;
+  breakdownButton.addEventListener("click", () => openBreakdown(view, { name: snap.doc.path.split("/").pop(), onHighlight: setSpeaker }));
+}
+const tableRead = isScript && TableRead.supported()
+  ? new TableRead({ view, host: $(".editor-pane"), projectId, lang: documentLanguage(view.state.doc.toString(), snap.project.lang) })
+  : null;
+const readButton = $("#start-table-read");
+if (readButton) {
+  readButton.hidden = !tableRead;
+  readButton.addEventListener("click", () => tableRead?.start());
+}
+window.addEventListener("pagehide", () => tableRead?.stop());
+studio = isMarkdown && !readOnly && !review ? new DailyTarget({
+  button: $("#session-target"), projectId, docId,
+  units: isScript ? ["pages", "words"] : normseite ? ["normseiten", "words"] : ["words"],
+}) : null;
+const targetButton = $("#open-target");
+if (targetButton) {
+  targetButton.hidden = !studio;
+  targetButton.addEventListener("click", () => studio?.edit());
+}
+countWords();
 
 // -- Conflicts (§12.3) ------------------------------------------------------
 let conflicts = [];

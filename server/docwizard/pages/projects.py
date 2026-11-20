@@ -8,7 +8,7 @@ import secrets
 import time
 from urllib.parse import quote, urlencode
 
-from ..api import grammar
+from ..api import browser_render, grammar
 from ..api.projects import (GUEST_FORBIDDEN, create_project_with_starter, empty_trash, enforce_quota, project_access,
                             rename_file, restore_file, trash_file)
 from ..auth import passwords, permissions
@@ -419,8 +419,19 @@ async def editor_snapshot(app, req: Request, project, role: str, doc, *, review:
         "review": review,
         # Grammar checking (§6.8): what the server offers and what the person chose.
         "grammar": {**grammar.available(app), "choice": grammar.choice_of(user.preferences if user else None)},
+        # Previews made in this browser with pandoc and Typst as WebAssembly (§6.4).
+        "browserRender": browser_render.installed() and doc["kind"] == "markdown",
+        # The writing helper (§8.10), for people who turned it on.
+        "assist": _assist_on(app, user)
+                  and doc["kind"] == "markdown" and permissions.can(role, "comment", project),
     }
     return snapshot
+
+
+def _assist_on(app, user) -> bool:
+    from ..api import assist  # not at the top: api.assist imports api.comments, which imports this module
+
+    return assist.enabled(app) and assist.opted_in(user)
 
 
 async def _text_version(room):

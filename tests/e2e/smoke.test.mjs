@@ -7,6 +7,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
 
+import { accessible } from "./a11y.mjs";
 import { startServer } from "./server.mjs";
 
 const require = createRequire(import.meta.url);
@@ -95,20 +96,27 @@ for (const vp of VIEWPORTS) {
     test("register, log out and log in again", async () => {
       await page.goto("/register");
       await noOverflow(page, "register");
+      await accessible(page, "register");
       await page.fill('input[name="username"]', username);
       await page.fill('input[name="password"]', PASSWORD);
       await page.click('form[action="/register"] button[type="submit"]');
       await page.waitForURL(`${server.base}/`);
       await noOverflow(page, "home");
+      await accessible(page, "home");
 
       await page.locator("details.account-menu summary").click();
       await page.click('form[action="/logout"] button');
       await page.waitForURL(/\/login/);
       await noOverflow(page, "login");
+      await accessible(page, "login");
       await page.fill('input[name="username"]', username);
       await page.fill('input[name="password"]', PASSWORD);
       await page.click('form[action="/login"] button[type="submit"]');
       await page.waitForURL(`${server.base}/`);
+      await page.goto("/settings");
+      await noOverflow(page, "settings");
+      await accessible(page, "settings");
+      await page.goto("/");
       noProblems(page);
     });
 
@@ -122,6 +130,7 @@ for (const vp of VIEWPORTS) {
       projectUrl = page.url().replace(/(\/p\/[^/]+)\/.*$/, "$1");
       await page.goto(projectUrl);
       await noOverflow(page, "project");
+      await accessible(page, "project");
 
       await page.fill('input[name="path"][placeholder]', "notes.md");
       await page.click('button:text("Create document")');
@@ -186,6 +195,7 @@ for (const vp of VIEWPORTS) {
       await page.locator("tbody a", { hasText: /\.md$/ }).first().click();
       await page.waitForSelector(".cm-content");
       await noOverflow(page, "editor");
+      await accessible(page, "editor");
       const editor = page.locator(".cm-content");
       await editor.click();
       await page.keyboard.press("ControlOrMeta+End");
@@ -271,6 +281,7 @@ for (const vp of VIEWPORTS) {
       await page.keyboard.press("Escape");
       assert.equal(await page.locator(".sheet-mark.find").count(), 0);
       await noOverflow(page, "PDF preview with its bar");
+      await accessible(page, "editor with the PDF preview");
 
       if (vp.isMobile) {
         await page.click("#mode-edit");

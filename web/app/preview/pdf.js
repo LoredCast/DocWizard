@@ -38,7 +38,8 @@ const reducedMotion = () => globalThis.matchMedia?.("(prefers-reduced-motion: re
 const scrollBehavior = () => (reducedMotion() ? "auto" : "smooth");
 
 export class PdfPreview {
-  constructor(container, { onError, onLoad, onPick, hint, scrollRatio, bar = null, labels = {} } = {}) {
+  constructor(container, { onError, onLoad, onPick, hint, scrollRatio, label, bar = null, labels = {} } = {}) {
+    this.label = label ?? "PDF";
     this.container = container;
     this.startRatio = scrollRatio ?? 0; // where the first render opens, as a share of the scroll height
     this.hint = hint ?? "";
@@ -50,6 +51,7 @@ export class PdfPreview {
     this.viewer = null;
     this.pages = null;
     this.url = null;
+    this.data = null;
     this.doc = null;
     this.sizes = [];
     this.visible = true;
@@ -72,8 +74,11 @@ export class PdfPreview {
     if (this.viewer) return;
     this.viewer = document.createElement("div");
     this.viewer.className = "pdf-viewer";
-    this.viewer.hidden = !this.visible;
+    // Scrollable, so reachable with the keyboard (arrow keys and Page Up/Down scroll it).
     this.viewer.tabIndex = 0;
+    this.viewer.setAttribute("role", "region");
+    this.viewer.setAttribute("aria-label", this.label);
+    this.viewer.hidden = !this.visible;
     if (this.onPick && this.hint) this.viewer.title = this.hint;
     this.pages = document.createElement("div");
     this.pages.className = "pdf-pages";
@@ -111,12 +116,21 @@ export class PdfPreview {
   show(url) {
     if (!url || url === this.url) return;
     this.url = url;
+    this.data = null;
+    this.ensureViewer();
+    this.load();
+  }
+
+  // A PDF made in the browser (§6.4): its bytes, not a URL.
+  showData(bytes) {
+    this.url = null;
+    this.data = bytes;
     this.ensureViewer();
     this.load();
   }
 
   reload() {
-    if (!this.url) return;
+    if (!this.url && !this.data) return;
     this.ensureViewer();
     this.load();
   }
@@ -124,13 +138,15 @@ export class PdfPreview {
   async load() {
     const seq = ++this.seq;
     const url = this.url;
+    const data = this.data;
     try {
-      const [pdfjs, res] = await Promise.all([loadPdfJs(), fetch(url, { credentials: "same-origin" })]);
+      const [pdfjs, res] = await Promise.all([loadPdfJs(), data ? null : fetch(url, { credentials: "same-origin" })]);
       if (seq !== this.seq) return;
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const buf = await res.arrayBuffer();
+      if (res && !res.ok) throw new Error(`HTTP ${res.status}`);
+      // PDF.js takes the bytes it is given, so it gets a copy of a PDF kept for a reload.
+      const bytes = data ? data.slice() : new Uint8Array(await res.arrayBuffer());
       if (seq !== this.seq) return;
-      const doc = await pdfjs.getDocument({ data: new Uint8Array(buf), verbosity: pdfjs.VerbosityLevel?.ERRORS ?? 0 }).promise;
+      const doc = await pdfjs.getDocument({ data: bytes, verbosity: pdfjs.VerbosityLevel?.ERRORS ?? 0 }).promise;
       if (seq !== this.seq) {
         doc.destroy();
         return;

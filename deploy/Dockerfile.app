@@ -28,6 +28,10 @@ COPY web ./web
 # Harper, for setups where the app serves the static files itself (§6.8).
 COPY deploy/fetch_tools.py ./deploy/fetch_tools.py
 RUN python3 -I deploy/fetch_tools.py --harper web/vendor/harper
+# pandoc and Typst as WebAssembly for the PDF preview made in the browser (§6.4); the app offers it
+# only when these files are here. --build-arg BROWSER_RENDER=0 leaves them out.
+ARG BROWSER_RENDER=1
+RUN if [ "$BROWSER_RENDER" = "1" ]; then python3 -I deploy/fetch_tools.py --browser-render web/vendor/browser-render; fi
 RUN install -d -o 10001 -g 10001 /var/lib/docwizard /var/lib/docwizard-publish /var/lib/docwizard-jobs \
       /var/lib/docwizard-jobs/run \
       /var/lib/docwizard-cache /run/docwizard \
