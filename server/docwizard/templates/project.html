@@ -335,6 +335,25 @@
   {% endif %}
 </section>
 {% endif %}
+{% if home_state %}
+<section class="card" id="organize" aria-labelledby="organize-title">
+  <div class="section-head"><h2 id="organize-title">{{ _("Your home page") }}</h2></div>
+  <form method="post" class="row">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="organize">
+    <span class="row-label">{{ _("Tags") }}</span>
+    <input name="tags" value="{{ home_state.tags|join(', ') }}" maxlength="400" autocomplete="off" aria-label="{{ _('Tags') }}" placeholder="{{ _('thesis, 2026, seminar') }}">
+    <button type="submit">{{ _("Save tags") }}</button>
+  </form>
+  <form method="post" class="row">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="organize">
+    <input type="hidden" name="archived" value="{{ '0' if home_state.archived else '1' }}">
+    <span class="muted hint spacer">{{ _("Archived: listed under Archived on your home page.") if home_state.archived else _("Archive it to keep your home page short. Only you see your tags and archive.") }}</span>
+    <button type="submit">{{ _("Restore to home page") if home_state.archived else _("Archive") }}</button>
+  </form>
+</section>
+{% endif %}
 {% if can(role, "delete_project") %}
 <section class="card danger-zone" aria-labelledby="project-title">
   <div class="section-head"><h2 id="project-title">{{ _("Project") }}</h2></div>

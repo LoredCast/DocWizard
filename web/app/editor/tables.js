@@ -122,7 +122,7 @@ function rewrite(view, table, rows, aligns, row, col, { select = false } = {}) {
   const anchor = table.from + starts[r][c];
   const len = rows[r][c].length;
   view.dispatch({
-    changes: { from: table.from, to: table.to, insert: text },
+    changes: tableChanges(view.state, table, text),
     selection: select && len ? { anchor, head: anchor + len } : { anchor: anchor + len },
     scrollIntoView: true,
     userEvent: "input",
@@ -252,4 +252,106 @@ export function insertTable(view, rowCount, colCount, header = (i) => `Column ${
     userEvent: "input",
   });
   return true;
+}
+
+// Where each cell's text sits in a row of the source, as [from, to) offsets in the line, without
+// the padding around it. An empty cell sits just after the space that follows its pipe.
+export function cellSpans(line) {
+  const spans = [];
+  let i = 0;
+  while (i < line.length && /\s/.test(line[i])) i++;
+  if (line[i] === "|") i++;
+  let start = i;
+  let code = false;
+  const push = (end) => {
+    let a = start;
+    let b = end;
+    while (a < b && /[ \t]/.test(line[a])) a++;
+    while (b > a && /[ \t]/.test(line[b - 1])) b--;
+    if (a === b) a = b = Math.min(start + 1, end);
+    spans.push({ from: a, to: b });
+  };
+  for (; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === "\\") { i++; continue; }
+    if (ch === "`") code = !code;
+    else if (ch === "|" && !code) { push(i); start = i + 1; }
+  }
+  if (line.slice(start).trim()) push(line.length);
+  return spans;
+}
+
+// A cell's text as the table view shows it while it's typed into, and back: pipes are escaped in
+// the source, and a cell is one line.
+export const cellShown = (src) => src.replace(/\\\|/g, "|");
+export const cellStored = (text) => text.replace(/[\r\n\t ]/g, " ").replace(/\|/g, "\\|");
+// An offset in the text shown, in the source, and the other way.
+export const shownToStored = (text, off) => off + (text.slice(0, off).match(/\|/g)?.length ?? 0);
+export const storedToShown = (src, off) => cellShown(src.slice(0, off)).length;
+
+// The smallest changes that turn a table's source into `text` (the same table rewritten): rows
+// that stay keep their lines, and in a row only the cells and padding that differ change. So
+// someone typing in another cell at the same time, cursors and the undo history stay put.
+export function tableChanges(state, table, text) {
+  const doc = state.doc;
+  const first = doc.lineAt(table.from).number;
+  const last = doc.lineAt(table.to).number;
+  const old = [];
+  for (let n = first; n <= last; n++) old.push(doc.line(n));
+  const next = text.split("\n");
+  const key = (line, i) => (i === 1 ? "\0" : splitRow(line).join("\u0001"));
+  let p = 0;
+  while (p < old.length && p < next.length && key(old[p].text, p) === key(next[p], p)) p++;
+  let s = 0;
+  while (s < old.length - p && s < next.length - p
+         && key(old[old.length - 1 - s].text, old.length - 1 - s) === key(next[next.length - 1 - s], next.length - 1 - s)) s++;
+  if (p === 0 && (old.length - s === 0 || next.length - s === 0)) return [{ from: table.from, to: table.to, insert: text }];
+  const changes = [];
+  const pair = (line, want) => {
+    if (line.text === want) return;
+    const a = segments(line.text);
+    const b = segments(want);
+    if (a.length !== b.length) {
+      changes.push({ from: line.from, to: line.to, insert: want });
+      return;
+    }
+    a.forEach(([from, to], k) => charDiff(line.text.slice(from, to), want.slice(b[k][0], b[k][1]), line.from + from, changes));
+  };
+  for (let i = 0; i < p; i++) pair(old[i], next[i]);
+  const oldMid = old.slice(p, old.length - s);
+  const newMid = next.slice(p, next.length - s);
+  if (oldMid.length === newMid.length) oldMid.forEach((line, i) => pair(line, newMid[i]));
+  else if (!oldMid.length) changes.push({ from: old[p - 1].to, insert: `\n${newMid.join("\n")}` });
+  else if (!newMid.length) changes.push({ from: old[p - 1].to, to: oldMid[oldMid.length - 1].to });
+  else changes.push({ from: oldMid[0].from, to: oldMid[oldMid.length - 1].to, insert: newMid.join("\n") });
+  for (let i = 0; i < s; i++) pair(old[old.length - s + i], next[next.length - s + i]);
+  return changes;
+}
+
+// A row's source as padding and cells by turns: [from, to) offsets, padding first and last.
+function segments(line) {
+  const out = [];
+  let at = 0;
+  for (const span of cellSpans(line)) {
+    out.push([at, span.from], [span.from, span.to]);
+    at = span.to;
+  }
+  out.push([at, line.length]);
+  return out;
+}
+
+// One change from text a (at base) to text b, without their common start and end.
+export function charDiff(a, b, base, out = []) {
+  if (a === b) return out;
+  let p = 0;
+  while (p < a.length && p < b.length && a[p] === b[p]) p++;
+  let s = 0;
+  while (s < a.length - p && s < b.length - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s++;
+  out.push({ from: base + p, to: base + a.length - s, insert: b.slice(p, b.length - s) });
+  return out;
+}
+
+// The changes that pad a table's columns again, as formatTable writes it.
+export function tidyChanges(state, table) {
+  return tableChanges(state, table, formatTable(table.rows, table.aligns).text);
 }

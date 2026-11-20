@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from pathlib import Path
@@ -194,13 +195,62 @@ def register(app) -> None:
         doc = await app.db.read(lambda c: svc.get_document_by_path(c, project["id"], path))
         return json_response({"path": path, "line": line, "column": col, "doc": doc["id"] if doc else None})
 
+    async def pdf_at(req: Request) -> Response:
+        """Where a line of the source is set in the PDF preview (§6.4), from SyncTeX (LaTeX builds).
+        Other builds have no index; the editor then finds the paragraph's words in the PDF's text."""
+        project, _ = await project_access(app, req, req.param("id"), "read")
+        body = await req.json_object()
+        key = body.get("key")
+        if not isinstance(key, str) or not _KEY.match(key):
+            raise bad_request("Unknown preview.")
+        try:
+            line = int(body.get("line") or 0)
+        except (TypeError, ValueError):
+            raise bad_request("Give the line.") from None
+        if not isinstance(body.get("doc"), str) or line < 1:
+            raise bad_request("Give the document and the line.")
+        doc, _, _ = await document_access(app, req, body["doc"], "read")
+        if doc["project_id"] != project["id"]:
+            raise not_found("This document isn't in the project.")
+        base = renderer.renders_dir / key
+        try:
+            meta = json.loads((base / "meta.json").read_text())
+        except (OSError, ValueError):
+            raise not_found("This preview is no longer available.") from None
+        if meta.get("project_id") != project["id"]:
+            raise not_found("This preview is no longer available.")
+        boxes: list = []
+        data = await asyncio.to_thread(_synctex_index, base / "synctex.json")
+        if data is not None:
+            boxes = synctex.forward(data, doc["path"], line)
+        return json_response({"boxes": boxes})
+
     r.add("POST", "/api/projects/{id}/source-at", source_at, guest=True)
+    r.add("POST", "/api/projects/{id}/pdf-at", pdf_at, guest=True)
     r.add("POST", "/api/projects/{id}/export", export, guest=True)
     r.add("GET", "/api/jobs/{id}", job_status, guest=True)
     r.add("GET", "/api/renders/{key}/{file}", rendered_file, guest=True)
     r.add("GET", "/api/projects/{id}/citations", citations, guest=True)
     r.add("GET", "/_preview/{token}/{key}/{path:path}", preview, auth=False, no_session=True,
           preview_host=True, same_origin_preview=True)
+
+
+_SYNCTEX_CACHE: dict[str, dict] = {}
+
+
+def _synctex_index(path: Path) -> dict | None:
+    """A render's synctex.json, parsed; the last few are kept, since the cursor asks often."""
+    key = str(path)
+    if key in _SYNCTEX_CACHE:
+        return _SYNCTEX_CACHE[key]
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    if len(_SYNCTEX_CACHE) >= 4:
+        _SYNCTEX_CACHE.pop(next(iter(_SYNCTEX_CACHE)))
+    _SYNCTEX_CACHE[key] = data
+    return data
 
 
 def _safe_child(base: Path, rel: str) -> Path | None:

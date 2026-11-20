@@ -1,0 +1,139 @@
+/* DocWizard slides: a scroll-snapping deck without scripts. Each slide fills the window and
+   keeps its shape (16:9 or 4:3); text sizes follow the slide's width (container query units),
+   so a slide looks the same in the editor's preview, a browser window and on a projector.
+   Page Down, Space and the arrow keys move a slide at a time. Printing gives one slide a page. */
+:root {
+  --deck-bg: #e9ecf1;
+  --slide-bg: #ffffff;
+  --slide-fg: #1d2026;
+  --slide-muted: #5b6270;
+  --accent: #1a4fa0;
+  --ratio: 16 / 9;
+  --ratio-n: 1.7778;
+}
+html[data-aspect="4:3"] { --ratio: 4 / 3; --ratio-n: 1.3333; }
+html.theme-dark {
+  --deck-bg: #0b0d11;
+  --slide-bg: #15181e;
+  --slide-fg: #eceff4;
+  --slide-muted: #a3abb9;
+  --accent: #8fb1e8;
+}
+html.dw-deck {
+  background: var(--deck-bg);
+  height: 100%;
+  overflow-y: auto;
+  scroll-snap-type: y mandatory;
+  scroll-behavior: smooth;
+}
+html.dw-deck body {
+  margin: 0;
+  padding: 0;
+  max-width: none;
+  background: var(--deck-bg);
+  color: var(--slide-fg);
+  line-height: 1.3;
+}
+.deck { counter-reset: dwslide; }
+.slide {
+  counter-increment: dwslide;
+  box-sizing: border-box;
+  height: 100vh;
+  height: 100dvh;
+  display: grid;
+  place-items: center;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  padding: 1.5vmin;
+}
+.slide-frame > p:first-child { margin: 0; height: 0; }
+.slide-frame {
+  position: relative;
+  box-sizing: border-box;
+  width: min(100%, calc((100vh - 3vmin) * var(--ratio-n)));
+  width: min(100%, calc((100dvh - 3vmin) * var(--ratio-n)));
+  aspect-ratio: var(--ratio);
+  container-type: inline-size;
+  overflow: hidden;
+  background: var(--slide-bg);
+  color: var(--slide-fg);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.18);
+  border-radius: 0.4vmin;
+  padding: 5.1cqw 7cqw 5.9cqw;
+  font-size: 2.75cqw;
+  display: flex;
+  flex-direction: column;
+}
+.slide-frame::after {
+  content: counter(dwslide);
+  position: absolute;
+  right: 3.5cqw;
+  bottom: 2.4cqw;
+  font-size: 1.6cqw;
+  color: var(--slide-muted);
+}
+.title-slide .slide-frame::after, .no-numbers .slide-frame::after { content: none; }
+.slide-title {
+  margin: 0 0 0.9em;
+  font-size: 1.35em;
+  line-height: 1.15;
+  font-weight: 700;
+  color: var(--accent);
+  text-align: left;
+  counter-increment: none;
+}
+.slide-title::before { content: none !important; }
+.slide-body { flex: 1; min-height: 0; }
+.slide-body > :first-child { margin-top: 0; }
+.slide-body p, .slide-body li { margin: 0 0 0.6em; text-align: left; hyphens: manual; }
+.slide-body ul, .slide-body ol { margin: 0 0 0.6em; padding-left: 1.2em; }
+.slide-body li > ul, .slide-body li > ol { margin-top: 0.4em; font-size: 0.9em; }
+.slide-body h3, .slide-body h4 { font-size: 1.05em; margin: 0.6em 0 0.4em; color: var(--accent); }
+.slide-body a { color: var(--accent); }
+.slide-body figure { margin: 0.4em 0; text-align: center; }
+.slide-body img { max-width: 100%; max-height: 55cqw; max-height: calc(100cqw / var(--ratio-n) * 0.55); object-fit: contain; }
+.slide-body figcaption { font-size: 0.72em; color: var(--slide-muted); margin-top: 0.3em; }
+.slide-body table { font-size: 0.8em; border-collapse: collapse; margin: 0.4em 0; }
+.slide-body th, .slide-body td { padding: 0.25em 0.6em; border-bottom: 1px solid color-mix(in srgb, var(--slide-fg) 18%, transparent); }
+.slide-body pre { font-size: 0.75em; overflow: hidden; }
+.slide-body blockquote { margin: 0.4em 0; padding-left: 0.8em; border-left: 0.25em solid var(--accent); color: var(--slide-muted); }
+.slide-body .columns { display: flex; gap: 1.5em; align-items: flex-start; }
+.slide-body .column { flex: 1 1 0; min-width: 0; }
+.slide-body .math.display { display: block; text-align: center; margin: 0.5em 0; }
+/* The title slide */
+.title-slide .slide-frame { justify-content: center; }
+.title-slide .slide-title {
+  font-size: 2.1em;
+  margin: 0 0 0.35em;
+  padding-bottom: 0.35em;
+  background: linear-gradient(var(--accent), var(--accent)) left bottom / 3.5em 0.12em no-repeat;
+}
+.title-slide .slide-body { flex: 0 0 auto; }
+.title-slide .subtitle { font-size: 1.25em; color: var(--slide-muted); margin-top: 0.2em; }
+.title-slide .author { font-weight: 600; margin-top: 1.4em; font-size: 0.95em; }
+.title-slide .date { color: var(--slide-muted); font-size: 0.85em; margin-top: 0.3em; }
+/* Section slides */
+.section-slide .slide-frame { justify-content: center; }
+.section-slide .slide-title {
+  font-size: 1.8em;
+  color: var(--slide-fg);
+  border-left: 0.2em solid var(--accent);
+  padding-left: 0.6em;
+  margin: 0;
+}
+.section-slide .slide-body { flex: 0 0 auto; margin-top: 0.8em; padding-left: 0.8em; color: var(--slide-muted); }
+/* The references */
+.references .slide-body { font-size: 0.7em; overflow: hidden; }
+.references .csl-entry { margin-bottom: 0.5em; }
+/* Speaker notes: in the presenter view and the handout, not on the slides. */
+.slide > .notes { display: none; }
+/* Footnotes would land after the last slide; they stay readable there. */
+section.footnotes, aside.footnotes { scroll-snap-align: start; padding: 4vmin; font-size: 0.85rem; background: var(--slide-bg); }
+.dw-graphic-error { font-size: 0.7em; color: #a00; }
+@media (prefers-reduced-motion: reduce) { html.dw-deck { scroll-behavior: auto; } }
+@media print {
+  @page { size: 25.4cm 14.2875cm; margin: 0; }
+  html.dw-deck, html.dw-deck body { height: auto; overflow: visible; background: none; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .slide { height: auto; padding: 0; break-after: page; display: block; }
+  .slide-frame { width: 25.4cm; box-shadow: none; border-radius: 0; }
+}

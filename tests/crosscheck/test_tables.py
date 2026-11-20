@@ -75,6 +75,34 @@ v = makeView("Before\n\n| a |\n|---|\n| 1 |\n\nAfter", 10);
 tb.deleteRow(v);
 tb.deleteRow(v);
 assert.equal(v.text(), "Before\n\nAfter");
+
+// 5. Cells as the table view types into them: where each one's text sits, pipes escaped.
+assert.deepEqual(tb.cellSpans("| ab | `x|y` |     | c \\| d |"), [{ from: 2, to: 4 }, { from: 7, to: 12 }, { from: 15, to: 15 }, { from: 21, to: 27 }]);
+assert.deepEqual(tb.cellSpans("| a | b"), [{ from: 2, to: 3 }, { from: 6, to: 7 }]);
+assert.equal(tb.cellStored("a | b\nc"), "a \\| b c");
+assert.equal(tb.cellShown("a \\| b"), "a | b");
+assert.equal(tb.shownToStored("a | b", 4), 5);
+assert.equal(tb.storedToShown("a \\| b", 5), 4);
+
+// 6. Rewriting a table changes only what differs: a cell's padding, not the text around it, so
+// someone typing elsewhere in the table isn't disturbed.
+const apply = (doc, changes) => cm.EditorState.create({ doc }).update({ changes }).state.doc.toString();
+const messy = "Text\n\n| Name | Age |\n|---|---|\n| Annabel | 3 |\n";
+let state = cm.EditorState.create({ doc: messy });
+let table = tb.tableAt(state, messy.indexOf("Name"));
+let changes = tb.tidyChanges(state, table);
+const tidy = "Text\n\n| Name    | Age |\n| ------- | --- |\n| Annabel | 3   |\n";
+assert.equal(apply(messy, changes), tidy);
+const annabel = messy.indexOf("Annabel");
+assert.ok(changes.every((c) => c.to <= annabel || c.from >= annabel + "Annabel".length), "the cell's text is left alone");
+assert.deepEqual(tb.tidyChanges(cm.EditorState.create({ doc: tidy }), tb.tableAt(cm.EditorState.create({ doc: tidy }), 8)), []);
+// Adding a row inserts one line; the others keep theirs.
+state = cm.EditorState.create({ doc: tidy });
+table = tb.tableAt(state, 8);
+changes = tb.tableChanges(state, table, tb.formatTable([...table.rows, ["Bo", "4"]], table.aligns).text);
+assert.equal(changes.length, 1);
+assert.equal(apply(tidy, changes), "Text\n\n| Name    | Age |\n| ------- | --- |\n| Annabel | 3   |\n| Bo      | 4   |\n");
+assert.deepEqual(tb.charDiff("abc", "abXc", 10), [{ from: 12, to: 12, insert: "X" }]);
 console.log("ok");
 """
 

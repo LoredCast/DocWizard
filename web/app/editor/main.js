@@ -5,7 +5,8 @@ import { DocSession } from "../collab/peer.js";
 import { PresenceSender, PresenceView, peersField } from "../collab/presence.js";
 import { Socket } from "../collab/socket.js";
 import { HtmlPreview, headingId } from "../preview/html.js";
-import { PdfPreview } from "../preview/pdf.js";
+import { PdfPreview, paragraphAt } from "../preview/pdf.js";
+import { CommandPalette } from "./palette.js";
 import { LocalRenderer } from "../preview/local.js";
 import { openTimeline } from "./timeline.js";
 import { openAssist } from "./assist.js";
@@ -42,7 +43,8 @@ import { ChaptersDrawer } from "./chapters.js";
 import { addColumn, addRow, cycleAlign, deleteColumn, deleteRow, deleteTable, tableAt } from "./tables.js";
 import { setWriterMode, writerField, writerMode } from "./writer-mode.js";
 import { livePreview } from "./live-preview.js";
-import { tableView } from "./table-view.js";
+import { editingTable, focusEditor as focusTableOrEditor, showTableSource, tableView } from "./table-view.js";
+import { SlideTools } from "./slides.js";
 import { Corkboard, DailyTarget, TableRead, openBreakdown, setHighlight, studioExtension } from "./studio.js";
 
 wireCommon();
@@ -82,6 +84,14 @@ const isScript = isMarkdown && Boolean(snap.layout?.script);
 let characters = [];
 
 const split = $("#split");
+// Data sheets (.csv, .tsv) open as a grid to type into; the CSV text is a switch away (§6.3).
+const isSheet = /\.(csv|tsv)$/i.test(snap.doc.path);
+let sheet = null;
+// Slide decks: the slide sorter and the presenter view, which shows the web deck (§6.3).
+const isDeck = isMarkdown && Boolean(snap.layout?.slides);
+let slideTools = null;
+let deckUrl = null;
+let deckVersion = -1;
 
 // -- Preferences ---------------------------------------------------------
 const root = document.documentElement;
@@ -185,7 +195,8 @@ const titleCard = isMarkdown && !review ? new TitleCardEditor({
 }) : null;
 // Links, footnotes, tables and cross-references through popovers; pictures as figures; writer mode.
 const tools = isMarkdown ? new InsertTools({ view: null, host: $("#editor").closest(".pane"),
-                                             readOnly: (state) => state.readOnly }) : null;
+                                             readOnly: (state) => state.readOnly,
+                                             projectId: offlineRecord ? null : projectId }) : null;
 const marksKey = "dw.marks";
 const figureField = isMarkdown ? figures({ projectId: offlineRecord ? null : projectId,
                                            locked: (state) => state.readOnly }) : null;
@@ -196,7 +207,7 @@ const rawKey = "dw.raw";
 const rendering = new Compartment();
 let raw = isMarkdown && !review && stored(rawKey, "off") === "on";
 const richExtensions = isMarkdown ? [
-  livePreview({ reading: review }), titleCard ? titleCard.extension() : [], figureField ?? [], tableView({ reading: review }),
+  livePreview({ reading: review }), titleCard ? titleCard.extension() : [], figureField ?? [], tableView({ reading: review, locked: (state) => Boolean(state.field(suggestField, false)?.on) }),
 ] : [];
 
 // The search panel in the app's colours (CodeMirror's own are light grey gradients).
@@ -242,7 +253,7 @@ const view = new EditorView({
   parent: $("#editor"),
   dispatchTransactions(trs, v) {
     v.update(trs);
-    if (trs.some((tr) => tr.docChanged)) docChanged();
+    if (trs.some((tr) => tr.docChanged)) { docChanged(); sheet?.docChanged(); slideTools?.docChanged(); }
     if (trs.some((tr) => tr.selection || tr.docChanged)) {
       presenceSender.schedule();
       updateFormatBar();
@@ -264,6 +275,24 @@ $("#open-activity")?.addEventListener("click", () => activityDialog.open());
 const { text: _text, version: _version, clientID: _clientID, ...meta } = snap;
 session.keep = { url: location.pathname, meta, pinned: Boolean(snap.doc.pinned) };
 session.start(view);
+if (isSheet) {
+  const { SheetView } = await import("./sheet.js");
+  const editorNode = $("#editor");
+  sheet = new SheetView({ view, host: editorNode.closest(".pane"), path: snap.doc.path, docId,
+                          readOnly: readOnly || review, canEdit: !readOnly && !offlineRecord });
+  const textKey = `dw.sheet-text.${docId}`;
+  const asText = el("button", { type: "button", "aria-pressed": "false", title: t("Edit the file as text") }, t("Text"));
+  const showText = (on) => {
+    asText.setAttribute("aria-pressed", String(on));
+    editorNode.hidden = !on;
+    sheet.node.classList.toggle("text-mode", on);
+    store(textKey, on ? "on" : "off");
+    if (!on) sheet.refresh();
+  };
+  asText.addEventListener("click", () => showText(asText.getAttribute("aria-pressed") !== "true"));
+  sheet.toolbar.append(asText);
+  showText(stored(textKey, "off") === "on");
+}
 
 // Where the cursor starts: where it was when this document was last open in this browser, or else
 // at the first line of text after the front matter (not on the title card). On touch screens the
@@ -318,8 +347,11 @@ const FORMAT_CMDS = {
       [t("Footnote"), "", (a) => tools.note({ anchor: a })],
       [t("Cross-reference"), t("Figure 1, Table 2"), (a) => tools.crossRef(a)],
       [t("Citation"), "[@]", () => { insertCitation(view); view.focus(); }],
-      [t("Math"), "$", () => { toggleInlineMath(view); view.focus(); }],
+      [t("Math"), t("Fractions, matrices, Greek letters"), (a) => tools.math(a)],
       [t("Table"), "", (a) => tools.table(a)],
+      [t("Diagram"), t("Flowchart, graph, drawing"), (a) => tools.diagram(a)],
+      [t("Table from data"), ".csv", (a) => tools.data(a, "table")],
+      [t("Chart"), t("Bar, line, pie from .csv"), (a) => tools.data(a, "chart")],
     ]);
     return POPOVER;
   },
@@ -337,8 +369,15 @@ function toggleFind(v = view) {
   else openSearchPanel(v);
   return POPOVER; // the panel takes the focus
 }
-const TABLE_CMDS = { row: addRow, column: addColumn, align: cycleAlign, "delete-row": deleteRow,
-                     "delete-column": deleteColumn, delete: deleteTable };
+const TABLE_CMDS = {
+  row: addRow, column: addColumn, align: cycleAlign, "delete-row": deleteRow, "delete-column": deleteColumn,
+  delete: deleteTable,
+  // The table's Markdown, until the cursor leaves it.
+  source: (v) => {
+    const table = tableAt(v.state, v.state.selection.main.head);
+    if (table) v.dispatch({ effects: showTableSource.of(table.from) });
+  },
+};
 const tableBar = $("#table-bar");
 
 // "Show Markdown marks" on (the line with the cursor shows its source) or off (writer mode).
@@ -363,6 +402,8 @@ function applyRaw() {
   updateFormatBar();
 }
 $("#toggle-raw")?.addEventListener("click", () => setRaw(!raw));
+// The table bar comes and goes with the caret in a table's cells.
+for (const type of ["focusin", "focusout"]) $("#editor").addEventListener(type, () => setTimeout(() => updateFormatBar(), 0));
 
 if (formatBar) {
   formatBar.hidden = readOnly || !isMarkdown || review;
@@ -376,7 +417,7 @@ if (formatBar) {
     if (!btn || readOnly || !isMarkdown || review) return;
     const cmd = FORMAT_CMDS[btn.dataset.cmd];
     if (cmd) {
-      if (cmd(view, btn) !== POPOVER) view.focus();
+      if (cmd(view, btn) !== POPOVER) focusTableOrEditor(view);
       updateFormatBar();
     }
   });
@@ -385,7 +426,7 @@ if (formatBar) {
     const cmd = btn && TABLE_CMDS[btn.dataset.table];
     if (!cmd || readOnly) return;
     cmd(view);
-    view.focus();
+    focusTableOrEditor(view);
     updateFormatBar();
   });
 }
@@ -395,7 +436,8 @@ function updateFormatBar() {
     if (tableBar) tableBar.hidden = true;
     return;
   }
-  if (tableBar) tableBar.hidden = !tableAt(view.state, view.state.selection.main.head);
+  // Tables show as tables, edited cell by cell (editor/table-view.js); in plain text, as Markdown.
+  if (tableBar) tableBar.hidden = !tableAt(view.state, view.state.selection.main.head) || (!raw && isMarkdown && !editingTable(view));
   const marks = formatBar.querySelector('[data-cmd="marks"]');
   marks?.setAttribute("aria-pressed", String(!writerMode(view.state)));
   if (marks) marks.hidden = raw; // in plain text every mark shows anyway
@@ -611,6 +653,31 @@ function showOutline() {
 }
 $("#open-outline")?.addEventListener("click", showOutline);
 
+// A first draft of slides for this document, in a new project (§6.3).
+$("#make-deck")?.addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    const made = await api("POST", `/api/documents/${docId}/companion-deck`);
+    toast(t("The slides are ready in a new project."));
+    location.href = made.url;
+  } catch (err) {
+    toast(err.message, { error: true });
+  } finally {
+    button.disabled = false;
+  }
+});
+
+if (isDeck) {
+  slideTools = new SlideTools({
+    view, readOnly, options: () => layoutOptions, getUrl: () => deckUrl,
+    requestHtml: () => socket.send({ t: "render", doc: docId, version: session.version(), target: "html",
+                                     layout: snap.layout.id, options: layoutOptions }),
+  });
+  $("#open-sorter")?.addEventListener("click", () => slideTools.openSorter());
+  $("#open-presenter")?.addEventListener("click", () => slideTools.openPresenter());
+}
+
 // -- Citations ---------------------------------------------------------
 let citationsEtag = "";
 async function loadCitations() {
@@ -703,7 +770,9 @@ const html = new HtmlPreview(frame, {
   onError: (url) => showPreviewError("html", url),
 });
 const pdf = new PdfPreview(pane, {
-  onLoad: () => clearPreviewError("pdf"),
+  bar: $("#pdf-bar"),
+  labels: { page: t("Page {n}"), matches: t("{i} of {n}"), noMatches: t("No matches") },
+  onLoad: () => { clearPreviewError("pdf"); lastPara = null; followParagraph(0); },
   onError: (url) => showPreviewError("pdf", url),
   onPick: (pick) => findInSource(pick),
   hint: t("Double-click to show this in the source"),
@@ -884,6 +953,11 @@ function showRendered(msg) {
     diag.className = "";
     diag.title = "";
   }
+  if (msg.target === "html" && msg.url && (msg.version ?? 0) >= deckVersion) {
+    deckVersion = msg.version ?? 0;
+    deckUrl = msg.url;
+    slideTools?.rendered(msg.url);
+  }
   if (msg.target !== target) return;
   if (msg.url && msg.target !== "html") lastServerPdf = msg.url;
   if (localOn && msg.target === "pdf-typst") return;
@@ -905,10 +979,12 @@ function showRendered(msg) {
   }
 }
 
-// One-way scroll sync: the heading above the cursor (§6.4).
+// One-way scroll sync (§6.4): the HTML preview follows the heading above the cursor; the PDF
+// preview the paragraph at the cursor, marked in the pages, or else the heading.
 let lastHeading = null;
-function cursorMoved() {
-  if (!isMarkdown || !outline.length || !previewVisible()) return;
+let lastPara = null;
+let paraTimer = null;
+function currentHeading() {
   const line = view.state.doc.lineAt(view.state.selection.main.head).number;
   let current = null;
   for (const h of outline) {
@@ -918,13 +994,65 @@ function cursorMoved() {
   }
   // Which of the headings with this title it is, for the PDF.
   const nth = current ? outline.filter((o) => !o.scene && o.line < current.line && o.title === current.title).length : 0;
+  return { current, nth };
+}
+function cursorMoved() {
+  if (!previewVisible()) return;
+  if (target !== "html") {
+    followParagraph();
+    return;
+  }
+  if (!isMarkdown || !outline.length) return;
+  const { current } = currentHeading();
   const id = current ? headingId(current.title) : "";
-  const key = `${target}:${id}:${nth}`;
+  const key = `html:${id}`;
   if (key === lastHeading) return;
   lastHeading = key;
-  // The PDF follows along too: it scrolls to the heading's page once that page has text.
-  if (target === "html") html.scrollTo(id);
-  else pdf.scrollToHeading(current?.title ?? "", nth).then((done) => { if (!done && lastHeading === key) lastHeading = null; });
+  html.scrollTo(id);
+}
+
+function followParagraph(delay = 250) {
+  clearTimeout(paraTimer);
+  paraTimer = setTimeout(syncParagraph, delay);
+}
+
+let paraSeq = 0;
+async function syncParagraph() {
+  if (!previewVisible() || target === "html" || !pdf.doc) return;
+  const state = view.state;
+  const head = state.selection.main.head;
+  const text = state.doc.toString();
+  const para = paragraphAt(text, head, { latex: isLatex });
+  const lineNo = state.doc.lineAt(head).number;
+  const key = para ? `p:${para.from}:${para.to}:${pdf.url}` : `h:${lineNo}:${pdf.url}`;
+  if (key === lastPara) return;
+  lastPara = key;
+  const mine = ++paraSeq;
+  // LaTeX: SyncTeX says exactly where the line is set.
+  if (isLatex) {
+    const keyHash = /\/api\/renders\/([0-9a-f]{64})\//.exec(pdf.url ?? "")?.[1];
+    if (keyHash) {
+      try {
+        const { boxes } = await api("POST", `/api/projects/${projectId}/pdf-at`, { key: keyHash, doc: docId, line: lineNo });
+        if (mine !== paraSeq) return;
+        if (boxes?.length && pdf.showBoxes(boxes)) return;
+      } catch { /* no SyncTeX for this build: match the words */ }
+    }
+  }
+  if (para) {
+    const done = await pdf.showParagraph({ words: para.words, at: para.at, hint: head / Math.max(1, text.length) });
+    if (mine !== paraSeq || done) return;
+  } else {
+    pdf.clearParagraph();
+  }
+  // No paragraph, or its words aren't in the PDF (a table, code, math): the heading above.
+  if (!isMarkdown) return;
+  const { current, nth } = currentHeading();
+  const hkey = `pdf:${current?.title ?? ""}:${nth}:${pdf.url}`;
+  if (hkey === lastHeading) return;
+  lastHeading = hkey;
+  const ok = await pdf.scrollToHeading(current?.title ?? "", nth);
+  if (!ok && lastHeading === hkey) lastHeading = null;
 }
 
 // From the PDF preview back to the source (§6.4): double-click (double-tap) a spot. LaTeX answers
@@ -1027,12 +1155,15 @@ $("#export-form").addEventListener("submit", async (event) => {
   const how = button.value; // "pdf", "print" or "export"
   const targetName = button.dataset.target ?? new FormData(event.target).get("target");
   if (!targetName) return;
+  // The handout is the slides' PDF with the handout option on.
+  const handout = !button.dataset.target && event.target.querySelector("input[name=target]:checked")?.hasAttribute("data-handout");
+  const options = handout ? { ...layoutOptions, handout: true } : layoutOptions;
   status.textContent = how === "print" ? t("Preparing to print…") : t("Exporting…");
   const buttons = [...event.target.querySelectorAll("button[type=submit]")];
   for (const b of buttons) b.disabled = true;
   try {
     const { job } = await api("POST", `/api/projects/${projectId}/export`,
-                              { target: targetName, doc: docId, options: layoutOptions,
+                              { target: targetName, doc: docId, options,
                                 anonymize: $("#export-anonymize")?.checked === true });
     for (let i = 0; i < 600; i++) {
       await new Promise((r) => setTimeout(r, i < 10 ? 500 : 1500));
@@ -1757,9 +1888,142 @@ if (publishButton) {
   });
 }
 
+// -- Command palette (Ctrl/Cmd+K) ------------------------------------------
+// Everything to go to or do in one list: documents, headings, page setup, the Actions menu,
+// formatting and insert tools, the preview and the PDF's controls.
+function caretRect() {
+  const pos = view.state.selection.main.head;
+  const c = view.coordsAtPos(pos) ?? view.coordsAtPos(Math.max(0, pos - 1));
+  if (c) return c;
+  const r = view.contentDOM.getBoundingClientRect();
+  return { left: r.left + 16, right: r.left + 16, top: r.top, bottom: r.top + 20 };
+}
+const shown_ = (node) => node && !node.hidden && !node.closest("[hidden]") && !node.disabled;
+const labelOf = (node) => (node.textContent ?? "").replace(/\s+/g, " ").trim();
+
+function paletteItems() {
+  const items = [];
+  const add = (item) => items.push({ kind: "action", ...item });
+  const canWrite = !readOnly && !review;
+
+  // Headings (and scenes in a screenplay), in document order.
+  for (const h of outline) {
+    items.push({ id: "", kind: "heading", label: h.title || t("(untitled)"), group: h.scene ? t("Scene") : t("Heading"),
+                 detail: h.scene ? "" : `H${h.level}`, run: () => jumpToLine(h.line) });
+  }
+  // The project's other documents.
+  for (const f of snap.files ?? []) {
+    if (f.type !== "document" || f.path === snap.doc.path) continue;
+    items.push({ id: `file:${f.path}`, kind: "file", label: f.path, group: t("Document"),
+                 run: () => { location.href = docUrl(f.path); } });
+  }
+  // Formatting and inserting.
+  if (canWrite && isMarkdown && formatBar && !formatBar.hidden) {
+    const fmt = (id, label, cmd, hint = "") => add({ id: `fmt:${id}`, label, group: t("Format"), hint,
+                                                       run: () => { FORMAT_CMDS[cmd](view, null); view.focus(); updateFormatBar(); } });
+    fmt("bold", t("Bold"), "bold", "Ctrl+B");
+    fmt("italic", t("Italic"), "italic", "Ctrl+I");
+    fmt("strike", t("Strikethrough"), "strike");
+    fmt("code", t("Inline code"), "code");
+    fmt("heading", t("Heading"), "heading");
+    fmt("quote", t("Blockquote"), "quote");
+    fmt("bullet", t("Bullet list"), "bullet");
+    fmt("ordered", t("Numbered list"), "ordered");
+    fmt("task", t("Task list"), "task");
+    const ins = (id, label, run, keywords = "") => add({ id: `insert:${id}`, label, group: t("Insert"), keywords, run });
+    ins("link", t("Link"), () => tools.link(), "url address");
+    ins("footnote", t("Footnote"), () => tools.note({}), "note");
+    ins("xref", t("Cross-reference"), () => tools.crossRef(caretRect()), "figure table equation section reference");
+    ins("cite", t("Citation"), () => { insertCitation(view); view.focus(); }, "cite reference bibliography");
+    ins("math", t("Math"), () => { toggleInlineMath(view); view.focus(); }, "equation formula");
+    ins("table", t("Table"), () => tools.table(caretRect()));
+    if (images) ins("image", t("Image"), () => images.pick(view), "picture figure photo");
+  }
+  // The Actions menu, as it is now (what's hidden or not allowed here stays out).
+  for (const node of document.querySelectorAll("#toolbar-buttons button, #toolbar-buttons a.button")) {
+    if (!shown_(node) || node.id === "open-palette") continue;
+    const group = node.closest(".menu-group")?.querySelector(".menu-heading")?.textContent ?? "";
+    const pressed = node.getAttribute("aria-pressed");
+    add({ id: `menu:${node.id || labelOf(node)}`, label: labelOf(node), group,
+          detail: pressed === "true" ? t("on") : "", keywords: node.title ?? "", run: () => node.click() });
+  }
+  if ($("#open-outline")) add({ id: "outline", label: t("Outline"), group: t("Write"), hint: "Ctrl+Alt+O", run: showOutline });
+  if (isMarkdown && !review) {
+    add({ id: "marks", label: writerMode(view.state) ? t("Show Markdown marks") : t("Hide Markdown marks"),
+          group: t("Write"), keywords: "writer mode", run: () => setMarks(writerMode(view.state)) });
+  }
+  // Page setup: the dialog, the template, and each of the layout's settings.
+  const options = $("#open-options");
+  if (options) {
+    add({ id: "setup", label: t("Page setup"), group: t("Layout"), keywords: "layout options template margins font",
+          run: () => options.click() });
+    if (snap.can.change_layout) {
+      add({ id: "setup:template", label: t("Change template"), group: t("Layout"), keywords: "layout",
+            run: async () => { options.click(); await loadLayoutPicker(); $("#options-layout")?.focus(); } });
+    }
+    for (const [name, spec] of Object.entries(snap.layout?.variables ?? {})) {
+      add({ id: `setup:${name}`, label: t(spec.label ?? name), group: t("Page setup"), keywords: name,
+            run: () => {
+              options.click();
+              const field = document.getElementById(`option-${name.replace(/[^a-z0-9]/gi, "-")}`);
+              field?.focus();
+              field?.scrollIntoView({ block: "center" });
+            } });
+    }
+  }
+  // The preview.
+  add({ id: "preview", label: previewVisible() ? t("Hide preview") : t("Show preview"), group: t("Preview"),
+        run: () => $("#toggle-preview").click() });
+  if (!isLatex) {
+    add({ id: "preview:html", label: t("Preview as HTML"), group: t("Preview"), detail: target === "html" ? t("on") : "",
+          run: () => { $('input[name="preview-target"][value="html"]').click(); showPreview(); } });
+    add({ id: "preview:pdf", label: t("Preview as PDF"), group: t("Preview"), detail: target !== "html" ? t("on") : "",
+          run: () => { $('input[name="preview-target"][value="pdf"]').click(); showPreview(); } });
+  }
+  add({ id: "preview:dark", label: t("Dark paper"), group: t("Preview"), detail: darkPaper.checked ? t("on") : "",
+        run: () => darkPaper.click() });
+  if (target !== "html") {
+    const pdfCmd = (id, label, run, keywords = "") => add({ id: `pdf:${id}`, label, group: "PDF", keywords,
+                                                             run: () => { showPreview(); run(); } });
+    pdfCmd("find", t("Find in PDF"), () => setTimeout(() => pdf.openFind(), 50), "search");
+    pdfCmd("zoom-in", t("Zoom in"), () => pdf.stepZoom(1), "bigger larger");
+    pdfCmd("zoom-out", t("Zoom out"), () => pdf.stepZoom(-1), "smaller");
+    pdfCmd("fit", t("Fit width"), () => pdf.setZoom("fit"), "zoom");
+    pdfCmd("page", t("Fit page"), () => pdf.setZoom("page"), "zoom");
+    pdfCmd("100", t("Actual size (100 %)"), () => pdf.setZoom(1), "zoom");
+    for (let n = 1; n <= Math.min(pdf.sizes.length, 500); n++) {
+      items.push({ id: "", kind: "page", label: t("Page {n}", { n }), group: "PDF", keywords: String(n),
+                   run: () => { showPreview(); pdf.goToPage(n); } });
+    }
+  }
+  return items;
+}
+
+// Commands about the preview open it first.
+function showPreview() {
+  if (previewVisible()) return;
+  if (narrow.matches) setMobilePreview(true);
+  else $("#toggle-preview").click();
+}
+
+const palette = new CommandPalette({
+  sources: paletteItems,
+  goToLine: (n) => jumpToLine(n),
+  labels: { placeholder: t("Go to a document or heading, or type a command…"), empty: t("Nothing matches."),
+            line: t("Go to line {n}"), recent: t("Recent"), title: t("Command palette") },
+});
+$("#open-palette")?.addEventListener("click", () => palette.open());
+
 // -- Keyboard -------------------------------------------------------------
 document.addEventListener("keydown", (event) => {
   const mod = event.metaKey || event.ctrlKey;
+  // Ctrl/Cmd+K: the command palette (the editor keeps it for linking selected text).
+  if (mod && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "k") {
+    if (event.defaultPrevented || palette.isOpen) return;
+    event.preventDefault();
+    palette.open();
+    return;
+  }
   if (mod && event.key === "s") {
     event.preventDefault();
     toast(session.status().state === "saved" ? t("Everything is saved.") : t("Saving automatically…"));

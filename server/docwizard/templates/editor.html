@@ -15,6 +15,7 @@
 {# The actions used most stay in the bar on wide screens; the rest are grouped in the Actions menu. #}
 <button type="button" class="tb-quick" data-proxy="open-comments">{{ _("Comments") }}</button>
 <button type="button" id="toggle-preview" aria-pressed="true">{{ _("Preview") }}</button>
+{% if doc.kind == "markdown" and layout.public is defined and layout.public().slides %}<button type="button" class="tb-quick" data-proxy="open-presenter">{{ _("Present") }}</button>{% endif %}
 {% if can(role, "share", project) and not guest %}<button type="button" class="tb-quick" data-proxy="open-share">{{ _("Share") }}</button>{% endif %}
 <div class="editor-more" id="editor-more">
   <button type="button" id="more-actions" aria-expanded="false" aria-controls="toolbar-buttons">{{ _("Actions") }}</button>
@@ -22,6 +23,7 @@
     <span class="status menu-status" id="menu-save-state" aria-hidden="true">{{ _("Saved") }}</span>
     <div class="menu-group" role="group" aria-labelledby="menu-write">
       <span class="menu-heading" id="menu-write">{{ _("Write") }}</span>
+      <button type="button" id="open-palette" title="{{ _('Go to any file or heading, or run any command (Ctrl+K)') }}">{{ _("Command palette") }}</button>
       <button type="button" id="open-chapters" data-open-chapters aria-expanded="false" aria-controls="chapters">{{ _("Chapters") }}</button>
       <button type="button" id="open-find" title="{{ _('Find and replace (Ctrl+F)') }}">{{ _("Find and replace") }}</button>
       <button type="button" id="open-project-find" title="{{ _('Find and replace in every document of the project (Ctrl+Shift+F)') }}">{{ _("Find in all chapters") }}</button>
@@ -49,6 +51,9 @@
       {% if can(role, "share", project) and not guest %}<button type="button" id="open-share" class="pinned">{{ _("Share") }}</button>{% endif %}
       <button type="button" id="open-export" title="{{ _('PDF, Word, e-book and more (Ctrl+E)') }}">{{ _("Download or print") }}</button>
       <button type="button" id="open-preflight" title="{{ _('Word and page limits, references, citations and open comments') }}">{{ _("Check before submitting") }}</button>
+      {% if doc.kind == "markdown" and layout.public is defined and layout.public().slides %}<button type="button" id="open-sorter" title="{{ _('All slides at a glance; drag them into a new order') }}">{{ _("Slide sorter") }}</button>
+      <button type="button" id="open-presenter" title="{{ _('Present with notes, a timer and the next slide; the audience window goes on the projector') }}">{{ _("Present") }}</button>
+      {% elif doc.kind == "markdown" and not guest and can(role, "edit", project) %}<button type="button" id="make-deck" title="{{ _('A new slides project with this document’s headings, key points, figures and references') }}">{{ _("Make slides") }}</button>{% endif %}
       {% if can(role, "publish", project) and not guest %}<button type="button" id="open-publish">{{ _("Publish") }}</button>{% endif %}
       <button type="button" id="open-versions">{{ _("Version history") }}</button>
       <button type="button" id="open-timeline" title="{{ _('Replay how the text came about, and who wrote what') }}">{{ _("Drafting timeline") }}</button>
@@ -91,7 +96,7 @@
       <button type="button" data-cmd="ordered" aria-pressed="false" aria-label="{{ _('Numbered list') }}" title="{{ _('Numbered list') }}">1.</button>
       <button type="button" data-cmd="task" aria-pressed="false" aria-label="{{ _('Task list') }}" title="{{ _('Task list') }}">[ ]</button>
       <span class="format-sep" aria-hidden="true"></span>
-      <button type="button" data-cmd="link" aria-pressed="false" aria-label="{{ _('Link') }}" title="{{ _('Link (Ctrl+K)') }}">{{ _("Link") }}</button>
+      <button type="button" data-cmd="link" aria-pressed="false" aria-label="{{ _('Link') }}" title="{{ _('Link (select text, then Ctrl+K)') }}">{{ _("Link") }}</button>
       <button type="button" data-cmd="image" aria-label="{{ _('Image') }}" title="{{ _('Image (or paste or drop one into the text)') }}">{{ _("Image") }}</button>
       <button type="button" data-cmd="table" aria-label="{{ _('Table') }}" title="{{ _('Insert a table') }}">{{ _("Table") }}</button>
       <button type="button" data-cmd="insert" aria-haspopup="menu" aria-label="{{ _('More to insert') }}" title="{{ _('Footnote, cross-reference, citation, math') }}">{{ _("Insert") }} ▾</button>
@@ -107,6 +112,7 @@
       <button type="button" data-table="align" title="{{ _('Align the column: left, centered, right') }}">{{ _("Align") }}</button>
       <button type="button" data-table="delete-row" title="{{ _('Delete the row') }}">− {{ _("Row") }}</button>
       <button type="button" data-table="delete-column" title="{{ _('Delete the column') }}">− {{ _("Column") }}</button>
+      <button type="button" data-table="source" title="{{ _('Edit the table as Markdown') }}">{{ _("Markdown") }}</button>
       <button type="button" data-table="delete" class="danger-text" title="{{ _('Delete the table') }}">{{ _("Delete table") }}</button>
     </div>
     <div id="editor"></div>
@@ -120,6 +126,26 @@
       <label class="choice" hidden title="{{ _('Make the PDF here as you type, also offline') }}"><input type="checkbox" id="local-render"> {{ _("In this browser") }}</label>
       <label class="choice"><input type="checkbox" id="dark-paper"> {{ _("Dark paper") }}</label>
       <button type="button" id="open-options" title="{{ _('Template and page setup') }}">{{ _("Page setup") }}</button>
+    </div>
+    <div class="pdf-bar" id="pdf-bar" role="toolbar" aria-label="{{ _('PDF') }}" hidden>
+      <button type="button" data-pdf-zoom-out aria-label="{{ _('Zoom out') }}" title="{{ _('Zoom out (−)') }}">−</button>
+      <select data-pdf-zoom aria-label="{{ _('Zoom') }}">
+        <option value="fit">{{ _("Fit width") }}</option>
+        <option value="page">{{ _("Fit page") }}</option>
+        {% for z in [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4] %}<option value="{{ z }}">{{ (z * 100)|int }} %</option>{% endfor %}
+      </select>
+      <button type="button" data-pdf-zoom-in aria-label="{{ _('Zoom in') }}" title="{{ _('Zoom in (+)') }}">+</button>
+      <span class="pdf-bar-sep" aria-hidden="true"></span>
+      <label class="pdf-page-jump"><span class="pdf-page-label">{{ _("Page") }}</span> <input type="number" data-pdf-page min="1" inputmode="numeric" aria-label="{{ _('Page') }}"> <span class="muted">/ <span data-pdf-pages>–</span></span></label>
+      <span class="spacer"></span>
+      <button type="button" data-pdf-open-find title="{{ _('Find in the PDF (Ctrl+F in the preview)') }}">{{ _("Find") }}</button>
+      <div class="pdf-find" data-pdf-find-row hidden>
+        <input type="search" data-pdf-find placeholder="{{ _('Find in PDF…') }}" aria-label="{{ _('Find in the PDF') }}" autocomplete="off" spellcheck="false">
+        <span class="muted" data-pdf-find-count role="status"></span>
+        <button type="button" data-pdf-find-prev aria-label="{{ _('Previous match') }}" title="{{ _('Previous match (Shift+Enter)') }}">↑</button>
+        <button type="button" data-pdf-find-next aria-label="{{ _('Next match') }}" title="{{ _('Next match (Enter)') }}">↓</button>
+        <button type="button" data-pdf-find-close aria-label="{{ _('Close') }}" title="{{ _('Close (Esc)') }}">×</button>
+      </div>
     </div>
     <div class="preview-empty" id="preview-error" role="alert" hidden></div>
     <iframe id="preview" title="{{ _('Preview') }}" sandbox referrerpolicy="no-referrer"></iframe>
@@ -153,6 +179,8 @@
       <label class="choice"><input type="radio" name="target" value="odt"> OpenDocument (ODT)</label>
       <label class="choice"><input type="radio" name="target" value="html"> {{ _("Web page (HTML)") }}</label>
       <label class="choice"><input type="radio" name="target" value="epub"> {{ _("E-book (EPUB)") }}</label>
+      {% if layout.public is defined and layout.public().slides %}<label class="choice"><input type="radio" name="target" value="pptx"> PowerPoint (PPTX)</label>
+      <label class="choice"><input type="radio" name="target" value="pdf-typst" data-handout> {{ _("Handout PDF (slides with notes)") }}</label>{% endif %}
       {% if layout.public is defined and layout.public().script %}<label class="choice"><input type="radio" name="target" value="fountain"> {{ _("Fountain screenplay") }}</label>{% endif %}
       {% endif %}
       <details class="export-tech"{% if doc.kind == "latex" %} open{% endif %}>
