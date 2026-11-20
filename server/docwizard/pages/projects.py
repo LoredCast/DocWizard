@@ -8,7 +8,9 @@ import secrets
 import time
 from urllib.parse import quote, urlencode
 
+from .. import activity
 from ..api import browser_render, grammar
+from ..api.project_text import add_words, remove_word, words_for
 from ..api.projects import (GUEST_FORBIDDEN, create_project_with_starter, empty_trash, enforce_quota, project_access,
                             rename_file, restore_file, trash_file)
 from ..auth import passwords, permissions
@@ -189,6 +191,17 @@ def register(app) -> None:
                     svc.list_trash(c, project["id"]) if may_edit and not guest else [])
 
         tree, members, shares, trash = await app.db.read(load)
+        dictionary = (await app.db.read(lambda c: words_for(c, project["id"], None)))["project"]
+        # The project's recent activity (§8.12); guests don't see who did what.
+        timeline, timeline_more = [], False
+        if not guest:
+            limit = 100 if req.query.get("activity") == "more" else 12
+            timeline = await app.db.read(lambda c: activity.list_for(c, project["id"], limit=limit + 1))
+            timeline_more, timeline = len(timeline) > limit, timeline[:limit]
+            gettext = lambda message, **values: app.t(req, message, **values)  # noqa: E731
+            for item in timeline:
+                item["text"] = activity.describe(item, gettext)
+                item["when"] = activity.iso(item["at"])
         home_state = None
         if not guest and req.user is not None:
             mine = await app.db.fetchone("SELECT tags, archived_at FROM project_members WHERE project_id = ? AND user_id = ?",
@@ -212,7 +225,7 @@ def register(app) -> None:
                         home_state=home_state,
                         build_inputs=build_inputs if isinstance(build_inputs, list) else [build_inputs],
                         may_sync=may_sync, sync=sync, sync_options=sync_options,
-                        shares=shares, may_share=may_share, link_roles=_link_roles(app, role),
+                        shares=shares, may_share=may_share, timeline=timeline, timeline_more=timeline_more, dictionary=dictionary, link_roles=_link_roles(app, role),
                         new_link=req.query.get("link"), layouts=_layout_choices(app, req, project), doc_url=doc_url,
                         languages=languages.choices(),
                         full_languages={t for t, _ in languages.choices() if languages.full_support(t)},
@@ -234,6 +247,7 @@ def register(app) -> None:
                 doc_id = await app.db.write(lambda c: svc.create_document(c, pid, path, ""))
                 room = await app.rooms.get(doc_id)
                 await room.call(room.materialize)
+                await activity.log(app, pid, "create", req, doc_id=doc_id, path=room.path)
                 return redirect(doc_url(pid, files.normalize(path)))
             if action == "layout":
                 await project_access(app, req, pid, "change_layout")
@@ -289,15 +303,19 @@ def register(app) -> None:
                 new = form.get("new_path", "").strip()
                 if new and "." not in new.rsplit("/", 1)[-1] and "." in form.get("path", "").rsplit("/", 1)[-1]:
                     new += "." + form["path"].rsplit(".", 1)[1]
-                await rename_file(app, pid, form.get("path", ""), new)
+                renamed = await rename_file(app, pid, form.get("path", ""), new)
+                if renamed != form.get("path", ""):
+                    await activity.log(app, pid, "rename", req, path=renamed, detail={"from": form.get("path", "")})
             elif action == "delete-file":
                 await project_access(app, req, pid, "edit")
                 await trash_file(app, pid, form.get("path", ""))
+                await activity.log(app, pid, "delete", req, path=form.get("path", ""))
             elif action == "restore-file":
                 await project_access(app, req, pid, "edit")
                 kind = "document" if form.get("doc_id") else "asset"
-                await restore_file(app, pid, kind, form.get("doc_id") or form.get("path", ""),
-                                   form.get("deleted_at", ""))
+                restored = await restore_file(app, pid, kind, form.get("doc_id") or form.get("path", ""),
+                                              form.get("deleted_at", ""))
+                await activity.log(app, pid, "restore", req, path=restored, doc_id=form.get("doc_id") or None)
                 return redirect(back + "#trash")
             elif action == "empty-trash":
                 project, _ = await project_access(app, req, pid, "delete_project")
@@ -312,6 +330,18 @@ def register(app) -> None:
                     raise ValueError("Use at most 200 build inputs.")
                 await app.db.write(lambda c: svc.update_project(c, pid, build_inputs=inputs or None))
                 return redirect(back + "#build")
+            elif action in ("add-word", "remove-word"):
+                # The project's spelling dictionary (§6.8).
+                await project_access(app, req, pid, "edit")
+                uid = req.user.id if req.user else None
+                try:
+                    if action == "add-word":
+                        await add_words(app, pid, uid, "project", form.get("words", "").split())
+                    else:
+                        await remove_word(app, pid, uid, "project", form.get("word", ""))
+                except HTTPError as exc:
+                    raise ValueError(exc.message) from None
+                return redirect(back + "#dictionary")
             elif action == "delete":
                 await project_access(app, req, pid, "delete_project")
                 await app.db.write(lambda c: svc.delete_project(c, pid))
@@ -387,6 +417,7 @@ async def editor_snapshot(app, req: Request, project, role: str, doc, *, review:
     room = await app.rooms.get(doc["id"])
     text, version = await room.call(lambda: _text_version(room))
     tree = await app.db.read(lambda c: svc.tree(c, pid))
+    words = await app.db.read(lambda c: words_for(c, pid, user.id if user else None))
     # People who can be mentioned in comments (§8.9); guests don't get the member list.
     mentionable = [] if guest is not None else [
         {"username": m["username"], "name": m["display_name"]}
@@ -418,7 +449,9 @@ async def editor_snapshot(app, req: Request, project, role: str, doc, *, review:
         "previewOrigin": app.cfg.preview_origin,
         "review": review,
         # Grammar checking (§6.8): what the server offers and what the person chose.
-        "grammar": {**grammar.available(app), "choice": grammar.choice_of(user.preferences if user else None)},
+        "grammar": {**grammar.available(app), "choice": grammar.choice_of(user.preferences if user else None),
+                    # The project's and the person's dictionaries (§6.8).
+                    "words": words},
         # Previews made in this browser with pandoc and Typst as WebAssembly (§6.4).
         "browserRender": browser_render.installed() and doc["kind"] == "markdown",
         # The writing helper (§8.10), for people who turned it on.

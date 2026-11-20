@@ -6,6 +6,7 @@ import asyncio
 import datetime as dt
 import json
 
+from .. import activity
 from ..auth import permissions
 from ..citations import lookup
 from ..netpolicy import FetchError, PolicyError
@@ -294,6 +295,7 @@ def register(app) -> None:
             raise bad_request(str(exc)) from None
         room = await app.rooms.get(doc_id)
         await room.call(room.materialize)
+        await activity.log(app, project["id"], "create", req, doc_id=doc_id, path=room.path)
         return json_response({"id": doc_id}, 201)
 
     async def patch_document(req: Request) -> Response:
@@ -314,6 +316,8 @@ def register(app) -> None:
                     await asyncio.to_thread(files.remove, room.project_dir, old_path)
 
                 await room.call(move)
+                await activity.log(app, project["id"], "rename", req, doc_id=doc["id"], path=new_path,
+                                   detail={"from": old_path})
             return json_response({"path": new_path})
         if "pinned" in body and req.user is not None:
             await app.db.write(lambda c: svc.set_pinned(c, req.user.id, doc["id"], bool(body["pinned"])))
@@ -325,6 +329,7 @@ def register(app) -> None:
         await app.rooms.close_document(doc["id"])
         await asyncio.to_thread(files.remove, app.rooms.project_dir(project["id"]), doc["path"])
         await app.publisher.prune()
+        await activity.log(app, project["id"], "delete", req, doc_id=doc["id"], path=doc["path"])
         return json_response({"ok": True})
 
     async def put_asset(req: Request) -> Response:
@@ -371,6 +376,7 @@ def register(app) -> None:
                 raise bad_request(str(exc)) from None
             room = await app.rooms.get(doc_id)
             await room.call(room.materialize)
+            await activity.log(app, project["id"], "upload", req, doc_id=doc_id, path=path)
             return json_response({"id": doc_id, "type": "document"}, 201)
         root = app.rooms.project_dir(project["id"])
         if req.query.get("unique") == "1":
@@ -387,6 +393,7 @@ def register(app) -> None:
             await app.db.write(lambda c: svc.put_asset(c, project["id"], path, digest, len(data), st))
         except ValueError as exc:
             raise bad_request(str(exc)) from None
+        await activity.log(app, project["id"], "upload", req, path=path)
         return json_response({"path": path, "type": "asset", "size": len(data)}, 201)
 
     async def store_asset(project_id: str, path: str, data: bytes) -> None:
@@ -506,6 +513,7 @@ def register(app) -> None:
         path = req.param("path")
         await app.db.write(lambda c: svc.trash_asset(c, project["id"], path))
         await asyncio.to_thread(files.remove, app.rooms.project_dir(project["id"]), path)
+        await activity.log(app, project["id"], "delete", req, path=path)
         return json_response({"ok": True})
 
     async def rename_asset(req: Request) -> Response:
@@ -515,6 +523,8 @@ def register(app) -> None:
             new = await rename_file(app, project["id"], req.param("path"), str(body.get("path", "")))
         except (ValueError, files.PathError) as exc:
             raise bad_request(str(exc)) from None
+        if new != req.param("path"):
+            await activity.log(app, project["id"], "rename", req, path=new, detail={"from": req.param("path")})
         return json_response({"path": new})
 
     async def trash(req: Request) -> Response:
@@ -532,6 +542,8 @@ def register(app) -> None:
                                       str(body.get("deletedAt", "")))
         except (ValueError, files.PathError) as exc:
             raise bad_request(str(exc)) from None
+        await activity.log(app, project["id"], "restore", req, path=path,
+                           doc_id=str(body.get("id")) if kind == "document" else None)
         return json_response({"path": path})
 
     async def trash_empty(req: Request) -> Response:
@@ -584,12 +596,14 @@ def register(app) -> None:
         room = await app.rooms.get(doc["id"])
         await enforce_quota(app, doc["project_id"], len((await room.call(lambda: _text(room))).encode()))
         version = await room.call(lambda: room.snapshot(label, user_id_of(req)))
+        await activity.log(app, doc["project_id"], "version", req, doc_id=doc["id"], path=room.path,
+                           detail={"label": label})
         return json_response({"version": version}, 201)
 
     async def restore_version(req: Request) -> Response:
         doc, _, _ = await document_access(app, req, req.param("id"), "versions")
         snap_id = req.param("v")
-        row = await app.db.fetchone("SELECT text FROM doc_snapshots WHERE id = ? AND doc_id = ?",
+        row = await app.db.fetchone("SELECT text, label, created_at FROM doc_snapshots WHERE id = ? AND doc_id = ?",
                                     (int(snap_id) if snap_id.isdigit() else -1, doc["id"]))
         if row is None:
             raise not_found("No such version.")
@@ -606,6 +620,8 @@ def register(app) -> None:
             return await room.apply_text(row["text"], "system:restore", user_id)
 
         version = await room.call(restore)
+        await activity.log(app, doc["project_id"], "restore_version", req, doc_id=doc["id"], path=room.path,
+                           detail={"label": row["label"] or row["created_at"][:16].replace("T", " ")})
         return json_response({"version": version})
 
     async def version_text(req: Request) -> Response:

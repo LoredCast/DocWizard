@@ -1038,6 +1038,83 @@
   .palette-empty { padding: 8px 12px; margin: 0; }
 }
 
+/* Collaboration and publishing tools: follow mode, activity, project find, dictionaries,
+   preflight, source clips (ARCHITECTURE.md §8.7, §8.12, §6.8, §10.9, §13.6). */
+@layer components {
+  .presence button.peer { border: 0; background: none; padding: 0 2px; min-height: 0; color: inherit; font: inherit; }
+  .presence button.peer[aria-pressed="true"] { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+  .presence button.peer:hover { color: var(--fg); }
+  .presence-elsewhere { color: var(--muted); white-space: nowrap; }
+  .presence-elsewhere[hidden] { display: none; }
+  .presence-elsewhere summary { cursor: pointer; list-style: none; }
+  .presence-elsewhere .menu-body { min-width: 14rem; right: 0; }
+  .follow-banner { display: flex; align-items: baseline; gap: 8px; margin: 0; padding: 4px 16px; border-bottom: 1px solid var(--line); font-size: 13px; flex: none; }
+  .follow-banner[hidden] { display: none; }
+
+  ol.activity-list { list-style: none; padding: 0; margin: 8px 0; }
+  .activity-list li { display: flex; gap: 12px; align-items: baseline; padding: 4px 0; border-bottom: 1px solid var(--line); }
+  .activity-list li .spacer { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .activity-list time { flex: none; font-size: 13px; }
+  .activity-list a { color: inherit; }
+  .activity-list a:hover { color: var(--accent); }
+
+  .match-list { list-style: none; padding: 0; margin: 0; max-height: 50vh; overflow: auto; }
+  .match-group > h3 { font-size: 14px; margin: 12px 0 4px; display: flex; gap: 8px; align-items: baseline; }
+  .match-group > h3 .muted { font-weight: normal; }
+  .match-row { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; font-size: 14px; }
+  .match-row .context { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .match-row del { color: var(--danger); }
+  .match-row ins { color: var(--ok); text-decoration: none; border-bottom: 1px solid var(--ok); }
+  .match-row .line-no { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; min-width: 3ch; text-align: right; }
+  .find-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .find-options { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+
+  .word-list { display: flex; flex-wrap: wrap; gap: 4px 8px; list-style: none; padding: 0; margin: 8px 0; }
+  .word-list li { display: inline-flex; gap: 4px; align-items: baseline; border: 1px solid var(--line); padding: 0 6px; border-radius: var(--radius); }
+
+  .preflight-list { list-style: none; padding: 0; margin: 0; }
+  .preflight-list > li { padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .preflight-list .check-head { display: flex; gap: 8px; align-items: baseline; }
+  .preflight-list .check-head .spacer { flex: 1; }
+  .preflight-list .verdict { flex: none; font-weight: 600; }
+  .preflight-list .verdict.ok { color: var(--ok); }
+  .preflight-list .verdict.warn, .preflight-list .verdict.fail { color: var(--danger); }
+  .preflight-list .verdict.info { color: var(--muted); }
+  .preflight-list ul { margin: 4px 0 0; padding-left: 20px; font-size: 14px; }
+  .preflight-list ul a { overflow-wrap: anywhere; }
+
+  .source-clip { position: fixed; z-index: 20; max-width: min(32rem, calc(100vw - 32px)); background: var(--bg); border: 1px solid var(--edge); padding: 8px 12px; font-size: 14px; box-shadow: 0 2px 8px rgb(0 0 0 / .3); }
+  .source-clip[hidden] { display: none; }
+  .source-clip .clip-head { display: flex; gap: 8px; align-items: baseline; margin-bottom: 4px; }
+  .source-clip .clip-head .spacer { flex: 1; }
+  .source-clip blockquote { margin: 0; max-height: 14rem; overflow: auto; white-space: pre-wrap; }
+  .source-clip mark, .quote-check mark { background: var(--sel); color: inherit; }
+  .quote-check .verdict.ok { color: var(--ok); }
+  .quote-check .verdict.warn, .quote-check .verdict.fail { color: var(--danger); }
+  .quote-check .verdict.info { color: var(--muted); }
+
+  /* The source reader takes the preview's place: the draft and the source side by side. */
+  .split.source-open, .split.source-open.with-panel, .split.no-preview.source-open { grid-template-columns: 1fr 1fr; position: relative; }
+  .split.source-open .preview-pane { display: none; }
+  @media (max-width: 900px) {
+    .split.source-open { grid-template-columns: 1fr; }
+    .split.source-open .source-panel { position: absolute; inset: 0; z-index: 2; }
+  }
+  .source-panel { display: flex; flex-direction: column; min-width: 0; }
+  .source-panel[hidden] { display: none; }
+  .source-panel .source-pick { display: flex; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .source-panel .source-pick select { flex: 1 1 10rem; min-width: 0; }
+  .source-panel .source-pages { flex: 1; overflow: auto; padding: 8px; }
+  .source-page { position: relative; margin: 0 auto 12px; background: #fff; }
+  .source-page canvas { display: block; width: 100%; height: auto; }
+  .source-page .textLayer { position: absolute; inset: 0; overflow: hidden; line-height: 1; opacity: 1; }
+  .source-page .textLayer span, .source-page .textLayer br { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0 0; }
+  .source-page .textLayer ::selection { background: rgb(11 87 208 / .3); }
+  .source-page .page-label { position: absolute; top: 4px; right: 8px; font-size: 12px; color: #616161; }
+  .source-panel .source-actions { display: flex; gap: 8px; padding: 8px 16px; border-top: 1px solid var(--line); align-items: baseline; }
+  .source-panel .source-actions .spacer { flex: 1; font-size: 13px; color: var(--muted); }
+}
+
 /* The writing studio (editor/studio.js): the corkboard, the breakdown, line highlights, the
    table read and the daily target. */
 @layer components {

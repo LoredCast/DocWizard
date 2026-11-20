@@ -18,6 +18,7 @@ import time
 from dataclasses import dataclass
 from urllib.parse import quote
 
+from .. import activity
 from ..logs import fields
 from ..netpolicy import FetchError, PolicyError
 from ..projects import files
@@ -117,12 +118,22 @@ class SyncEngine:
                     "UPDATE sync_targets SET status = 'error', last_error = ?, failures = ?, next_poll_at = ?"
                     " WHERE id = ?", (str(exc)[:500], failures, time.time() + delay, target_id))
                 log.warning("sync failed", extra=fields(target=target_id, error=str(exc), retry_in=delay))
+                if target["status"] != "error":
+                    # Once per failure, not on every retry (§8.12).
+                    await activity.log(self.app, target["project_id"], "sync_error", actor="system:sync",
+                                       detail={"source": f"sync:{target['kind']}", "error": str(exc)[:200]})
                 return {"error": str(exc)}
             await self.app.db.execute(
                 "UPDATE sync_targets SET status = 'ok', last_error = NULL, failures = 0, last_sync_at = ?,"
                 " next_poll_at = ? WHERE id = ?", (started, time.time() + target["poll_seconds"], target_id))
             if any(report.values()):
                 log.info("sync", extra=fields(target=target_id, **{k: len(v) for k, v in report.items()}))
+                sent = len(report.get("uploaded", [])) + len(report.get("deleted_remote", []))
+                received = len(report.get("downloaded", [])) + len(report.get("deleted_local", []))
+                await activity.log(self.app, target["project_id"], "sync", actor="system:sync",
+                                   detail={"source": f"sync:{target['kind']}", "sent": sent, "received": received,
+                                           "conflicts": len(report.get("conflicts", [])),
+                                           "renamed": len(report.get("renamed", []))})
             return report
 
 

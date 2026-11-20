@@ -21,6 +21,11 @@ import {
 } from "./commands.js";
 import { CommentsPanel } from "./comments.js";
 import { FieldsPanel, LayoutFields, fieldsExtension } from "./fields.js";
+import { Follower } from "./follow.js";
+import { ActivityDialog } from "./activity.js";
+import { ProjectFind } from "./project-replace.js";
+import { Preflight } from "./preflight.js";
+import { QuoteCheck, SourceClips, SourceLibrary, SourceReader } from "./source-clips.js";
 import { GrammarChecker, grammarExtension, showMatches } from "./grammar.js";
 import { figures } from "./figures.js";
 import { ImageInserter } from "./images.js";
@@ -125,12 +130,17 @@ const grammar = isMarkdown && !readOnly && !review && !navigator.connection?.sav
   ? new GrammarChecker({
     grammar: snap.grammar,
     docKey: docId,
-    onError: (message) => toast(t("Grammar checking stopped: {message}", { message })),
+    projectId: snap.project.id,
+    account: Boolean(snap.user && !snap.user.guest),
+    canProject: Boolean(snap.can?.edit),
+    onError: (message, { keepGoing = false } = {}) => toast(
+      keepGoing ? message : t("Grammar checking stopped: {message}", { message }), { error: keepGoing }),
   })
   : null;
 let library = new Map();
 let references = null; // the references panel, created below
 let fieldsPanel = null; // the fields panel, created below
+let sourceReader = null; // the source reader, created below
 // Clicking commented text opens its thread. On touch screens, a tap on it while the keyboard is
 // down opens the thread without focusing the text, so the keyboard stays down.
 const markClicks = EditorView.domEventHandlers({
@@ -225,7 +235,8 @@ const session = new DocSession({
     isMarkdown ? writerField.init(() => !review && stored(marksKey, "on") === "off") : [],
     tools ? tools.extension({ writer: writerMode }) : [], isScript ? characterCompletion(() => characters) : [],
     grammar ? grammarExtension({ ignore: (m, w) => { grammar.ignore(m, w); checkGrammar(); },
-                                 addWord: (w) => { grammar.addWord(w); checkGrammar(); } }) : [],
+                                 addWord: (w, scope) => { grammar.addWord(w, scope).then(checkGrammar); checkGrammar(); },
+                                 scopes: () => grammar.scopes() }) : [],
     suggest ? suggest.extension : [], isMarkdown ? studioExtension : [],
     session.extension(version)] }),
   onStatus: showStatus,
@@ -234,6 +245,8 @@ const session = new DocSession({
 });
 const presenceSender = new PresenceSender(session, socket, docId);
 const presence = new PresenceView(session, showPeers);
+let follower = null;
+let peerList = [];
 
 const view = new EditorView({
   state: session.makeState(snap.text, snap.version),
@@ -252,8 +265,13 @@ const view = new EditorView({
     }
     if (trs.some((tr) => tr.selection || tr.docChanged)) references?.cursorMoved();
     if (trs.some((tr) => tr.docChanged)) fieldsPanel?.docChanged();
+    follower?.moved();
   },
 });
+follower = new Follower({ view, projectId, docId, docUrl: (path) => `/p/${projectId}/${path.split("/").map(encodeURIComponent).join("/")}` });
+follower.show(peerList);
+const activityDialog = new ActivityDialog({ projectId, docUrl: (path) => `/p/${projectId}/${path.split("/").map(encodeURIComponent).join("/")}` });
+$("#open-activity")?.addEventListener("click", () => activityDialog.open());
 const { text: _text, version: _version, clientID: _clientID, ...meta } = snap;
 session.keep = { url: location.pathname, meta, pinned: Boolean(snap.doc.pinned) };
 session.start(view);
@@ -507,12 +525,10 @@ function showStatus({ state, waiting }) {
   if (menuStatus) menuStatus.textContent = label;
 }
 
+// The people in this document, as buttons that follow their cursor (§8.7).
 function showPeers(peers) {
-  const slot = $("#presence");
-  slot.replaceChildren(...peers.map((p, i) => el("span", { class: "peer" },
-    el("span", { class: "dot", style: `--peer: var(--peer-${p.color})`, "aria-hidden": "true" }),
-    el("span", { class: "name" }, `${p.name}${i < peers.length - 1 ? "," : ""}`))));
-  slot.title = peers.length ? t("Also here: {names}", { names: peers.map((p) => p.name).join(", ") }) : "";
+  peerList = peers;
+  follower?.show(peers);
 }
 
 socket.onError((msg) => toast(msg.message ?? t("The connection reported an error."), { error: true }));
@@ -549,6 +565,9 @@ function handleEvent(msg) {
       break;
     case "comments":
       comments.load();
+      break;
+    case "dictionary":
+      grammar?.reloadWords().then(checkGrammar);
       break;
     case "notifications":
       if (msg.users?.includes(snap.user?.id)) comments.load();
@@ -1119,6 +1138,16 @@ $("#open-export").addEventListener("click", () => {
   $("#export-status").textContent = "";
   exportDialog.showModal();
 });
+// The check before submitting, and anonymized exports for double-blind review (§9.11).
+const preflight = offlineRecord ? null : new Preflight({
+  projectId, docId, docUrl: (path) => `/p/${projectId}/${path.split("/").map(encodeURIComponent).join("/")}`,
+  onAnonymize: () => {
+    $("#export-anonymize").checked = true;
+    $("#open-export").click();
+  },
+});
+$("#open-preflight")?.addEventListener("click", () => preflight?.open());
+$("#export-preflight")?.addEventListener("click", () => { exportDialog.close(); preflight?.open(); });
 $("#export-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const status = $("#export-status");
@@ -1134,7 +1163,8 @@ $("#export-form").addEventListener("submit", async (event) => {
   for (const b of buttons) b.disabled = true;
   try {
     const { job } = await api("POST", `/api/projects/${projectId}/export`,
-                              { target: targetName, doc: docId, options });
+                              { target: targetName, doc: docId, options,
+                                anonymize: $("#export-anonymize")?.checked === true });
     for (let i = 0; i < 600; i++) {
       await new Promise((r) => setTimeout(r, i < 10 ? 500 : 1500));
       const s = await api("GET", `/api/jobs/${job}`);
@@ -1432,6 +1462,7 @@ async function openLinkedThread() {
   comments.focusThread(Number(m[1]));
 }
 sidePanel.addEventListener("toggle", () => {
+  if (!sidePanel.hidden && sourceReader?.open) sourceReader.hide();
   split.classList.toggle("with-panel", !sidePanel.hidden || Boolean(references?.open) || Boolean(fieldsPanel?.open));
   split.classList.toggle("comments-open", !sidePanel.hidden);
   if (!suggesting()) bubble?.update();
@@ -1518,6 +1549,7 @@ references = isMarkdown && refsPanel ? new ReferencesPanel({
   onToggle: (open) => {
     if (open && comments.open) comments.hide();
     if (open && fieldsPanel?.open) fieldsPanel.hide();
+    if (open && sourceReader?.open) sourceReader.hide();
     split.classList.toggle("with-panel", open || comments.open || Boolean(fieldsPanel?.open));
     split.classList.toggle("refs-open", open);
     $("#open-refs")?.setAttribute("aria-pressed", String(open));
@@ -1537,6 +1569,7 @@ fieldsPanel = layoutFields && fieldsEl ? new FieldsPanel({
   onToggle: (open) => {
     if (open && comments.open) comments.hide();
     if (open && references?.open) references.hide();
+    if (open && sourceReader?.open) sourceReader.hide();
     split.classList.toggle("with-panel", open || comments.open || Boolean(references?.open));
     split.classList.toggle("fields-open", open);
     $("#open-fields")?.setAttribute("aria-pressed", String(open));
@@ -1544,7 +1577,34 @@ fieldsPanel = layoutFields && fieldsEl ? new FieldsPanel({
 }) : null;
 $("#open-fields")?.addEventListener("click", () => fieldsPanel?.toggle());
 
+// -- Source clips, quote checking and the source reader (§10.5) -----------------
+const sourceLibrary = isMarkdown && !offlineRecord
+  ? new SourceLibrary({ projectId, files: snap.files, library: () => library }) : null;
+const sourcePanel = $("#source-panel");
+sourceReader = sourceLibrary && sourcePanel ? new SourceReader({
+  view, sources: sourceLibrary, panel: sourcePanel, readOnly: readOnly || review,
+  onToggle: (open) => {
+    if (open && comments.open) comments.hide();
+    if (open && references?.open) references.hide();
+    if (open && fieldsPanel?.open) fieldsPanel.hide();
+    split.classList.toggle("source-open", open);
+    $("#open-source")?.setAttribute("aria-pressed", String(open));
+  },
+}) : null;
+const openSource = (key, page) => sourceReader?.show(key, page);
+if (sourceLibrary && !coarse) new SourceClips({ view, sources: sourceLibrary, onOpen: openSource });
+const quoteCheck = sourceLibrary ? new QuoteCheck({ view, sources: sourceLibrary, readOnly: readOnly || review, onOpen: openSource }) : null;
+$("#open-source")?.addEventListener("click", () => sourceReader?.toggle());
+$("#open-quotes")?.addEventListener("click", () => quoteCheck?.open());
+if (!sourceLibrary) for (const id of ["#open-source", "#open-quotes"]) $(id)?.remove();
+
 $("#open-find")?.addEventListener("click", () => toggleFind());
+const projectFind = offlineRecord ? null : new ProjectFind({
+  projectId, docId, view, canEdit: Boolean(snap.can.edit) && !review,
+  docUrl: (path) => `/p/${projectId}/${path.split("/").map(encodeURIComponent).join("/")}`,
+  settle: () => settle(),
+});
+$("#open-project-find")?.addEventListener("click", () => projectFind?.open());
 
 // -- Chapters and files ------------------------------------------------------
 const chapters = new ChaptersDrawer({
@@ -1757,7 +1817,8 @@ if (publishButton) {
     } else if (pub.status === "error") {
       current.replaceChildren(el("span", { class: "error" }, t("Publishing failed: {error}", { error: pub.lastError || t("unknown error") })));
     } else {
-      const state = pub.outdated ? (pub.autoUpdate ? t("updating soon") : t("has unpublished changes")) : t("up to date");
+      let state = pub.outdated ? (pub.autoUpdate ? t("updating soon") : t("has unpublished changes")) : t("up to date");
+      if (pub.password) state += `, ${t("password protected")}`;
       current.replaceChildren(t("Published at"), " ", el("a", { href: pub.url, target: "_blank", rel: "noopener noreferrer" }, pub.url),
         el("span", { class: "muted" }, ` (${state})`), " ",
         el("button", { type: "button", class: "link", onclick: () => { navigator.clipboard?.writeText(pub.url); toast(t("Link copied.")); } }, t("Copy link")));
@@ -1766,14 +1827,26 @@ if (publishButton) {
       f.visibility.value = pub.visibility;
       f.slug.value = pub.visibility === "public" ? pub.slug : "";
       f.autoUpdate.checked = pub.autoUpdate;
-      f.withPdf.checked = pub.withPdf;
+      for (const name of ["withPdf", "withEpub", "withDocx", "edition", "reports", "anonymize"]) f[name].checked = !!pub[name];
+      f.locked.checked = pub.password;
     }
+    hasPassword = !!pub?.password;
+    f.password.value = "";
     syncVisibility();
   }
+  let hasPassword = false;
   function syncVisibility() {
     const unlisted = f.visibility.value === "unlisted";
     $("#publish-slug-label").hidden = unlisted;
     f.slug.required = !unlisted;
+    $("#publish-password-label").hidden = !f.locked.checked;
+    // A new site behind a password needs one; an existing one keeps its password when left empty.
+    f.password.required = f.locked.checked && !hasPassword;
+    f.password.placeholder = hasPassword ? t("Leave empty to keep the current password") : "";
+  }
+  function passwordField() {
+    if (!f.locked.checked) return false;
+    return f.password.value ? f.password.value : undefined;
   }
   async function call(method, url, body) {
     if (busy) return;
@@ -1792,7 +1865,9 @@ if (publishButton) {
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     call("PUT", base, { visibility: f.visibility.value, slug: f.slug.value.trim().toLowerCase(),
-                        autoUpdate: f.autoUpdate.checked, withPdf: f.withPdf.checked });
+                        autoUpdate: f.autoUpdate.checked, withPdf: f.withPdf.checked, withEpub: f.withEpub.checked,
+                        withDocx: f.withDocx.checked, edition: f.edition.checked, reports: f.reports.checked,
+                        anonymize: f.anonymize.checked, password: passwordField() });
   });
   $("#publish-again").addEventListener("click", () => call("POST", `${base}/run`));
   $("#publish-remove").addEventListener("click", async () => {
@@ -1952,6 +2027,9 @@ document.addEventListener("keydown", (event) => {
   if (mod && event.key === "s") {
     event.preventDefault();
     toast(session.status().state === "saved" ? t("Everything is saved.") : t("Saving automatically…"));
+  } else if (mod && event.shiftKey && !event.altKey && event.code === "KeyF" && projectFind) {
+    event.preventDefault();
+    projectFind.open();
   } else if (mod && event.key === "e" && !event.shiftKey) {
     event.preventDefault();
     $("#open-export").click();

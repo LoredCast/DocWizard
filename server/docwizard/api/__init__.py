@@ -4,10 +4,13 @@ from __future__ import annotations
 
 
 def register(app) -> None:
-    from . import (assist, browser_render, citations, comments, data, deck, grammar, layouts, offline, projects, publish,
-                   render, sync)
+    from . import (activity, assist, browser_render, citations, comments, data, deck, grammar, layouts, offline,
+                   preflight, project_text, projects, publish, render, sync)
 
     projects.register(app)
+    activity.register(app)
+    project_text.register(app)
+    preflight.register(app)
     layouts.register(app)
     render.register(app)
     comments.register(app)

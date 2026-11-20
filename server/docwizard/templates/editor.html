@@ -10,6 +10,7 @@
 {% block crumbs %}<a class="wordmark" href="/">DocWizard</a><span>/</span><a href="/p/{{ project.id }}" id="crumb-project">{{ project.name }}</a><span>/</span><button type="button" class="crumb-doc" id="crumb-doc" data-open-chapters aria-expanded="false" aria-controls="chapters" title="{{ _('Chapters and files') }}"><span class="crumb-name">{{ doc.path }}</span></button>{% endblock %}
 {% block actions %}
 <span class="presence" id="presence" role="group" aria-label="{{ _('Also here') }}"></span>
+<span class="presence-elsewhere" id="presence-elsewhere" hidden></span>
 <span class="status" id="save-state" role="status">{{ _("Saved") }}</span>
 {# The actions used most stay in the bar on wide screens; the rest are grouped in the Actions menu. #}
 <button type="button" class="tb-quick" data-proxy="open-comments">{{ _("Comments") }}</button>
@@ -25,7 +26,10 @@
       <button type="button" id="open-palette" title="{{ _('Go to any file or heading, or run any command (Ctrl+K)') }}">{{ _("Command palette") }}</button>
       <button type="button" id="open-chapters" data-open-chapters aria-expanded="false" aria-controls="chapters">{{ _("Chapters") }}</button>
       <button type="button" id="open-find" title="{{ _('Find and replace (Ctrl+F)') }}">{{ _("Find and replace") }}</button>
+      <button type="button" id="open-project-find" title="{{ _('Find and replace in every document of the project (Ctrl+Shift+F)') }}">{{ _("Find in all chapters") }}</button>
       {% if doc.kind == "markdown" %}<button type="button" id="open-refs" aria-pressed="false" title="{{ _('References (Ctrl+Alt+R)') }}">{{ _("References") }}</button>
+      <button type="button" id="open-source" aria-pressed="false" title="{{ _('Read a cited source next to the text; drag passages into it as quotations') }}">{{ _("Source reader") }}</button>
+      <button type="button" id="open-quotes" title="{{ _('Check every quotation against the PDF of its source') }}">{{ _("Verify quotes") }}</button>
       <button type="button" id="open-fields" aria-pressed="false" title="{{ _('Title, author and the other details this template prints') }}">{{ _("Document details") }}</button>
       {% if not review %}<button type="button" id="toggle-raw" aria-pressed="false" title="{{ _('Edit the Markdown as plain text, without rendering titles, pictures or tables') }}">{{ _("Plain text editing") }}</button>{% endif %}
       {% if not review %}<button type="button" id="open-corkboard" data-open-corkboard aria-pressed="false" aria-controls="corkboard" title="{{ _('Chapters and scenes as cards to rearrange') }}">{{ _("Corkboard") }}</button>
@@ -39,12 +43,14 @@
       <span class="menu-heading" id="menu-review">{{ _("Review") }}</span>
       <button type="button" id="new-comment" title="{{ _('Comment on the selection (Ctrl+Alt+M)') }}">{{ _("Comment") }}</button>
       <button type="button" id="open-comments" class="pinned" aria-pressed="false">{{ _("Comments") }}</button>
+      {% if not guest %}<button type="button" id="open-activity" title="{{ _('Recent edits, comments, renames and syncs in this project') }}">{{ _("Project activity") }}</button>{% endif %}
       <button type="button" id="new-suggestion" aria-pressed="false" title="{{ _('Suggest changes: what you type becomes suggestions (Ctrl+Alt+G)') }}">{{ _("Track changes") }}</button>
     </div>
     <div class="menu-group" role="group" aria-labelledby="menu-share">
       <span class="menu-heading" id="menu-share">{{ _("Share and export") }}</span>
       {% if can(role, "share", project) and not guest %}<button type="button" id="open-share" class="pinned">{{ _("Share") }}</button>{% endif %}
       <button type="button" id="open-export" title="{{ _('PDF, Word, e-book and more (Ctrl+E)') }}">{{ _("Download or print") }}</button>
+      <button type="button" id="open-preflight" title="{{ _('Word and page limits, references, citations and open comments') }}">{{ _("Check before submitting") }}</button>
       {% if doc.kind == "markdown" and layout.public is defined and layout.public().slides %}<button type="button" id="open-sorter" title="{{ _('All slides at a glance; drag them into a new order') }}">{{ _("Slide sorter") }}</button>
       <button type="button" id="open-presenter" title="{{ _('Present with notes, a timer and the next slide; the audience window goes on the projector') }}">{{ _("Present") }}</button>
       {% elif doc.kind == "markdown" and not guest and can(role, "edit", project) %}<button type="button" id="make-deck" title="{{ _('A new slides project with this document’s headings, key points, figures and references') }}">{{ _("Make slides") }}</button>{% endif %}
@@ -72,6 +78,7 @@
 <div class="split" id="split">
   <section class="pane editor-pane" aria-label="{{ _('Editor') }}">
     {% if review %}<p class="review-banner" id="review-banner">{{ _("You're reviewing {path}. Select text, then choose Comment or Suggest change.", path=doc.path) if can(role, "comment", project) else _("You're reading {path}.", path=doc.path) }}</p>{% endif %}
+    <p class="follow-banner" id="follow-banner" role="status" hidden></p>
     <p class="suggest-banner" id="suggest-banner" role="status" hidden><strong>{{ _("Tracking changes") }}</strong> <span class="muted">{{ _("What you type becomes suggestions to accept or reject.") }}</span> <button type="button" class="link" id="suggest-off">{{ _("Stop") }}</button></p>
     <div class="format-bar" id="format-bar" role="toolbar" aria-label="{{ _('Formatting') }}"{% if doc.kind != "markdown" or not can(role, "edit", project) %} hidden{% endif %}>
       <button type="button" data-cmd="undo" aria-label="{{ _('Undo') }}" title="{{ _('Undo (Ctrl+Z)') }}">↶</button>
@@ -149,6 +156,7 @@
   </aside>
   <aside class="pane side-panel refs-panel" id="refs-panel" aria-label="{{ _('References') }}" hidden></aside>
   <aside class="pane side-panel fields-panel" id="fields-panel" aria-label="{{ _('Document details') }}" hidden></aside>
+  <aside class="pane side-panel source-panel" id="source-panel" aria-label="{{ _('Source reader') }}" hidden></aside>
 </div>
 <dialog id="rename-dialog" aria-labelledby="rename-title">
   <form method="dialog" class="form" id="rename-form">
@@ -187,6 +195,8 @@
         <label class="choice"><input type="radio" name="target" value="md-source"{% if doc.kind == "latex" %} checked{% endif %}> {{ _("Project source (zip)") }}</label>
       </details>
     </fieldset>
+    <label class="choice" title="{{ _('Leaves out authors, affiliations, acknowledgements, funding and passages marked .unblind, also from the file’s metadata') }}"><input type="checkbox" name="anonymize" id="export-anonymize"> {{ _("Anonymize for double-blind review") }}</label>
+    <p class="muted hint"><button type="button" class="link" id="export-preflight">{{ _("Check before submitting") }}</button></p>
     <p id="export-conflicts" class="error"></p>
     <p id="export-status" class="muted" role="status"></p>
     <div class="buttons">
@@ -210,7 +220,23 @@
       <span class="row"><span class="muted" id="publish-base"></span><input name="slug" pattern="[a-z0-9][a-z0-9\-]{2,63}" maxlength="64" autocomplete="off" spellcheck="false" placeholder="my-thesis"></span>
     </label>
     <label class="choice"><input type="checkbox" name="autoUpdate"> {{ _("Update the page automatically when the document changes") }}</label>
-    <label class="choice"><input type="checkbox" name="withPdf"> {{ _("Offer a PDF download") }}</label>
+    <label class="choice"><input type="checkbox" name="edition"> {{ _("Publish as a book: every chapter on its own page, with contents, a reading mode, and a “Cite this work” box") }}</label>
+    <fieldset class="plain">
+      <legend>{{ _("Downloads") }}</legend>
+      <label class="choice"><input type="checkbox" name="withPdf"> {{ _("Offer a PDF download") }}</label>
+      <label class="choice"><input type="checkbox" name="withEpub"> {{ _("Offer an EPUB download") }}</label>
+      <label class="choice"><input type="checkbox" name="withDocx"> {{ _("Offer a Word download") }}</label>
+    </fieldset>
+    <fieldset class="plain">
+      <legend>{{ _("Readers") }}</legend>
+      <label class="choice"><input type="checkbox" name="reports"> {{ _("Let readers report typos; each report arrives as a suggested change") }}</label>
+      <label class="choice"><input type="checkbox" name="anonymize"> {{ _("Anonymize for double-blind review: leave out authors, affiliations, acknowledgments and metadata") }}</label>
+      <label class="choice"><input type="checkbox" name="locked"> {{ _("Protect with a password") }}</label>
+      <label id="publish-password-label" hidden>{{ _("Password") }}
+        <input name="password" type="password" autocomplete="new-password" minlength="6" maxlength="200">
+        <span class="muted" id="publish-password-hint">{{ _("Readers enter it once per browser. Changing it locks everyone out until they enter the new one.") }}</span>
+      </label>
+    </fieldset>
     <div class="buttons">
       <button type="button" data-close-dialog>{{ _("Close") }}</button>
       <button type="button" id="publish-remove" class="danger" hidden>{{ _("Unpublish") }}</button>
@@ -258,6 +284,67 @@
       <button type="submit" class="primary" value="save" id="options-save">{{ _("Save") }}</button>
     </div>
   </form>
+</dialog>
+{% if not guest %}
+<dialog id="activity-dialog" class="wide" aria-labelledby="activity-title">
+  <div class="form">
+    <h2 id="activity-title">{{ _("Project activity") }}</h2>
+    <ol class="activity-list" id="activity-items" aria-live="polite"></ol>
+    <div class="buttons">
+      <button type="button" id="activity-more" hidden>{{ _("Show older activity") }}</button>
+      <a class="spacer" href="/p/{{ project.id }}#activity">{{ _("On the project page") }}</a>
+      <button type="button" data-close-dialog>{{ _("Close") }}</button>
+    </div>
+  </div>
+</dialog>
+{% endif %}
+<dialog id="project-find-dialog" class="wide" aria-labelledby="project-find-title">
+  <div class="form">
+    <h2 id="project-find-title">{{ _("Find in all chapters") }}</h2>
+    <form class="find-fields" id="project-find-form">
+      <label>{{ _("Find") }} <input name="query" type="search" autocomplete="off" spellcheck="false" required></label>
+      <label>{{ _("Replace with") }} <input name="replacement" autocomplete="off" spellcheck="false"></label>
+      <div class="find-options">
+        <label class="choice"><input type="checkbox" name="caseSensitive"> {{ _("Match case") }}</label>
+        <label class="choice"><input type="checkbox" name="wholeWord"> {{ _("Whole words") }}</label>
+        <label class="choice" title="{{ _('JavaScript regular expressions; the replacement can use $1 or $<name>') }}"><input type="checkbox" name="regexp"> {{ _("Regular expression") }}</label>
+        <label class="choice"><input type="checkbox" name="allFiles"> {{ _("Also bibliographies and other files") }}</label>
+        <button type="submit">{{ _("Search") }}</button>
+      </div>
+    </form>
+    <p class="muted" id="project-find-summary" role="status"></p>
+    <ul class="match-list" id="project-find-results"></ul>
+    <div class="buttons">
+      <button type="button" data-close-dialog>{{ _("Close") }}</button>
+      <button type="button" class="primary" id="project-find-replace" disabled>{{ _("Replace") }}</button>
+    </div>
+  </div>
+</dialog>
+<dialog id="preflight-dialog" class="wide" aria-labelledby="preflight-title">
+  <div class="form">
+    <h2 id="preflight-title">{{ _("Check before submitting") }}</h2>
+    <p class="muted">{{ _("Checks the documents the PDF is built from. Limits come from word-limit:, page-limit: and abstract-word-limit: in the front matter.") }}</p>
+    <p id="preflight-state" role="status"></p>
+    <ul class="preflight-list" id="preflight-list"></ul>
+    <div class="buttons">
+      <button type="button" id="preflight-pages">{{ _("Count the PDF's pages") }}</button>
+      <button type="button" id="preflight-again">{{ _("Check again") }}</button>
+      <button type="button" id="preflight-anonymize">{{ _("Export anonymized") }}</button>
+      <button type="button" data-close-dialog>{{ _("Close") }}</button>
+    </div>
+  </div>
+</dialog>
+<dialog id="quotes-dialog" class="wide" aria-labelledby="quotes-title">
+  <div class="form">
+    <h2 id="quotes-title">{{ _("Verify quotes") }}</h2>
+    <p class="muted">{{ _("Each quotation followed by a citation is looked up in the source's PDF: a project file named after the key, such as sources/doe2020.pdf, or the PDF attached in your Zotero library.") }}</p>
+    <p id="quotes-state" role="status"></p>
+    <ul class="preflight-list quote-check" id="quotes-list"></ul>
+    <div class="buttons">
+      <button type="button" id="quotes-again">{{ _("Check again") }}</button>
+      <button type="button" data-close-dialog>{{ _("Close") }}</button>
+    </div>
+  </div>
 </dialog>
 <dialog id="versions-dialog" class="wide" aria-labelledby="versions-title">
   <div class="form">

@@ -182,6 +182,8 @@ def register(app) -> None:
         ctx["mail"] = app.mail.enabled
         ctx["email_required"] = bool(app.policy("require_email_verification"))
         ctx["storage"] = await app.quotas.usage(req.user.id)
+        ctx["my_words"] = [r["word"] for r in await app.db.fetchall(
+            "SELECT word FROM user_words WHERE user_id = ? ORDER BY word COLLATE NOCASE", (req.user.id,))]
         await app.settings_extras(req, ctx)
         from ..i18n import LANGUAGES
 
@@ -220,6 +222,27 @@ def register(app) -> None:
         if prefs.get("language"):
             resp.set_cookie("lang", prefs["language"], max_age=365 * 86400, secure=cfg.secure_cookies)
         return resp
+
+    async def settings_words(req: Request) -> Response:
+        """The person's own spelling dictionary, used in all their projects (§6.8)."""
+        from ..api.project_text import MAX_WORDS, clean_word
+
+        form = await req.form()
+        uid, now = req.user.id, time.time()
+        if form.get("action") == "remove":
+            word = clean_word(form.get("word"))
+            await app.db.execute("DELETE FROM user_words WHERE user_id = ? AND word = ?", (uid, word))
+        else:
+            words = [w for w in (clean_word(v) for v in form.get("words", "").split()[:MAX_WORDS]) if w]
+
+            def work(c):
+                have = c.execute("SELECT count(*) FROM user_words WHERE user_id = ?", (uid,)).fetchone()[0]
+                for w in words[:max(0, MAX_WORDS - have)]:
+                    c.execute("INSERT OR IGNORE INTO user_words(user_id, word, created_at) VALUES (?, ?, ?)",
+                              (uid, w, now))
+
+            await app.db.write(work)
+        return redirect("/settings?saved=words#words")
 
     async def settings_password(req: Request) -> Response:
         form = await req.form()
@@ -305,5 +328,6 @@ def register(app) -> None:
     app.router.add("GET", "/settings", settings_page, totp_exempt=True)
     app.router.add("POST", "/settings/profile", settings_profile)
     app.router.add("POST", "/settings/password", settings_password, totp_exempt=True)
+    app.router.add("POST", "/settings/words", settings_words)
     app.router.add("POST", "/settings/email", settings_email, totp_exempt=True)
     app.router.add("GET", "/api/me", me, guest=True, totp_exempt=True)

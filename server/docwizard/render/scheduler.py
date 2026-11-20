@@ -34,6 +34,7 @@ from ..http.request import HTTPError
 from ..logs import fields
 from ..projects import docx_import, fountain
 from ..projects import service as svc
+from . import anonymize as anonymizer
 from . import jobs, sample, synctex
 from .layouts import Layout, LayoutError
 from .worker_client import WorkerPool, WorkerUnavailable
@@ -325,7 +326,7 @@ class Renderer:
     # -- rendering -----------------------------------------------------------
     async def render(self, project: dict, target: str, *, doc_path: str | None = None, options: dict | None = None,
                      layout_id: str | None = None, slot: tuple | None = None, actor: str | None = None,
-                     charge: bool = True) -> RenderResult | None:
+                     charge: bool = True, anonymize: bool = False) -> RenderResult | None:
         """Render, or return the cached result. *actor* ("u12", "g3") is who asked: renders that
         actually run count against their limits (*charge* False: the rate was charged already)."""
         if target not in jobs.TARGETS:
@@ -342,7 +343,17 @@ class Renderer:
         if inputs and inputs[0].endswith(".tex") and target != "pdf-latex":
             raise HTTPError(400, "bad_target", "LaTeX documents build as PDF with LaTeX, or export as the "
                                                "project source.")
-        if target == "docx" and inputs and inputs[0].endswith((".md", ".markdown")):
+        # Double-blind exports leave out who wrote it; the others leave out the anonymized
+        # wording in .blind passages (§9.11).
+        # The project source gets every document anonymized.
+        blind_inputs = inputs or ([p for p in snap.texts if p.endswith((".md", ".markdown", ".tex"))]
+                                  if anonymize else [])
+        blind = anonymize or any(anonymizer.has_blind(snap.texts.get(p, "")) for p in blind_inputs)
+        if blind:
+            snap = jobs.ProjectSnapshot(snap.project_id,
+                                        anonymizer.snapshot_texts(snap.texts, blind_inputs, anonymize),
+                                        dict(snap.assets))
+        elif target == "docx" and inputs and inputs[0].endswith((".md", ".markdown")):
             snap = await self._with_comments(project["id"], inputs[0], snap)
         lang = project.get("lang") or None
         # The project's document language changes the output, so it is part of the key (§9.8).
@@ -717,7 +728,7 @@ class Renderer:
 
     # -- exports -------------------------------------------------------------
     def start_export(self, project: dict, user_id: str, target: str, doc_path: str | None,
-                     options: dict | None) -> ExportJob:
+                     options: dict | None, anonymize: bool = False) -> ExportJob:
         now = time.time()
         for jid, job in list(self.exports.items()):
             if now - job.created > 3600:
@@ -736,7 +747,7 @@ class Renderer:
             job.status = "running"
             try:
                 job.result = await self.render(project, target, doc_path=doc_path, options=options, actor=user_id,
-                                               charge=False)
+                                               charge=False, anonymize=anonymize)
                 job.status = job.result.status if job.result else "error"
             except HTTPError as exc:
                 job.status = "error"

@@ -48,7 +48,8 @@ def register(app) -> None:
         if not isinstance(target, str):
             raise bad_request("Choose a format.")
         try:
-            job = renderer.start_export(dict(project), req.actor_key, target, doc_path, options)
+            job = renderer.start_export(dict(project), req.actor_key, target, doc_path, options,
+                                        anonymize=body.get("anonymize") is True)
         except ValueError as exc:
             raise bad_request(str(exc)) from None
         return json_response({"job": job.id}, 202)
