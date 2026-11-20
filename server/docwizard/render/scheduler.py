@@ -687,8 +687,16 @@ class Renderer:
         async def run():
             try:
                 async with self.previews.hold(actor):
-                    result = await self.render(project, target, doc_path=room.path, options=options,
-                                               layout_id=layout.id, slot=slot, actor=actor)
+                    for attempt in range(2):
+                        try:
+                            result = await self.render(project, target, doc_path=room.path, options=options,
+                                                       layout_id=layout.id, slot=slot, actor=actor)
+                            break
+                        except asyncio.CancelledError:
+                            # This request joined an identical render whose own request was then
+                            # cancelled (the one it replaced): render again rather than go silent.
+                            if asyncio.current_task().cancelling() or attempt:
+                                raise
             except HTTPError as exc:
                 conn.send({"t": "rendered", "doc": room.doc_id, "target": target, "url": None,
                            "status": "limited" if exc.status == 429 else "error", "code": exc.code,
