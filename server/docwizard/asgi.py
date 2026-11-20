@@ -362,7 +362,11 @@ class App:
             user=req.user.id if req.user else None, ms=round((time.monotonic() - start) * 1000, 1)))
 
     async def dispatch(self, req: Request) -> Response:
-        if self.cfg.server.serve_static and req.path.startswith("/static/"):
+        if req.path.startswith("/static/") and (
+                self.cfg.server.serve_static or req.path.startswith(self.static_prefix + "/")):
+            # Behind the proxy, a file reaches the app only when the proxy has no such file: its
+            # image comes from another build than the app's (a pull between two image pushes), so
+            # it lacks this release's folder. The app serves its own release's files then.
             return self.static(req)
         on_preview_host = bool(req.host) and self._is_preview_host(req)
         if (self.cfg.server.serve_static and on_preview_host and req.method in ("GET", "HEAD")

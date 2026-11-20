@@ -11,8 +11,17 @@
 
 	handle_path /static/* {
 		root * /srv/static
-		header Cache-Control "public, max-age=31536000, immutable"
-		file_server
+		@shipped file
+		handle @shipped {
+			header Cache-Control "public, max-age=31536000, immutable"
+			file_server
+		}
+		# Not in this image: the app image comes from another build (pulled between two image
+		# pushes) and links its own release's folder. The app serves those files itself.
+		handle {
+			rewrite * /static{uri}
+			reverse_proxy unix//run/docwizard/app.sock
+		}
 	}
 
 	handle {

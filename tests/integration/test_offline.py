@@ -70,6 +70,30 @@ def test_static_urls_change_with_the_files(app, tmp_path, monkeypatch):
     assert asgi.static_version(app.cfg) == app.cfg.release
 
 
+async def test_app_serves_its_release_when_the_proxy_lacks_it(cfg):
+    """Behind the proxy, the app answers for its own release's files, so app and proxy images from
+    different builds (pulled between two image pushes) still get stylesheets and scripts."""
+    from docwizard.asgi import create_app
+
+    cfg.server.serve_static = False
+    cfg.server.release = "nightly-abc1234"
+    application = create_app(cfg)
+    await application.startup()
+    try:
+        assert application.static_prefix == "/static/nightly-abc1234"
+        client = Client(application)
+        css = await client.get("/static/nightly-abc1234/css/app.css")
+        assert css.status == 200 and css.header("content-type").startswith("text/css")
+        js = await client.get("/static/nightly-abc1234/app/editor/main.js")
+        assert js.status == 200 and js.header("content-type") == "text/javascript; charset=utf-8"
+        assert "immutable" in js.header("cache-control")
+        # Only its own release, and nothing outside web/.
+        assert (await client.get("/static/nightly-0000000/css/app.css")).status == 404
+        assert (await client.get("/static/nightly-abc1234/../server/docwizard/asgi.py")).status == 404
+    finally:
+        await application.shutdown()
+
+
 async def test_responsive_toolbar_and_markdown_bar_render(client):
     pid = await new_project(client)
     home = (await client.get("/")).text

@@ -1533,7 +1533,7 @@ AGPL section 13 requires offering the source to network users. Every page footer
 |---|---|---|
 | `app` | Python slim, the 11 packages, `server/` | Unix socket in the shared `run` volume |
 | `worker` | Python slim (stdlib only), pandoc, Typst; TeX Live in the `-tex` variant | No network, read-only root, shared caches read-only. Starts as root with only the five capabilities needed to run each job as its own user |
-| `proxy` | Caddy with `web/` under `/srv/static/<release>/` | Bound to `127.0.0.1:8080` (app) and `127.0.0.1:8081` (publish/preview) over HTTP by default for an external TLS proxy; opt-in `80`/`443` TLS via `deploy/compose.ssl.yaml` |
+| `proxy` | Caddy with `web/` under `/srv/static/<release>/`; a static file it lacks goes to the app, which serves its own release's (an app and a proxy image from different builds still match) | Bound to `127.0.0.1:8080` (app) and `127.0.0.1:8081` (publish/preview) over HTTP by default for an external TLS proxy; opt-in `80`/`443` TLS via `deploy/compose.ssl.yaml` |
 
 ```yaml
 # deploy/compose.yaml (sketch)
@@ -1595,8 +1595,15 @@ write.example.org {
 
 	handle_path /static/* {
 		root * /srv/static
-		header Cache-Control "public, max-age=31536000, immutable"
-		file_server
+		@shipped file
+		handle @shipped {
+			header Cache-Control "public, max-age=31536000, immutable"
+			file_server
+		}
+		handle {
+			rewrite * /static{uri}
+			reverse_proxy unix//run/docwizard/app.sock
+		}
 	}
 
 	handle {
