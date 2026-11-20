@@ -122,8 +122,9 @@ def build_kit(app, project: dict, doc_path: str | None, snap: jobs.ProjectSnapsh
             files["options.json"] = {"text": json.dumps(meta)}
         except ValueError:
             pass
-    # Filters find the shared module (require "dwlocale") and its data next to where pandoc runs.
-    for name in ("dwlocale.lua", "locales.json"):
+    # Filters find the shared modules (require "dwlocale", "dwgraphics", "dwsheet") and their data
+    # next to where pandoc runs.
+    for name in ("dwlocale.lua", "locales.json", "dwgraphics.lua", "dwsheet.lua"):
         entry = files.get(f"{LAYOUT_ROOT}/_builtin/{name}")
         if entry:
             files[name] = entry
