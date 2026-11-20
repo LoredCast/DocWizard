@@ -28,6 +28,16 @@
 		reverse_proxy unix//run/docwizard/app.sock
 	}
 
+	# Sites behind a password and the readers' typo form: served by the app, which sets
+	# their headers (§14.4). Password-protected sites never sit in /srv/publish.
+	handle /_site/* {
+		reverse_proxy unix//run/docwizard/app.sock
+	}
+
+	handle /_report/* {
+		reverse_proxy unix//run/docwizard/app.sock
+	}
+
 	# Unlisted publications (/u-...) are never indexed. Public ones follow DOCWIZARD_PUBLIC_ROBOTS:
 	# "all" (default) or "noindex, nofollow"; set [server] index_public_sites to match (§14.4).
 	handle /u-* {

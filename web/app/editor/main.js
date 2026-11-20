@@ -1536,7 +1536,8 @@ if (publishButton) {
     } else if (pub.status === "error") {
       current.replaceChildren(el("span", { class: "error" }, t("Publishing failed: {error}", { error: pub.lastError || t("unknown error") })));
     } else {
-      const state = pub.outdated ? (pub.autoUpdate ? t("updating soon") : t("has unpublished changes")) : t("up to date");
+      let state = pub.outdated ? (pub.autoUpdate ? t("updating soon") : t("has unpublished changes")) : t("up to date");
+      if (pub.password) state += `, ${t("password protected")}`;
       current.replaceChildren(t("Published at"), " ", el("a", { href: pub.url, target: "_blank", rel: "noopener noreferrer" }, pub.url),
         el("span", { class: "muted" }, ` (${state})`), " ",
         el("button", { type: "button", class: "link", onclick: () => { navigator.clipboard?.writeText(pub.url); toast(t("Link copied.")); } }, t("Copy link")));
@@ -1545,14 +1546,26 @@ if (publishButton) {
       f.visibility.value = pub.visibility;
       f.slug.value = pub.visibility === "public" ? pub.slug : "";
       f.autoUpdate.checked = pub.autoUpdate;
-      f.withPdf.checked = pub.withPdf;
+      for (const name of ["withPdf", "withEpub", "withDocx", "edition", "reports", "anonymize"]) f[name].checked = !!pub[name];
+      f.locked.checked = pub.password;
     }
+    hasPassword = !!pub?.password;
+    f.password.value = "";
     syncVisibility();
   }
+  let hasPassword = false;
   function syncVisibility() {
     const unlisted = f.visibility.value === "unlisted";
     $("#publish-slug-label").hidden = unlisted;
     f.slug.required = !unlisted;
+    $("#publish-password-label").hidden = !f.locked.checked;
+    // A new site behind a password needs one; an existing one keeps its password when left empty.
+    f.password.required = f.locked.checked && !hasPassword;
+    f.password.placeholder = hasPassword ? t("Leave empty to keep the current password") : "";
+  }
+  function passwordField() {
+    if (!f.locked.checked) return false;
+    return f.password.value ? f.password.value : undefined;
   }
   async function call(method, url, body) {
     if (busy) return;
@@ -1571,7 +1584,9 @@ if (publishButton) {
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     call("PUT", base, { visibility: f.visibility.value, slug: f.slug.value.trim().toLowerCase(),
-                        autoUpdate: f.autoUpdate.checked, withPdf: f.withPdf.checked });
+                        autoUpdate: f.autoUpdate.checked, withPdf: f.withPdf.checked, withEpub: f.withEpub.checked,
+                        withDocx: f.withDocx.checked, edition: f.edition.checked, reports: f.reports.checked,
+                        anonymize: f.anonymize.checked, password: passwordField() });
   });
   $("#publish-again").addEventListener("click", () => call("POST", `${base}/run`));
   $("#publish-remove").addEventListener("click", async () => {
