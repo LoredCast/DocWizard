@@ -6,6 +6,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { after, before, describe, test } from "node:test";
 
+import { accessible } from "./a11y.mjs";
 import { startServer } from "./server.mjs";
 
 const require = createRequire(import.meta.url);
@@ -116,6 +117,7 @@ describe("writing studio", () => {
     await page.locator(".corkboard .cork-lane").first().waitFor();
     assert.deepEqual(await page.locator(".cork-lane h3 .cork-lane-title").allTextContents(), ["One", "Two"]);
     await shot("corkboard");
+    await accessible(page, "corkboard", { include: "#corkboard" });
     const brick = page.locator(".cork-card", { hasText: "Brick waits" });
     await brick.focus();
     await page.keyboard.press("Alt+ArrowUp");
@@ -150,6 +152,7 @@ describe("writing studio", () => {
     await page.click('dialog[open] button[value="save"]');
     const target = page.locator("#session-target");
     await target.waitFor();
+    await accessible(page, "status bar with the daily target", { include: ".statusbar" });
     assert.match(await target.textContent(), /Today: 0 of 3 words/);
     await page.locator(".cm-content").click();
     await page.keyboard.press("ControlOrMeta+End");
@@ -167,6 +170,7 @@ describe("writing studio", () => {
     // The newest point has the words typed for the daily target, marked as written since the point before.
     await dialog.locator(".timeline-ins", { hasText: "Three more words." }).waitFor();
     await shot("timeline");
+    await accessible(page, "drafting timeline", { include: "dialog[open]" });
     await slider.focus();
     await page.keyboard.press("Home");
     await page.waitForFunction(() => !document.querySelector(".timeline-text").textContent.includes("Three more words"));
@@ -185,6 +189,7 @@ describe("writing studio", () => {
     await dialog.locator('[role="tab"]', { hasText: "Cast" }).click();
     assert.deepEqual(await dialog.locator("tbody tr td:first-child").allTextContents(), ["MARA", "BRICK"]);
     await shot("breakdown");
+    await accessible(page, "breakdown", { include: "dialog[open]" });
     await dialog.locator("tbody tr", { hasText: "MARA" }).locator("button").click();
     await page.locator("#editor .cm-speaker").first().waitFor();
     // MARA's two speeches: a cue, a parenthetical and a line, then a cue and a line.

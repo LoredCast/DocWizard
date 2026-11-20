@@ -24,7 +24,8 @@ const WORDS_AROUND = 12;
 const WORD = /[\p{L}\p{N}]+/gu;
 
 export class PdfPreview {
-  constructor(container, { onError, onLoad, onPick, hint, scrollRatio } = {}) {
+  constructor(container, { onError, onLoad, onPick, hint, scrollRatio, label } = {}) {
+    this.label = label ?? "PDF";
     this.container = container;
     this.startRatio = scrollRatio ?? 0; // where the first render opens, as a share of the scroll height
     this.hint = hint ?? "";
@@ -50,6 +51,10 @@ export class PdfPreview {
     if (this.viewer) return;
     this.viewer = document.createElement("div");
     this.viewer.className = "pdf-viewer";
+    // Scrollable, so reachable with the keyboard (arrow keys and Page Up/Down scroll it).
+    this.viewer.tabIndex = 0;
+    this.viewer.setAttribute("role", "region");
+    this.viewer.setAttribute("aria-label", this.label);
     this.viewer.hidden = !this.visible;
     if (this.onPick && this.hint) this.viewer.title = this.hint;
     this.pages = document.createElement("div");

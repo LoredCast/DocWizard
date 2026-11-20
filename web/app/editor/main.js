@@ -95,7 +95,7 @@ const socket = new Socket();
 // The review view keeps the text focusable (read-only), so keyboard users can select passages too;
 // on touch screens that would bring up the keyboard, so there it isn't.
 const coarse = window.matchMedia("(pointer: coarse)").matches;
-const base = baseExtensions({ kind, readOnly: readOnly || review, reading: review, live: false,
+const base = baseExtensions({ kind, readOnly: readOnly || review, reading: review, live: false, label: t("Text of {name}", { name: snap.doc.path }),
                               editable: review ? !coarse : !readOnly });
 let bubble = null; // the review view's selection toolbar
 
@@ -688,6 +688,7 @@ const pdf = new PdfPreview(pane, {
   onError: (url) => showPreviewError("pdf", url),
   onPick: (pick) => findInSource(pick),
   hint: t("Double-click to show this in the source"),
+  label: t("PDF preview"),
   scrollRatio: takeScrollRatio(),
 });
 if (isLatex) {

@@ -95,7 +95,7 @@ export function accessExtensions(readOnly, editable = !readOnly) {
 }
 
 // Everything except collaboration, which the session adds per version.
-export function baseExtensions({ kind, readOnly, live = true, lang = "", reading = false, editable = !readOnly }) {
+export function baseExtensions({ kind, readOnly, live = true, lang = "", reading = false, editable = !readOnly, label = "" }) {
   return [
     EditorView.cspNonce.of(cspNonce()),
     highlightSpecialChars(),
@@ -112,7 +112,7 @@ export function baseExtensions({ kind, readOnly, live = true, lang = "", reading
     EditorView.lineWrapping,
     access.of(accessExtensions(readOnly, editable)),
     EditorView.contentAttributes.of({ spellcheck: "true", autocorrect: "on", autocapitalize: "sentences",
-                                      ...(lang ? { lang } : {}) }),
+                                      ...(lang ? { lang } : {}), ...(label ? { "aria-label": label } : {}) }),
     languageFor(kind),
     kind === "markdown" && live ? livePreview({ reading }) : [],
     keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap,

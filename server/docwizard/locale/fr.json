@@ -1488,5 +1488,7 @@
  "Versions are numbers.": "Les versions sont des nombres.",
  "This document can't be previewed in the browser.": "Ce document ne peut pas être prévisualisé dans le navigateur.",
  "Previews in the browser aren't installed on this server.": "Les aperçus dans le navigateur ne sont pas installés sur ce serveur.",
- "Writing studio": "Atelier d’écriture"
+ "Writing studio": "Atelier d’écriture",
+ "Text of {name}": "Texte de {name}",
+ "PDF preview": "Aperçu PDF"
 }
