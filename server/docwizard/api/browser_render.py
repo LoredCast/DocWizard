@@ -124,7 +124,7 @@ def build_kit(app, project: dict, doc_path: str | None, snap: jobs.ProjectSnapsh
             pass
     # Filters find the shared modules (require "dwlocale", "dwgraphics", "dwsheet") and their data
     # next to where pandoc runs.
-    for name in ("dwlocale.lua", "dwgraphics.lua", "dwsheet.lua", "locales.json"):
+    for name in ("dwlocale.lua", "locales.json", "dwgraphics.lua", "dwsheet.lua"):
         entry = files.get(f"{LAYOUT_ROOT}/_builtin/{name}")
         if entry:
             files[name] = entry
