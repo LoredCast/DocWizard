@@ -1,0 +1,87 @@
+{
+  "id": "slides",
+  "name": "Slides (presentation)",
+  "version": "1.0.0",
+  "description": "A presentation: each ## heading starts a slide, # headings start sections, --- starts a slide without a title and ::: notes holds speaker notes. PDF slides in 16:9 or 4:3, a handout PDF, a web deck and PowerPoint.",
+  "targets": {
+    "html": {
+      "template": "html/template.html",
+      "css": [
+        "html/design.css",
+        "html/slides.css"
+      ]
+    },
+    "pdf-typst": {
+      "template": "typst/template.typ"
+    },
+    "pptx": {},
+    "docx": {},
+    "odt": {}
+  },
+  "defaultPdf": "pdf-typst",
+  "filters": [
+    "crossref",
+    "slides"
+  ],
+  "design": {
+    "text.font": "Noto Sans",
+    "heading.font": "Noto Sans",
+    "text.size": 11,
+    "text.justify": false,
+    "text.hyphenate": false,
+    "text.link-color": "1a4fa0",
+    "cite.style": "chicago-author-date"
+  },
+  "variables": {
+    "aspect": {
+      "type": "enum",
+      "values": ["16:9", "4:3"],
+      "default": "16:9",
+      "label": "Slide shape"
+    },
+    "theme": {
+      "type": "enum",
+      "values": ["light", "dark"],
+      "labels": {"light": "Light", "dark": "Dark"},
+      "default": "light",
+      "label": "Colours"
+    },
+    "slide-level": {
+      "type": "enum",
+      "values": ["", "1", "2", "3"],
+      "labels": {"": "Automatic", "1": "Each # heading", "2": "Each ## heading", "3": "Each ### heading"},
+      "default": "",
+      "label": "New slide at"
+    },
+    "slide-numbers": {
+      "type": "boolean",
+      "default": true,
+      "label": "Slide numbers"
+    },
+    "handout": {
+      "type": "boolean",
+      "default": false,
+      "label": "Handout PDF (several slides a page, with notes)"
+    },
+    "citation-style": {
+      "type": "enum",
+      "values": [
+        "chicago-author-date",
+        "apa",
+        "modern-language-association",
+        "harvard-cite-them-right",
+        "ieee",
+        "chicago-shortened-notes-bibliography"
+      ],
+      "labels": {
+        "chicago-author-date": "Chicago author-date (18th ed.)",
+        "apa": "APA 7th edition",
+        "modern-language-association": "MLA 9th edition",
+        "harvard-cite-them-right": "Harvard (Cite Them Right)",
+        "ieee": "IEEE",
+        "chicago-shortened-notes-bibliography": "Chicago shortened notes (18th ed.)"
+      },
+      "label": "Citation style"
+    }
+  }
+}

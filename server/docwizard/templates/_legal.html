@@ -1,0 +1,5 @@
+{# The operator's legal pages ([legal] in the config, §13.2), in every page's footer. #}
+{% if legal.terms_url %}<a href="{{ legal.terms_url }}" rel="noopener">{{ _("Terms") }}</a>{% endif %}
+{% if legal.privacy_url %}<a href="{{ legal.privacy_url }}" rel="noopener">{{ _("Privacy") }}</a>{% endif %}
+{% if legal.imprint_url %}<a href="{{ legal.imprint_url }}" rel="noopener">{{ _("Imprint") }}</a>{% endif %}
+{% if legal.abuse_email %}<a href="mailto:{{ legal.abuse_email }}">{{ _("Report abuse") }}</a>{% endif %}

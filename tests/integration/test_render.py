@@ -101,6 +101,12 @@ async def test_html_preview_on_preview_origin(rapp, rclient):
     # A forged token gets nothing.
     forged = re.sub(r"/_preview/[0-9a-f]{32}/", "/_preview/" + "0" * 32 + "/", path)
     assert (await preview.get(forged)).status == 404
+    # The token is kept in the database as a hash, so it outlives the app's memory (a restart).
+    token = re.search(r"/_preview/([0-9a-f]{32})/", path).group(1)
+    rows = await rapp.db.fetchall("SELECT token_hash FROM preview_tokens")
+    assert token not in [r["token_hash"] for r in rows] and len(rows) == 1
+    rapp.renderer._tokens.clear()
+    assert (await preview.get(path)).status == 200
     await ws.close()
 
 
@@ -306,6 +312,24 @@ async def test_markdown_to_pdf_via_latex(rapp, rclient):
     res = await rapp.renderer.render(project, "pdf-latex", doc_path=snap["doc"]["path"])
     assert res.status == "ok", res.diagnostics
     assert (rapp.renderer.renders_dir / res.key / res.output).read_bytes().startswith(b"%PDF")
+
+
+@pytest.mark.skipif(not HAS_LATEX, reason="needs latexmk and lualatex")
+async def test_latex_cannot_read_outside_the_job(rapp, rclient, tmp_path):
+    """openin_any = p (§9.6): \\openin of a file outside the job directory finds nothing. The
+    document fails to build only if the read worked."""
+    secret = tmp_path / "secret.tex"
+    secret.write_text("secret")
+    pid = await new_project(rclient)
+    for name, path in (("absolute", str(secret)), ("parent", "../" * 12 + "etc/hostname"), ("system", "/etc/hostname")):
+        main = ("\\documentclass{article}\n\\newread\\probe\n\\openin\\probe=" + path + "\n"
+                "\\begin{document}\nHello.\\ifeof\\probe\\else\\readOutsideTheJob\\fi\n\\end{document}\n")
+        r = await rclient.post(f"/api/projects/{pid}/documents", json={"path": f"{name}.tex", "text": main})
+        assert r.status == 201, r.text
+        await rapp.db.execute("UPDATE projects SET build_inputs = ? WHERE id = ?", (f'["{name}.tex"]', pid))
+        project = dict(await rapp.db.fetchone("SELECT * FROM projects WHERE id = ?", (pid,)))
+        res = await rapp.renderer.render(project, "pdf-latex", doc_path=f"{name}.tex")
+        assert res.status == "ok", (name, res.diagnostics)
 
 
 async def test_epub_export(rapp, rclient):

@@ -264,7 +264,7 @@ docwizard/
 │   │       └── stats.js
 │   ├── css/app.css                  the only stylesheet (§25.13)
 │   ├── icons.svg                    icon sprite (§25.9)
-│   ├── i18n/                        en.json, de.json
+│   ├── i18n/                        de.json, fr.json, es.json
 │   ├── sw.js
 │   └── vendor/
 │       ├── MANIFEST                 versions, licenses, SHA-256
@@ -316,7 +316,7 @@ Layering rules:
 
 | Route | Rendering | Notes |
 |---|---|---|
-| `/` | Server | Pinned and recent documents, projects. Works without JS |
+| `/` | Server | Pinned and recent documents, projects, each member's own tags and archive, a filter bar (text, tag, layout, shared with me, archived) and sortable columns. Works without JS: the bar is a GET form; with JS (`home.js`) it filters as you type and keeps the filter in the address |
 | `/login`, `/register`, `/reset` | Server | |
 | `/p/<project>/<path>` | Server shell + JS | Editor; the document snapshot is embedded |
 | `/s/<token>` | Server | Share-link landing page; guest name prompt |
@@ -355,20 +355,44 @@ A view plugin over the syntax tree. On every line except the one with the cursor
 - hides syntax marks (`**`, `#`, link URLs) and styles the content (heading sizes, emphasis);
 - renders inline and display math as MathML widgets via Temml, which is loaded the first time a document contains math;
 - shows citations as chips (`Smith 2020`) resolved from the citation library, and underlines unknown keys as errors;
-- renders task-list checkboxes, footnote markers and optional image thumbnails.
+- renders task-list checkboxes, footnotes as numbered chips (a click opens the note to edit), and optional image thumbnails;
+- shows cross-references (`[@fig:map]`) as chips that read *Figure 1*, *Table 2*, numbered as crossref.lua numbers them, and marks references to labels that don't exist;
+- hides `{#…}` attributes and sets pipe tables in a monospaced font so their columns line up while they're edited.
 
-The line with the cursor always shows raw source. A toggle switches to plain source mode.
+Pipe tables (`editor/table-view.js`) show as tables, with their header, alignments, inline formatting and caption, and are edited as tables; wide ones scroll sideways inside the text. Each cell is a small plain-text field: typing changes that cell's text in the source and nothing else (pipes are escaped, a cell's `**Markdown**` shows only while it is typed into), `Tab`/`Shift+Tab` and `Enter` move between cells and add a row at the end, the arrow keys step into a table from the text and out of it at its edges, `Escape` leaves it below, and cells copied from a spreadsheet (tab-separated) fill the table and grow it. The editor's selection follows the caret in the cell, so the table bar, undo, comments, presence and find work as elsewhere; a selection set into a table from outside (a table command, undo, a search match) puts the caret in that cell. When a cell is left, the columns are padded again. Every table edit is the smallest change to the source (`tableChanges` in `editor/tables.js`: a row's padding and the cells that differ, a line per added row), so two people typing in the same table don't disturb each other. The Markdown shows only from the table bar's *Markdown* or when a selection spans several cells, until the selection leaves the table; in suggest mode a click on a cell opens it, so typing becomes a suggestion. In the review view tables are only read.
+
+The line with the cursor shows raw source, unless *Show Markdown marks* (¶ in the toolbar, remembered per browser) is off: in this **writer mode** the marks stay hidden on the cursor's line too, and links, footnotes and figures are edited through their popovers. **Plain text editing** (*Plain* in the toolbar, or *Actions → Plain text editing*, remembered per browser) turns all of this off: no live preview, title card, figures or tables, just the Markdown in a monospaced font with its syntax colours. The rendering extensions sit in one compartment that the switch reconfigures, so the text and the collaboration session are untouched.
+
+A document opens with the cursor where it was when it was last open in this browser (`dw.cursor.<doc>`), or else at the first line of text after the front matter. On touch screens the text isn't focused when the page opens, so the keyboard only comes up on a tap into the text.
 
 **Other features**
 
+- **Data sheets** (`editor/sheet.js`, `editor/sheet-model.js`): `.csv` and `.tsv` documents open as a grid. Cells are typed into in place, rows and columns added, removed and sorted from the toolbar, and ranges pasted from Excel, LibreOffice or Google Sheets (tab-separated) or copied back. A cell starting with `=` is a formula: numbers, cell references, `+ - * / ^`, and `SUM`, `AVERAGE`, `MIN`, `MAX`, `COUNT`, `ROUND`, `ABS` over ranges, worked out as you type and in renders (`filters/dwsheet.lua` follows the same rules). Each edit changes only the cells' own text, so collaboration, history and undo work as for any document; *Text* shows the CSV itself. A sheet can name an HTTPS address to refresh from (§11.3a). *Insert ▾ → Table from data / Chart* writes the `::: {.data}` or `::: {.chart}` block (§9.7).
+- **Math palette** (`editor/math-palette.js`): *Insert ▾ → Math* shows fractions, roots, sums, matrices, cases, Greek letters, symbols and arrows, drawn with Temml, with a search. A pick inserts the LaTeX with its first placeholder selected, inside the math at the cursor or as new `$…$` (or `$$…$$` on its own line).
+- **Diagrams**: *Insert ▾ → Diagram* adds a Mermaid flowchart, a Graphviz graph or a Typst (CeTZ) drawing to start from; the render draws it (§9.7).
+- **Slide decks** (`editor/slides.js`, `editor/slides-model.js`), for documents of a slide layout: the *Slide sorter* shows every slide as a card (title, first lines, a mark for notes) and moves a slide by dragging it or with `Alt+←`/`Alt+→`, as one edit that moves its Markdown. *Present* opens the presenter view: the current and next slide from the web deck (by `#slide-N` fragments of the HTML preview, so nothing runs in the preview), the speaker notes, a timer, and an audience window for the projector that follows along. The slide numbers come from reading the Markdown the way `slides.lua` does (a cross-check test keeps them equal).
+- **Make slides**: for other Markdown documents, a new project with the slides layout and a draft deck (`projects/deck.py`): chapters become section slides, sections slides with the first sentence of each paragraph (or the document's own list items) as points and the paragraphs as notes, figures and charts slides of their own; citations, pictures, data sheets and bibliographies come along.
 - Citation autocomplete after `[@` or `@`, fed by the citation worker ([§10.4](#104-editor-support)).
 - Front matter help ([§9.4](#94-document-metadata)): the **Fields** panel lists the fields the project's layout prints, with what each one means, where it appears, an example, and whether the document has it filled in; one click adds a missing field in the layout's order or jumps to it. Inside the front matter, typing a name suggests the fields (the layout's own first) and hovering a key explains it.
+- *Find and replace* (`Ctrl+F`, or the magnifier in the toolbar and *Actions*), CodeMirror's search panel in the app's colours and language.
+- Plain labels: *Document details* (the Fields panel), *Page setup* (layout options) and *Template* (the layout), *Track changes* (suggest mode), *Version history*, *Download or print*.
 - Outline panel and folding by heading.
 - Word count of body text, excluding front matter, citation keys, code and comments. Footnotes and bibliography are counted separately.
 - Diagnostics from renders (Typst and LaTeX errors) shown in the gutter.
 - Grammar and spelling underlines ([§6.8](#68-grammar-and-spelling)); without them, the browser's native spellcheck in the document's `lang`.
 - Images pasted or dropped into the text, or picked with the toolbar's Image button (`editor/images.js`), are uploaded to `figures/` (`PUT …/assets/figures/<name>?unique=1`, which never replaces a file: `figure.png`, `figure-2.png`, …) and become a figure where they were placed: `![Caption](figures/map.png){#fig:map}` with the caption selected to type over, or a `figure` environment with `\includegraphics` and `\label{fig:map}` in LaTeX. A placeholder holds the spot during the upload and moves with edits around it. Pasted text wins over a pasted picture, because word processors put both on the clipboard. LaTeX documents take PNG, JPEG and PDF; Markdown also GIF, WebP and SVG.
-- Keyboard first: command palette on `Ctrl/Cmd+K`, and every action reachable from the keyboard.
+- The **title card** (`editor/title-card.js`, `editor/front-matter-edit.js`): in the source editor, the front matter shows as the document's title block, with the title, subtitle, author(s) and date to type into, the abstract when there is one, and the other fields under *More details*, labelled after the field catalog ([§9.4](#94-document-metadata)). Each keystroke is an ordinary edit of the YAML (quoted, lists for several authors written `Jane Doe; John Roe`, an ISO date as a date picker), so collaboration, history and undo work as for any text, and the card updates in place when someone else edits the front matter. Values the card can't edit (authors with affiliations, nested keys) link to the YAML. A *YAML* switch, remembered per document, shows the front matter as text again; the Fields panel's *Go to* and *Add* focus the field in the card. Read-only and while suggesting, the card can't be typed in.
+- **Tables, links, footnotes, figures and cross-references without punctuation** (`editor/tables.js`, `editor/insert-tools.js`, `editor/figures.js`). The toolbar's *Table* opens a grid to pick the size; in a table, `Tab` and `Shift+Tab` move between cells (Tab in the last cell adds a row), and a table bar adds and deletes rows and columns, aligns a column, shows the table's Markdown and deletes the table. Every table command pads the columns again, so the source stays readable, but changes only the lines and padding that differ. *Link* (`Ctrl+K`) opens a popover with the text and the address; footnotes open in a card, a bottom sheet on phones. A paragraph that is only an image shows as the picture with its caption to type into (it wraps as it grows); its `fig:` label, the file name, *Edit as Markdown* and *Remove* sit behind one small button in the figure's corner, which shows the label on wide screens and only "⋯" on phones. *Insert ▾* holds footnote, cross-reference (a picker of every labelled figure, table, equation and section, numbered), citation, math and table. Each of these is an ordinary edit of the Markdown, so collaboration, history and undo work as before.
+- The **Chapters drawer** (`editor/chapters.js`), opened from the document's name in the breadcrumb or *Actions → Chapters*, shows the project's documents without the project page. The chapters are the build inputs ([§9.2](#92-render-jobs)) in order, numbered; a chapter's handle drags it (mouse or finger) or moves it with the arrow keys, and each document can be renamed, deleted, left out of the book or added to it. *Combine these into one book* makes several documents one build, the one with the front matter first; *Add chapter* creates the next file next to the last chapter, numbered after it (`chapters/03-methods.md`), and adds it to the book. Renaming a document keeps its place in the build inputs (the server rewrites the path). Bibliographies and pictures are under *Other files*, the bibliography with a link to the References panel. Reordering needs the right to change the layout, the rest the right to edit; offline the drawer lists and links only.
+- Formatted text pasted from Word, LibreOffice, Google Docs or a web page (`editor/paste.js`, `editor/paste-html.js`) arrives as Pandoc Markdown: the clipboard's `text/html` is turned into headings, bold, italics, strikethrough, sub- and superscripts, links (Google's redirect links unwrapped), bullet and numbered lists (Word's `mso-list` paragraphs too), quotes, code and pipe tables. Characters that would otherwise read as Markdown (`*`, `` ` ``, `$`, `@key`, a leading `#` or `1.`) are escaped. Pictures in the HTML are left out with a note, since their addresses (`file:///…`, expiring Google links) can't be fetched; pasted or dropped on their own, they upload as figures. The browser's own plain-text paste is kept when the HTML adds nothing, inside code, math and the front matter, for copies from code editors (`white-space: pre`), and with `Ctrl+Shift+V`. After a formatted paste a small note offers *Paste as plain text*, which swaps in the clipboard's plain text until the next edit.
+- Keyboard first: the **command palette** (`editor/palette.js`) on `Ctrl/Cmd+K` or *Actions → Command palette*: one list of the project's documents, the document's headings, *Page setup* and each of the layout's settings, everything in the *Actions* menu, formatting and insert tools, and the preview's and PDF's controls (zoom, find, a page), filtered as you type (accent-insensitive, word starts and runs count most). `#` lists only headings, `>` only actions, `:12` goes to line 12; with nothing typed, the commands used last come first. With text selected, `Ctrl/Cmd+K` in the text still makes a link. Every action is reachable from the keyboard.
+
+**Writing studio** (`editor/manuscript.js` for the pure models, `editor/studio.js` for the UI; Markdown documents, not in the review view)
+
+- The **corkboard** (*Write → Corkboard*, or `#corkboard` in the address) shows the document as lanes of cards: a lane per chapter (`#` heading), a card per scene. Scenes are `##` headings, the layout's scene breaks (`***`, or what the text already uses) and, in scripts, scene headings (`INT.`/`EXT.` lines or `##` headings). A card shows the scene's title or first sentence and its word count. Cards move by dragging or with `Alt+↑/↓/←/→`, lanes with their ↑/↓ buttons; `Enter` on a card goes to the scene. A move is one minimal change (`{from, to, insert}`) with `userEvent: "move.corkboard"`, so undo, collaboration and suggest mode treat it as any edit; scene breaks stay between scenes, and the text before the first chapter stays first. With several build inputs, a strip above the board opens the other chapters. The board is read-only where the text is.
+- **Script breakdown** (*Write → Script breakdown*, script layouts): scenes with number, setting (`INT`, `EXT`, `INT./EXT`, `INNEN`, `AUSSEN`), location, time of day, length in eighths of a page and cast; the cast with speeches, words and scenes; locations with their scenes and times. Each tab downloads as CSV (cells starting with `=`, `+`, `-` or `@` are quoted so spreadsheets don't run them). *Highlight* on a character marks their cues, parentheticals and lines in the editor until the chip in the status bar is closed.
+- **Table read** (*Write → Table read*): the browser's speech synthesis (`speechSynthesis`) reads the script from the cursor, one voice per character (chosen in the bar and remembered per project, `dw.voices.<project>`), action and scene headings optionally in a narrator voice; the line being read is marked. Nothing is sent to the server.
+- **Session targets** (*Write → Daily target*): a daily goal in words, pages or Normseiten (German standard pages: 60 characters to a line, 30 lines to a page, chapters on a new page; the default unit with the `normseite` layout). The status bar shows today's progress against it, counted from the first count of the day per document in this browser (`dw.today.<project>`), and turns green when it is reached.
 
 ### 6.4 Preview
 
@@ -379,11 +403,17 @@ The line with the cursor always shows raw source. A toggle switches to plain sou
   - The iframe is `sandbox`ed without `allow-scripts`, `allow-same-origin`, popups or top-level navigation.
   - Scroll sync is one-way, from editor to preview. When the section under the cursor changes, the editor calls `iframe.contentWindow.location.replace(url + "#" + headingId)`. That is a fragment navigation, so the preview scrolls without reloading and without adding browser history entries. This works across origins: the HTML spec lets a page call `replace()` and set `href` on a cross-origin `Location`, and nothing else. Assigning `iframe.src` instead would add a history entry for every section change. Syncing back from the HTML preview would need a script in it ([§23](#23-open-questions)); the PDF preview does it (below).
   - Exact line mapping would need pandoc's `sourcepos` extension, which the `markdown` reader does not support.
-- **PDF preview** uses the vendored PDF.js (`preview/pdf.js`) on every device. All pages are laid out at their final size at once and drawn as they come near the visible part (pages far away are dropped again in long documents); a new render replaces the pages only once the ones in view are drawn, at the same relative scroll position, so the preview doesn't jump or flash while typing.
+- **PDF preview** uses the vendored PDF.js (`preview/pdf.js`) on every device. Each drawn page carries PDF.js's text layer, so its text can be selected and copied. The **PDF bar** above the pages zooms (−, *Fit width*, *Fit page*, 50–400 %, +; also `+`, `-`, `0` and Ctrl + wheel in the preview), shows the page in view and jumps to one, and **finds** text in the whole PDF (`Ctrl+F` in the preview), ignoring case, accents and line breaks, with every match marked and Enter/Shift+Enter stepping through them. The zoom is remembered per browser (`dw.pdfZoom`). All pages are laid out at their final size at once and drawn as they come near the visible part (pages far away are dropped again in long documents); a new render replaces the pages only once the ones in view are drawn, at the same relative scroll position, so the preview doesn't jump or flash while typing. It follows the cursor **paragraph by paragraph**: the words of the paragraph at the cursor (citations, attributes, math, notes and LaTeX commands left out) are found in the pages' text, following each side with a lookahead so rendered citations and numbers don't break the match, and the paragraph's lines are marked; the preview scrolls only when they're out of view. LaTeX builds ask `POST /api/projects/{id}/pdf-at` first, which answers from the render's `synctex.json` with the boxes the line was set in. When neither finds the paragraph (a table, code, the front matter), it scrolls to the heading above the cursor, found in the pages' text (PDF.js `getTextContent`) as a line set larger than the body text, wrapped lines joined and a number in front allowed (`2.1 Method`); the table of contents and running heads, set at body size or smaller, don't count, and the *n*th heading of a title that repeats is the *n*th one found. The text is read once per render, when the cursor first moves.
 - **From the preview to the source**: double-clicking (double-tapping) a spot in the PDF moves the editor's cursor there, opening the right file of a multi-file build (`#L12C4` in the address), and the preview stays where it was. The client sends the page, the point in PDF points from the page's top left and the words around it from the page's text to `POST /api/projects/{id}/source-at` with the render's key.
   - LaTeX: after a `pdf-latex` render, `render/synctex.py` turns the job's `document.synctex.gz` into `synctex.json` next to the PDF, with project-relative paths (read without following links and within a size limit). The innermost line box under the point, and in it the last glue, kern or math record before the point, gives the file and line.
   - Everything else (Typst PDFs, and LaTeX made from Markdown, whose SyncTeX points into pandoc's intermediate file): the words around the click are looked up in the build's input files, following each side with a small lookahead so rendered citations, footnote marks and hyphenation don't break the match; equally good matches are ranked by how near they are to where the page lies in the build.
   - The HTML preview is a sandboxed page on another origin without scripts, so it can't report clicks; jumping back works from the PDF.
+- **PDFs made in the browser** (`preview/local.js`, `workers/render.js`). Where the server has the browser renderer installed (`deploy/fetch_tools.py --browser-render web/vendor/browser-render`: the official pandoc 3.9 WebAssembly build, typst.ts 0.7 with Typst 0.14.2, the WASI shim and open fonts, each checked against a pinned SHA-256), the PDF preview of a Markdown document can be made in the browser: *In this browser* next to *PDF*, remembered per browser (`dw.localRender`). It renders 400 ms after typing pauses, from the text in the editor, without a round trip; the offline editor and an editor whose connection dropped use it too.
+  - `GET /api/projects/{id}/render-kit?doc=<id>` (`api/browser_render.py`) gives what the worker would get for a Typst PDF: pandoc's options as a defaults file (from the same `jobs.pandoc_steps`), the layout's files and filters (only the citation style in use), `options.json`, the project's text files and pictures (up to 12 MB in all; more are listed as `skipped`), and the fonts the layout names from the renderer's set. It has an ETag and is kept in IndexedDB (`kits`), so the preview also works offline; an open editor asks again at most every 30 s.
+  - The worker runs pandoc with an in-memory WASI file system (`src/` is the folder pandoc runs in, `layout/` the layout, `dwlocale.lua` at the root for the filters' `require`), then Typst with the same files mapped in, and posts the PDF bytes, which `PdfPreview.showData` shows. Both programs stay loaded; a newer request replaces one still waiting.
+  - The page's CSP stays without `'unsafe-eval'` (`'wasm-unsafe-eval'` is enough): Typst's glue code builds a few trivial functions from strings, which the worker answers without eval.
+  - Double-clicking a spot in a PDF made in the browser asks `source-at` with the last server render, or else looks for the words around the spot in the text.
+  - The server's render stays the reference: downloads, exports, publishing, LaTeX and Typst packages from `@preview` go through the worker.
 - **Layout options panel** is generated from the layout's variable schema ([§9.3](#93-layouts)).
 
 ### 6.5 Offline and caching
@@ -398,6 +428,7 @@ The line with the cursor always shows raw source. A toggle switches to plain sou
   - `citations`: cached CSL-JSON per source, with ETag
   - `layouts`: layout metadata for the options panel
   - `projects`: `{projectId, name, savedAt, count}` for projects kept **available offline** as a whole
+  - `kits`: the last render kit of each document previewed in the browser ([§6.4](#64-preview))
 - Unconfirmed edits survive reloads and offline periods and are sent on reconnect ([§8.6](#86-reconnect-and-offline)).
 - **Whole projects offline.** "Available offline" on the project page fetches an editor snapshot of every document (`POST /api/projects/{id}/offline`, only those whose version changed since the browser's copies) and keeps them with `kept: <projectId>`, which pruning skips. Every signed-in page refreshes kept projects at most every 5 minutes while online, so a train or plane trip starts from recent text. Offline, `/p/<project>` lists that project's documents from IndexedDB, and each opens in the editor shell, also documents never opened in this browser.
 - **The outbox.** Documents with waiting edits are sent as soon as any signed-in page is online, not only when the document is opened again: `POST /api/documents/{id}/merge` reconciles them like the socket's `merge` ([§8.6](#86-reconnect-and-offline)), idempotently by a merge id stored before sending. An open editor holds the Web Lock `dw-doc:<id>` for its document, and the outbox skips documents whose lock is taken, so no copy is written by two tabs. The page then says how many documents were sent and how many passages need a look.
@@ -409,6 +440,7 @@ The line with the cursor always shows raw source. A toggle switches to plain sou
 
 - `workers/citations.js` holds the citation library, does fuzzy search and formats chip labels.
 - `workers/grammar.js` runs the Harper grammar checker ([§6.8](#68-grammar-and-spelling)).
+- `workers/render.js` makes PDF previews with pandoc and Typst as WebAssembly ([§6.4](#64-preview)).
 - `workers/stats.js` computes word and character counts and the outline for long documents. With a script layout (one that names the `screenplay` filter; the layout's public data says `script: true`) it follows the filter's rules to add scene headings to the outline, list the characters for cue autocomplete, and estimate pages by counting lines as the PDF sets them (61 characters for action, 35 for dialogue, 55 lines to a page); the status bar shows that as pages and minutes.
 
 The main thread runs only the editor and the UI.
@@ -418,7 +450,7 @@ The main thread runs only the editor and the UI.
 - The visual design is defined in [§25](#25-design-guide): OLED black by default, light mode as an option, nothing decorative.
 - System font stack for the UI. Layouts bring their own fonts for output.
 - Small DOM helpers in `web/app/ui/`, `<template>` elements for repeated markup, event delegation.
-- i18n: JSON catalogs per language in `web/i18n/`, shared by server pages and JS. English and German first.
+- i18n: JSON catalogs per language in `server/docwizard/locale/`, keyed by the English text and shared by server pages and JS (the page carries its catalog). English, German (informal *du*), French (*vous*) and Spanish (*tú*); the account's choice, else a cookie, else the browser's `Accept-Language`. A test keeps the French and Spanish catalogs complete against the German one and their placeholders intact.
 - Accessibility: full keyboard operation, visible focus, ARIA labels on icon-only buttons, `prefers-reduced-motion` respected.
 
 ### 6.8 Grammar and spelling
@@ -430,7 +462,7 @@ Two checkers underline mistakes as people write Markdown: blue for grammar and s
 - **Which one**: each person chooses in their settings: automatically (Harper for English and documents without a language, LanguageTool for other languages when there is one), always Harper, always LanguageTool, or off. The document's language is its front matter `lang:`, else the project's. Grammar checking is off in the review view, for read-only documents, for LaTeX, and on connections that ask to save data, since Harper is a 20 MB download the first time.
 - **What isn't checked**: front matter, citations, math, raw LaTeX, comments, attributes and div fences are blanked out with spaces before checking, keeping every offset, and a finding that touches a blanked range is dropped.
 - **Timing**: a check runs 800 ms after typing stops. Underlines move with edits; an edit inside one removes it until the next check, and a result for text that has changed since is dropped.
-- **Fixing**: clicking an underline, or `Ctrl/Cmd+.` at the cursor, opens a card with the explanation and up to five fixes. **Ignore** hides that finding for that word in this document; **Add to dictionary** teaches Harper the word. Both are kept in the browser's `localStorage`.
+- **Fixing**: clicking an underline, or `Ctrl/Cmd+.` at the cursor, opens a card with the explanation and up to five fixes. **Ignore** hides that finding for that word in this document, in the browser's `localStorage`. **Add to project dictionary** (editors) and **Add to my dictionary** (people with an account) keep the word on the server: `project_words` for everyone in the project, `user_words` for the person in all their projects. Both lists, up to 5,000 words each, come with the editor's snapshot and are taught to Harper and filtered out of LanguageTool's findings; changing the project's list tells open editors (`dictionary` message) to reload. The project page and the settings page list the words and can remove them (`/api/projects/{id}/dictionary`, `scope` `project` or `mine`). Words that an older version kept in `localStorage` move to the person's dictionary the first time they sign in. Guests keep theirs in the browser.
 - **Security**: compiling WebAssembly needs `'wasm-unsafe-eval'` in the app's `script-src`. It allows WebAssembly only, not `eval`. Harper's files are not precached by the service worker. They are cached the first time the checker loads them.
 
 ## 7. Backend
@@ -472,7 +504,7 @@ Two checkers underline mistakes as people write Markdown: blue for grammar and s
 | `sessions` | token_hash, user_id?, guest_id?, csrf_token, created_at, expires_at, last_seen_at, user_agent | the cookie holds the token, the table its SHA-256 |
 | `guests` | id, display_name, share_link_id, created_at | |
 | `projects` | id, owner_id, name, layout_id, lang, build_inputs, preview_scope, created_at, updated_at, deleted_at | folder `projects/<id>/`; for `build_inputs` and `preview_scope` see [§9.2](#92-render-jobs), for `lang` [§9.8](#98-document-languages) |
-| `project_members` | project_id, user_id, role | `owner`, `editor`, `commenter`, `viewer` |
+| `project_members` | project_id, user_id, role, tags?, archived_at? | `owner`, `editor`, `commenter`, `viewer`; `tags` (JSON list) and `archived_at` organize that member's home page only |
 | `documents` | id, project_id, path, kind, version, snapshot_version, materialized_version, materialized_sha256, pending_sha256?, materialized_stat, line_ending, deleted_at | `kind` is `markdown`, `latex`, `bib` or `text`. `materialized_sha256` names the blob holding exactly what was last written to the file; `pending_sha256` is set just before a write; `materialized_stat` is the file's `(mtime_ns, inode, size)` after it ([§11.2](#112-canonical-state)) |
 | `doc_ops` | doc_id, version, client_id, author, changes, merge_id?, created_at | append-only, compacted ([§8.5](#85-persistence-and-compaction)) |
 | `collab_clients` | client_id, doc_id, user_id?, guest_id?, created_at, last_seen_at | server-issued CodeMirror client IDs ([§8.3](#83-authority-algorithm)) |
@@ -505,6 +537,8 @@ The JSON API lives under `/api/`. It is same-origin only and requires the sessio
 | `GET /api/me` | Current user or guest, roles, preferences |
 | `GET`, `POST /api/projects` | List, create |
 | `GET`, `PATCH`, `DELETE /api/projects/{id}` | Read, rename, change layout, delete (soft) |
+| `PUT /api/projects/{id}/home` | The caller's own tags and archive state for the project `{tags, archived}` |
+| `POST /api/projects/{id}/source-at`, `…/pdf-at` | From a point in the PDF preview to the source, and from a source line to the PDF (SyncTeX) |
 | `GET /api/projects/{id}/tree` | Files and documents |
 | `POST /api/projects/{id}/documents` | Create a text document |
 | `PATCH`, `DELETE /api/documents/{id}` | Rename or move, delete |
@@ -546,6 +580,17 @@ HTML previews never come from these routes; they live on the preview origin ([§
 | Trash purge | daily | deletes trashed documents and assets older than 30 days |
 | Blob garbage collection | daily | deletes blobs unreferenced for more than 24 h; paused while a backup runs |
 | Render cache eviction | hourly, least recently used, by size cap | |
+
+### 7.7 Storage quotas and limits
+
+A server open to people the admin doesn't know needs every write to have a ceiling. DocWizard keeps the knobs generic (no plans or billing in the code): an external provisioning script or the admin area sets them per account.
+
+- **What counts**: the projects an account owns, with everything in them: assets (active and trashed), each document at its current size and named versions (`service.user_storage_bytes`). Uploads by editors of a shared project count for its owner. Automatic history doesn't count: nobody can delete it by hand, and it is thinned by age.
+- **The limit**: `users.quota_bytes`, or `limits.default_quota_bytes` (2 GB) when that is empty. 0 or less means no limit, for one account or as the default.
+- **Where it is checked**: uploads, new documents and projects, Word imports, named versions and restores, references added by lookup, files and changes pulled by sync, offline merges and live edits. Live edits use a figure at most 30 s old plus what was added since, and only text that grows a document is checked: deleting always works.
+- **Over the limit**: `413` with code `quota_exceeded` and "Storage quota reached…". The upload form and the editor show it as a message, a sync run stops with it as its error, and live edits stay in the browser until there is room.
+- **Object counts**: `limits.max_projects_per_user` and `limits.max_files_per_project` (0: no limit) return `413` with `project_limit` or `file_limit`.
+- The home page and Settings show the space used against the quota; the admin's Users page shows it per account.
 
 ## 8. Collaboration
 
@@ -681,6 +726,7 @@ sequenceDiagram
 - A snapshot goes into `doc_snapshots` every 500 operations or after 60 s idle.
 - Operations older than the newest snapshot are kept for 7 days (configurable) so reconnecting clients can catch up, then pruned.
 - **History.** Older automatic snapshots are not dropped but thinned by age (`projects/history.py`): every snapshot of the last hour, one per hour for two days, one per day for 60 days, one per week after that. The snapshot kept for a period is its last one. Each automatic snapshot records who edited since the one before (`authors`, display names from the operation log), and a kept snapshot inherits the authors of the ones dropped before it. The Versions dialog lists named versions and this history; any of them can be compared with the current text (a word-level diff with unchanged lines collapsed, `GET /api/documents/{id}/versions/{v}/compare`) and restored.
+- **Drafting timeline** (*Share and export → Drafting timeline*, `projects/timeline.py`, `editor/timeline.js`). `GET /api/documents/{id}/timeline` lists points to scrub through: the kept snapshots (named ones with their label) and, while the operations are kept, every pause of 5 s or more in one person's typing; more than 600 are merged, oldest first, except labelled ones. It also counts the characters each person wrote and removed in the kept operations. `GET /api/documents/{id}/timeline/<version>?since=<version>` gives the text at a point, rebuilt from the newest snapshot at or before it and the operations after it, and the passages written since the previous point as UTF-16 ranges with their author, followed through later operations; where the operations are gone, the passages come from a word comparison and carry the snapshot's authors. The dialog shows a slider (arrow keys, Home, End), *Play*, and the text with each person's passages in their presence color.
 - Rooms are unloaded from memory after 10 minutes without connections. The snapshot and operations in SQLite remain authoritative ([§11.2](#112-canonical-state)).
 
 ### 8.6 Reconnect and offline
@@ -699,6 +745,8 @@ Cursor and selection positions are sent when they change (at most 10 per second)
 3. Each receiving client maps them through the updates it has received since that version and through its own unconfirmed changes. If it hasn't received that version yet, it holds the presence until it has.
 
 Each peer gets a stable color index and a display name, which for guests is the name they chose.
+
+**Following** (`web/app/editor/follow.js`): the people in the editor's header are buttons. Clicking one jumps to their cursor and follows it, scrolling as they move, until the reader clicks again, presses Escape or moves their own cursor; a banner says whom they follow. People with several tabs show once. When the person followed opens another document, the banner says where they went and offers to go there: `GET /api/projects/{id}/presence` lists the documents of the project that are open in memory and who is in them, also shown under "Also elsewhere" next to the people.
 
 ### 8.8 Comments
 
@@ -726,13 +774,21 @@ Track changes in the document stays a non-goal ([§2](#2-goals-and-non-goals)); 
   - On touch screens the editor's own keyboard stays closed while suggesting (`inputmode="none"`): a tap puts the cursor and opens the keyboard for the textarea within the tap, and a selection gets a toolbar with Delete, Replace and Comment.
 - In place, the editor strikes and adds only the words a suggestion changes: words it keeps at either end of the passage stay as they are, so an insertion reads as new words, not as its passage struck and written again.
 - **Accept** (editors) replaces the anchored passage with the suggestion as an ordinary update from the authority (`system:suggestion`, authored by whoever accepted). If the passage no longer reads as when it was suggested, the server answers `409 changed` and the editor asks before replacing it anyway. **Reject** (editors) leaves the text alone. Either way the thread is resolved with `suggestion_state`, and the people in the thread are notified ([§8.9](#89-mentions-and-notifications)). With two or more open suggestions the panel offers **Accept all** and **Reject all**, which decide them one by one from the end of the text; any whose passage changed stay open.
+- **The writing helper** (`api/assist.py`, `editor/assist.js`), optional and opt-in twice: the admin names a language model behind an OpenAI-compatible API (`[assist] url`, `model`, `api_key`: Ollama, vLLM, llama.cpp's server or a hosted API), and each person turns it on in their settings (`preferences.assist`, off by default; the settings say that passages go to that model). *Write → Writing helper* sends the selection, or the paragraph at the cursor (at most `max_chars`, default 6,000), with a task (correct spelling and grammar, clearer, shorter, simpler, more formal, or an instruction of one's own) to `POST /api/documents/{id}/assist`. The app asks the model through the request policy (only that host, `per_user_rpm` per person) and files its answer as an ordinary suggestion thread by that person whose note names the helper and the model, anchored to exactly the passage sent (`409 changed` if the text there no longer reads so). The helper has no other way in: it can't edit text, accept suggestions or see more than the passage, and an editor decides on its suggestions like on any other. The browser never talks to the model, so the CSP keeps `connect-src 'self'`.
 
 ### 8.11 Word files in and out
 
 Many reviewers and supervisors work in Word, so their comments and tracked changes come in and go back out.
 
-- **Import.** Uploading a `.docx` creates `<name>.md` (or `<name>-2.md`, …) instead of storing the file. The render worker runs `pandoc --from docx --track-changes=all` with `filters/docx_import.lua`, which replaces comment and change spans with markers (private-use characters the Markdown writer leaves alone) and appends their authors, dates and comment text as JSON in a final HTML comment. Images are extracted to `<name>-media/`. `projects/docx_import.py` removes the markers and keeps Word's original wording: each tracked change becomes a suggestion ([§8.10](#810-suggestions)) — a deletion suggests empty text, a deletion followed by an insertion suggests the new text, and an insertion widens to the word before it so the thread has text to sit on. Comments become threads at their range (an empty range widens to a word); Word replies, which pandoc gives as further comments on the same range, join the first one's thread. Authors show as "Name (Word)", without an account. A single imported file opens in the editor.
+- **Import.** Uploading a `.docx` creates `<name>.md` (or `<name>-2.md`, …) instead of storing the file. The render worker runs `pandoc --from docx --track-changes=all` with `filters/docx_import.lua`, which replaces comment and change spans with markers (private-use characters the Markdown writer leaves alone) and appends their authors, dates and comment text as JSON in a final HTML comment. Images are extracted to `<name>-media/`. `projects/docx_import.py` removes the markers and keeps Word's original wording: each tracked change becomes a suggestion ([§8.10](#810-suggestions)) — a deletion suggests empty text, a deletion followed by an insertion suggests the new text, and an insertion widens to the word before it so the thread has text to sit on. Comments become threads at their range (an empty range widens to a word); Word replies, which pandoc gives as further comments on the same range, join the first one's thread. Authors show as "Name (Word)", without an account. A single imported file opens in the editor. *Import Word* on the home page (and in the New project dialog) does the same without a project to set up first: it creates a project named after the file, without starter files, imports the file into it and opens the document; a file that can't be read leaves no empty project behind.
+- **Download or print** (the export dialog, `Ctrl+E`): *Download PDF* and *Print* come first, then Word, OpenDocument, a web page and EPUB, and under *Source & technical formats* the PDF via LaTeX, Markdown variants, Typst and LaTeX source and the project as a zip. The finished file downloads by itself. *Print* renders the PDF and prints it from a hidden frame through the browser's PDF viewer; on phones, which can't print a frame, the PDF opens on its own.
 - **Export.** A DOCX export of a Markdown document carries its open threads as Word comments: before the job, `_with_comments` inserts pandoc `comment-start`/`comment-end` spans at the current anchors (moved past block syntax at the start of a line; threads in the front matter, in code or across paragraphs are left out). An open suggestion becomes a comment that says what was suggested. If the text changed between the snapshot and reading the anchors, the export goes out without comments rather than misplacing them.
+
+### 8.12 Project activity and find and replace across documents
+
+- **Activity** (`activity.py`, table `activity`): one row per event, written inside the change it describes: edits (one row per person and document, merged while they keep typing for up to ten minutes, with a count), created, uploaded, renamed, trashed and restored files, comments, replies, suggestions and decisions on them, versions saved and restored, edits from outside (the server folder, sync providers), sync runs and conflicts, replacements across documents, publishing and readers' typo reports. The project page shows the latest twelve (*Show older activity* shows a hundred), and the editor's Review menu has *Project activity* (`GET /api/projects/{id}/activity?before=&limit=`). Sentences are made when shown, in the reader's language. Guests see nothing. Rows older than a year are deleted by maintenance.
+- **Find in all chapters** (Ctrl+Shift+F, `project-find.js`, `project-replace.js`): the browser fetches the text of every document in the project (`GET /api/projects/{id}/texts`; prose only unless *Also bibliographies and other files* is ticked), searches with the same options as the editor's own search (case, whole words, JavaScript regular expressions with `$1`/`$<name>` in the replacement) and lists matches by document with the line around them, at most 5,000. Each document's matches can be ticked off one by one before *Replace*.
+- Replacing goes to `POST /api/projects/{id}/replace` with each match's range, the text it expects there and its replacement, per document at the version that was searched. Each room saves a version labelled "Before replacing “…”" first, then maps the ranges through edits since the search (`replace_ranges` in `collab/authority.py`) and skips any whose text changed; the rest go out as one ordinary update from `system:replace`, authored by whoever replaced. Editors only.
 
 ## 9. Rendering and layouts
 
@@ -761,7 +817,12 @@ flowchart LR
 
 - **Requests** come from editors (preview, 300 ms after typing pauses), from exports and from publishing.
 - **Cache key**: SHA-256 over the project content at that version, the layout content hash, target, options and tool versions. Identical requests from several collaborators share one job and one result.
-- **Scheduling**: per `(build, target)` only the newest request is kept. Older queued jobs are dropped and running ones are cancelled. Global concurrency is limited (default: number of CPU cores, at most 4).
+- **Scheduling**: per `(build, target)` only the newest request is kept. Older queued jobs are dropped and running ones are cancelled. `render.concurrency` jobs run at once (default 2, no upper clamp; give the worker the same number with `DOCWIZARD_WORKER_CONCURRENCY`).
+- **Fairness**:
+  - *Fast lane.* LaTeX builds (`pdf-latex`), which can take minutes, may not use the `render.fast_lane` slots (default 1, at most `concurrency - 1`). They queue among themselves for the other slots, so HTML and Typst previews never wait behind a row of LaTeX builds. Quick targets use any free slot.
+  - *Per person* (the actor: an account, or a guest). Each person renders `render.user_previews` previews at a time (default 1); more wait their turn without holding a slot. Each person has at most `render.user_exports` exports queued or running (default 2); more get `429 export_limit`.
+  - *Optional budgets*, off by default. `render.per_user_rpm` is a token bucket of renders per minute that actually run (cache hits and shared jobs are free). `render.latex_daily_limit` caps LaTeX builds per person per UTC day. Both are kept in memory. Over a budget, exports get `429` and previews a `rendered` message with `status: "limited"`, which the editor shows as "Preview paused" with the reason.
+  - *Per project owner.* LaTeX follows `users.allow_latex` (NULL: `render.allow_latex`, default on), and the time limit `users.render_timeout_seconds` (NULL: `render.timeout_seconds`). Admins set both on the Users page. Refused LaTeX builds answer `403 latex_disabled`, pointing to the Typst PDF. While `require_email_verification` is on, LaTeX also waits for the owner's confirmed address.
 - **Build inputs and preview scope**: a project can set `build_inputs`, either a root document (`main.tex`, or `main.md` for Markdown) or an ordered list of Markdown files that pandoc reads as one document (`chapters/01.md`, `chapters/02.md`, …). Editing any input renders the whole build, so editing `chapters/02.tex` previews `main.tex` instead of failing on a missing preamble. Markdown projects can set `preview_scope` to `current-file` for faster previews, with the root's metadata merged in. LaTeX always previews the root.
 - **Job isolation (baseline, every deployment).** The boundary is the job, not the worker container. Every job runs as its own Unix user, taken from a pool with one user id per concurrency slot (for example 20000–20003):
   1. The app writes the job directory, `jobs/run/<id>/`, with `job.json`, a snapshot of the project files at that version and the resolved bibliography.
@@ -772,6 +833,7 @@ flowchart LR
   Concurrent jobs therefore can't read, write, signal or trace each other: different users, `0700` directories. Process limits count per job. The worker's own socket (mode `0600`) is closed to jobs. As defence in depth, job ids are random 128-bit values and `jobs/run/` is mode `0711`, so its entries can't be listed.
 - **Namespaces (extra layer):** where bubblewrap can run (bare metal, or Docker with a seccomp profile that allows user namespaces), each job also gets its own mount and PID namespace and sees only its directory and a read-only toolchain.
 - **Shared caches**: layouts (copied once per content hash) and the Typst package cache live in a separate cache volume. The app writes it and the worker mounts it **read-only**, so a compromised job can't tamper with files other projects use ([§18.1](#181-containers)).
+- **Several workers.** `render.extra_workers` lists more worker folders, each with its socket (`worker.sock`) and its `run/` folder, on this machine or on another one sharing the folder. The app counts `concurrency` slots per worker and sends each job to the least busy reachable one; a worker that can't be reached is skipped for 15 s. Preview tokens ([§6.4](#64-preview)) are kept in the database (`preview_tokens`, hashed), so several app processes behind one proxy can serve the same preview URLs. The admin health page lists each worker.
 - **Worker protocol**: newline-delimited JSON over a Unix socket in the shared jobs volume. Requests are `{"run": "<id>"}` and `{"cancel": "<id>"}`; the response is `{"done": "<id>", "status": "ok|error|timeout", "diagnostics": […]}`.
 - **Diagnostics**: Typst errors (file, line, column, message) and errors from the LaTeX log are parsed and shown in the editor gutter.
 - **LaTeX build directories** persist per project in `jobs/latex/<build-id>/`, so latexmk reuses auxiliary files between runs. `build-id` is an HMAC of the project id, so it can't be guessed.
@@ -856,7 +918,7 @@ Manifest:
   - project layouts in `_layouts/<name>/` inside the project folder, so they sync with the project.
 - **Design settings**: how a layout renders is a flat object of typed settings in the manifest, `design` (for example `text.font`, `page.margin-left`, `heading.1.size`, `cover.fields`, `cite.style`). Children inherit their parent's settings key by key. The default layout's templates are static and read every setting: when a layout is cached, DocWizard generates `typst/design.typ` (a Typst dictionary, loaded as the pandoc partial `$design()$`), `html/design.css`, `html/cover.html` and `html/options.html` next to the templates. Every value is validated against the schema in `render/design.py` and written as a literal, so settings can't inject template or Typst code. The classic options (`fontsize`, `linestretch`, `papersize`, `section-numbering`, `toc`, `columns`, `titlepage`, `citation-style`) override the matching setting and take their default from it.
 - **Built-in layouts** follow published style guides, each with a README that cites the sections it implements: Chicago/Turabian, Oxford, APS, MLA, APA (student paper), MHRA and IEEE papers; the Vienna philosophy, Würzburg Germanistik and Göttingen value-chain-management guides; a general thesis layout and ACM (sigconf), Springer LNCS and Elsevier (elsarticle) formats for papers; Shunn's short story and novel manuscript formats, the German *Normseite* and a book manuscript; and scripts: a screenplay, a German *Drehbuch* and a two-column A/V script. Script layouts name their filters (`screenplay`, `avscript`) in the manifest; the filters turn plain Markdown written after Fountain's rules into script elements, which the default templates set from the `script.*` settings. In Typst a speech is one `dw-speech` call: a table whose repeating header and footer print the cue with `script.contd` and `script.more` when the speech breaks across a page, so it breaks between lines and is marked as the industry expects; the filter adds `script.contd` to a cue when the same character speaks again after action in a scene, and a cue ending in `^` sets the speech beside the previous one (`dw-dual`). Fountain files are converted on upload and offered as an export for script layouts (`projects/fountain.py`, app-side like `md-source`): the title page maps to front matter (Title, Author(s), Draft date, Contact), notes, boneyard, synopses and sections below level 1 become HTML comments (they don't print in Fountain either), `_underline_` becomes `[…]{.underline}`, `===` becomes `\newpage`, and action lines that Markdown would read as lists, code, citations or math are escaped.
-- **Starters**: a new project starts with files that fit its layout (`projects/starters.py`). The manifest's `starter` names the kind, and custom layouts inherit it; without one, script layouts start as a script and the rest as a paper. A paper is `paper.md` and `references.json`; a thesis or book is `thesis.md` (`book.md`) with the front matter and abstract, a file per chapter in `chapters/` and `references.json`, with those files as the project's build inputs in order; a novel is `novel.md` and chapter files without a bibliography; a short story or *Normseite* is one `story.md`; a screenplay or A/V script is `script.md` with a few lines of the script syntax. The text is in the interface language, or German for German layouts. When the layout's bibliography has no heading of its own (`bib.heading` is `none`), the starter names it with `reference-section-title`, so it never gets two.
+- **Starters**: a new project starts with files that fit its layout (`projects/starters.py`). The manifest's `starter` names the kind, and custom layouts inherit it; without one, script layouts start as a script and the rest as a paper. A paper is `paper.md` and `references.json`; a thesis or book is `thesis.md` (`book.md`) with the front matter and abstract, a file per chapter in `chapters/` and `references.json`, with those files as the project's build inputs in order; a novel is `novel.md` and chapter files without a bibliography; a short story or *Normseite* is one `story.md`; a screenplay or A/V script is `script.md` with a few lines of the script syntax. The text is in German for a German interface or a German layout, in English otherwise. When the layout's bibliography has no heading of its own (`bib.heading` is `none`), the starter names it with `reference-section-title`, so it never gets two.
 - **Layout editor** (`/layouts`): anyone with an account can copy a layout and change its design settings in a form built from the same schema, with a live PDF preview of a sample document (rendered from a draft copy of the layout that is deleted afterwards). A custom layout is a manifest in the database (`custom_layouts`) with `extends`, `design` (only what differs from the parent), the options authors get, and whether it is shared with everyone on the instance. Templates, files and filters always come from the parent, so custom layouts can't add code. Owners and admins change or delete them; a layout others are based on can't be deleted.
 - **Fonts**: Typst sees its embedded fonts, the fonts in `/usr/local/share/docwizard/fonts` (installed in the worker image by `deploy/fetch_tools.py`: Noto Serif and Sans, Tinos, Carlito, Cousine) and the layout's `fonts/` folder, never system fonts.
 - **Editing files**: users can also duplicate a layout folder and edit its files, since templates and CSS are just text documents.
@@ -909,11 +971,14 @@ link-citations: true
 | `tex-source`, `typ-source` | pandoc intermediate files | For hand-off or further editing |
 | `epub` | pandoc → `epub3` with the layout's HTML CSS, `--mathml`, one file per chapter | E-books and reading on tablets; page breaks become CSS breaks |
 | `fountain` | in the app (`projects/fountain.py`) | Script layouts only; for other screenwriting apps |
+| `pptx` | pandoc → PowerPoint, with `--slide-level` from the layout option and the layout's `--reference-doc` when it names one | Slide layouts; speaker notes become PowerPoint's notes |
 
 ### 9.6 Engine settings
 
 - **Typst**: `typst compile --root <job> --font-path <layout>/fonts --ignore-system-fonts <file>.typ`. Typst cannot read files outside `--root`. The worker has no network, so any Typst packages a layout uses (`@preview/…`) must be in the shared, read-only package cache (`--package-cache-path`). Admins install them from the admin area, and the app downloads them into the shared volume.
-- **LaTeX**: `latexmk -lualatex -interaction=nonstopmode -halt-on-error -synctex=1 -no-shell-escape`, with the environment variables `openin_any=p` and `openout_any=p` (kpathsea's paranoid mode).
+- **LaTeX**: `latexmk -lualatex -interaction=nonstopmode -halt-on-error -synctex=1 -no-shell-escape`, with kpathsea's paranoid mode twice over: the worker writes a `texmf.cnf` of the job's own (`openin_any = p`, `openout_any = p`, `shell_escape = f`; owned by the supervisor, read-only for the job) and puts it first with `TEXMFCNF=<job>/texmf-cnf:`, and sets the same values in the environment, which takes precedence. `TEXMFOUTPUT` is the job directory, so TeX reads and writes nothing outside it and no dot files.
+- **Links out of the job**: Typst's `--root` and kpathsea check paths, not where symlinks lead. Before every Typst and TeX step the worker kills what is left of earlier steps and removes, as the job's user, every symlink in the job directory that resolves outside it. It also refuses Typst runs without `--root` inside the job, and font folders outside the job, the render cache and the shared fonts, or with links leading out of them.
+- **Leftovers**: at startup the worker deletes job directories older than a minute that a restart interrupted (taking them over with `CAP_CHOWN`/`CAP_FOWNER` first), and hands younger ones back to the app.
 - **pandoc**: `meta` and `bib2csl` jobs run with `--sandbox`. Render jobs rely on the worker sandbox, because `--sandbox` doesn't restrict filters or PDF production and would block layout resources and images.
 - **Every job** gets its own `HOME`, `TMPDIR` and `TEXMFVAR` inside its job directory, and an environment containing only what the tool needs. Every render job is treated as untrusted code. LuaLaTeX alone gives documents a Lua interpreter (`\directlua`), whose file access is harder to reason about than TeX's own.
 
@@ -928,8 +993,11 @@ These ship with DocWizard and are pre-approved:
 - `quotes.lua`: runs after citeproc. Quotation marks in each passage's language, and language-scoped passages in Typst.
 - `runin.lua`: headings that run into their paragraph (APA levels 4–5, IEEE level 3), when the layout asks for them.
 - `screenplay.lua` and `avscript.lua`: script elements for the script layouts (§9.3).
+- `data.lua`: `::: {.data src=…}` becomes a table and `::: {.chart src=…}` a chart from a project's `.csv` or `.tsv` sheet, with the sheet's formulas worked out (`dwsheet.lua`, the same rules as the editor's grid). Charts (bar, column, stacked, line, area, scatter, pie) are SVG drawn by the filter itself: no scripts, no network, the same picture every time. A caption and a `#tbl:`/`#fig:` id number them like any table or figure.
+- `diagram.lua`: code blocks of class `mermaid` (flowcharts), `dot`/`graphviz` and `cetz` (or `typst` with `.diagram`) become pictures, drawn in the job by Graphviz's `dot` and Typst. Mermaid flowcharts are translated to Graphviz, since Mermaid itself needs a browser. In Typst output CeTZ drawings stay Typst code. A diagram that can't be drawn shows the problem in the document and the log. `dwgraphics.lua` holds what both share: Typst and SVG to PDF or PNG for LaTeX and office formats, data URLs for HTML, and figures with captions.
+- `slides.lua`: the slide layouts. Headings at the slide level start slides, higher ones section slides, `---` an untitled slide; `::: notes` are speaker notes and `::: columns` sets columns. Typst gets `#dw-slide(…)[…]` calls the layout's template draws as slides or as a handout; HTML gets one `<div class="slide" id="slide-N">` a slide for the scroll-snap deck. Other formats keep the headings.
 
-The order in a render is `lang.lua`, the layout's filters, `runin.lua`, Zotero resolution, citeproc, `quotes.lua`. The filters share `dwlocale.lua` and its data, `locales.json`.
+The order in a render is `lang.lua`, `data.lua`, `diagram.lua`, the layout's filters, `runin.lua`, Zotero resolution, citeproc, `quotes.lua`. The filters share `dwlocale.lua` and its data, `locales.json`.
 
 ### 9.8 Document languages
 
@@ -942,6 +1010,18 @@ A document says which language it is written in, and the render follows: dates, 
 - **Terms**: the layout names a term rather than a string — `bib.heading` is `bibliography`, `references`, `works-cited`, `sources`, … — and `lang.lua` writes it in the document's language ("Literaturverzeichnis", "Bibliographie"). The same goes for Contents, Abstract, the lists of figures and tables, figure and table labels in captions and cross-references, "and" in reference lists, "by" and the rounded word count of manuscripts. A layout can still set a fixed string (`bib.title`, `caption.figure`), which wins.
 - **Citations**: citeproc localizes citations and the bibliography from the CSL locale of the document's language; a style's own `default-locale` applies only when no language is set anywhere.
 
+
+### 9.9 Checking before submitting, and anonymized exports
+
+- **Check before submitting** (the Share menu, `render/preflight.py`, `GET /api/projects/{id}/preflight?doc=&pages=1`) looks at the documents the PDF is built from (`buildInputs`) and lists, each with a link to the place in the text:
+  - words, counted like Pandoc's `wordcount.lua` (without front matter, code, math, comments, citations' keys and the bibliography), against `word-limit:`; footnotes counted apart; the abstract against `abstract-word-limit:`;
+  - pages against `page-limit:`: with *Count the PDF's pages*, the PDF target is rendered (the cache usually has it) and its pages counted;
+  - `@fig:`, `@tbl:`, `@sec:` and `@eq:` references without a target, labels nobody refers to and labels used twice;
+  - citations whose key isn't in the bibliography, and bibliography entries never cited (unless `nocite` lists them or `@*`);
+  - open comments, open suggestions and unresolved conflicts;
+  - for double-blind review, the author names from the front matter where they still appear in the text.
+- The three limits are front matter fields in the layout's field catalog ([§9.4](#94-document-metadata)).
+- **Anonymize** (a checkbox in the export dialog and on publishing; `render/anonymize.py`): before the render, a copy of the snapshot loses the front matter's `author`, `affiliation`, `institute`, `email`, `orcid`, `thanks`, `funding`, `acknowledgements` and similar keys (with `author: Anonymous` in their place), sections headed Acknowledgements, Acknowledgments, Danksagung or Funding, and spans, divs and headings marked `.unblind` or `.camera-ready`. Text marked `.blind` (for example "[our earlier work]{.blind}") shows only in anonymized output. LaTeX sources lose `\author`, `\thanks`, `\affil` and `acknowledgments` environments. The file's own metadata (PDF info, DOCX core properties, EPUB) is written from the anonymized front matter, and DOCX exports carry no comments. The render cache key includes the flag.
 
 ## 10. Citations and Zotero
 
@@ -988,6 +1068,12 @@ Generated keys are stored in `citation_keys`, so a key never changes once it has
 ### 10.5 Adding a reference by identifier
 
 The References panel takes a DOI, an ISBN or an arXiv ID (also as a doi.org or arxiv.org link) and cites it at the cursor (`POST /api/projects/{id}/references`, `citations/lookup.py`). DOIs and arXiv IDs (as their DataCite DOIs, `10.48550/arXiv.<id>`) are resolved at doi.org by content negotiation for CSL-JSON, which works for Crossref and DataCite records alike; ISBNs are looked up in Open Library's books API. The requests go through the outbound request policy and send nothing but the identifier. The item keeps the fields citation styles use, gets a key like `lecun2015deep` (first author, year, first significant title word; `a`, `b`, … when taken) and is appended to the document's CSL-JSON bibliography file (`references.json` unless the front matter lists another `.json` file), which is created and added to the front matter when missing. An item with the same DOI or ISBN is reused instead of added twice.
+
+### 10.6 Sources next to the text
+
+- **Source clips** (`web/app/editor/source-clips.js`): hovering or clicking a citation chip with a page (`[@doe2020, p. 42]`) shows that page's text from the source's PDF around the quoted words, or the page's first lines. The PDF is the project file named after the key (`doe2020.pdf`, also under `sources/`), else the PDF attached to the item in the person's Zotero library (through `/api/citations/sources/{id}/attachments/{key}/file`, [§10.2](#102-sources)). The text is read in the browser with PDF.js and kept for the session; nothing leaves the browser. Page numbers follow the PDF's own page labels when it has them, so "p. 42" finds the printed page 42.
+- **Verify quotes** (the Write menu, `source-check.js`): every quotation in quotation marks followed by a citation (`"…" [@key, p. 42]` or `“…” (@key, p. 42)`) is looked up in its source: verified on the cited page, found on another page (with *Cite p. N instead*), partly found, not found, or no PDF. Matching ignores case, accents, quotation marks, hyphenation at line ends and ligatures.
+- **Source reader**: a pane in place of the preview shows a cited source's PDF with selectable text (PDF.js's text layer, pages drawn as they scroll into view). Selected text can be dragged into the draft or inserted at the cursor as a quotation with its citation and page (`"…" [@key, p. 42]`).
 
 ## 11. Storage
 
@@ -1042,6 +1128,10 @@ A crash at any point loses nothing that was committed. The database is never rol
 - Symlinks are never followed (`O_NOFOLLOW`), and resolved paths must stay inside the project.
 - Writes are atomic: temp file, `fsync`, `rename`.
 - Per-user quotas count project files and assets. Renders and caches don't count.
+
+### 11.3a Data sources
+
+A `.csv` or `.tsv` document can name an HTTPS address (`data_sources`, `api/data.py`). *Refresh* fetches it through the outbound request policy (no private addresses unless an admin allows them, at most 5 MB in 20 seconds, the quota checked) and applies the new text as an ordinary edit by the person who pressed it, so open grids, the history and every collaborator see it like any other change. Nothing is fetched on a schedule.
 
 ### 11.4 Backups
 
@@ -1168,8 +1258,11 @@ Registration mode is an admin setting: `open`, `invite` (invitation by email or 
   - stored as `scrypt$17$8$1$<salt>$<hash>`, so parameters can be raised later and old hashes upgraded at login;
   - each hash uses about 128 MiB, so a semaphore limits concurrent hashing (default 2) to prevent memory exhaustion.
 - **Password policy**: minimum length (default 12), checked against a bundled list of common passwords; no composition rules.
-- **Login throttling**: token buckets per account and per IP, kept in memory, with generic error messages.
+- **Login throttling**: token buckets per account and per IP, kept in memory, with generic error messages. Registrations and reset requests have buckets of their own, per IP and per email address or name, so people signing up at the same time never share one.
 - **Password reset and invitations**: sent by email via `smtplib`, using single-use tokens stored hashed and valid for 1 hour. Without SMTP, admins reset passwords.
+- **Email addresses**: optional at registration, required with `accounts.require_email_verification` (which needs `[smtp]`). An address is confirmed through a single-use link (`/verify/<token>`, valid 2 days; opening it shows a button, so mail scanners confirm nothing), by a login provider that sends it without `email_verified: false`, by using a reset or invitation link mailed to it, or by an admin entering it. A changed address replaces the old one only once its link is used. No two accounts share an address (compared without case). While the setting is on, publishing, sync with outside servers and Zotero libraries wait until the address is confirmed and answer with `403 email_unverified` and a pointer to Settings; admins are exempt.
+- **Legal links**: `[legal]` `terms_url`, `privacy_url`, `imprint_url` (http or https) and `abuse_email` appear in the footer of every page, the login, registration, share and error pages included. With terms or a privacy policy set, registration says that creating an account accepts them.
+- **Anti-bot challenge** (optional): `security.captcha_provider = "turnstile"` or `"hcaptcha"` with `captcha_site_key` and `captcha_secret` shows the provider's widget on registration and password reset and checks the answer on the server through the outbound policy (§15). The widget's origin is allowed in the CSP of those pages only.
 - **TOTP** (optional): RFC 6238, implemented with `hmac`, plus one-time recovery codes. Admins can require it.
 
 ### 13.3 Sessions and CSRF
@@ -1223,7 +1316,8 @@ All checks live in `auth/permissions.py`. Handlers call `require(actor, capabili
 
 The admin area covers:
 
-- **Users**: create, invite, disable, delete, reset password, set role and quota, require TOTP, view sessions.
+- **Users**: create, invite, disable, suspend (and unpublish everything), delete, reset password, set role, quota, LaTeX permission and render time limit, require TOTP, view sessions.
+- **Publications**: every published site with its owner; unpublish, take down, suspend the owner ([§14.4](#144-publishing)).
 - **Instance settings**: registration mode, guest policy, default layout, limits (render, upload, sync), SMTP status, outbound request policy.
 - **OIDC providers**: configured in `docwizard.toml` so secrets stay out of the database. The admin area shows their status and can run a test login.
 - **Layouts**: install layouts, approve Lua filters by hash, set the instance default, manage CSL styles and Typst packages.
@@ -1231,6 +1325,15 @@ The admin area covers:
 - **Audit log**.
 
 The CLI (`python -m docwizard …`) provides `serve`, `migrate`, `create-admin`, `reset-password`, `backup`, `check` (tools, sandbox, file permissions) and `rotate-key`.
+
+### 13.7 Self-service
+
+What an account can do for itself, so a public server doesn't route every request through an admin.
+
+- **Sessions**: Settings lists where the account is logged in (browser and system read from the user agent, last activity, this device marked). Each one can be revoked, which ends it at its next request; "Log out other devices" keeps only the current one. Revoking the current session logs out.
+- **Files and trash**: the project page renames and deletes documents and files, restores them from the project's trash, and sets the build inputs (§9.2). The editor renames and deletes the open document. Owners can empty a project's trash for good, and Settings lists deleted projects to restore or delete for good, with one action that empties all of an account's trash. Space is free right away, not after the 30-day purge (§7.6, §7.7).
+- **Export**: `GET /settings/export` streams a zip: `account.json` (profile, projects and roles, comments written, linked logins, Zotero libraries without keys, custom layouts), owned projects under `projects/`, projects shared with the account under `shared/`, and named versions under `versions/`. It is written to `<cache_dir>/exports` and removed after an hour; one export per account runs at a time.
+- **Deleting the account** needs the username typed, the password (or, without one, a login in the last 15 minutes) and the two-step code when it is on. Owned projects are deleted with their published sites and folders, or, when asked, handed to one of their editors. Sessions, logins, tokens, recovery codes, notifications and Zotero libraries go with the account; audit entries about it keep only that something happened. Comments in others' projects stay under the name they were written with. The last admin can't delete themselves.
 
 ## 14. Sharing, guests and publishing
 
@@ -1266,8 +1369,14 @@ People who review a text often don't write Markdown: supervisors, editors, produ
 - Owners, and editors if allowed, can publish a document as a static site. DocWizard renders the `html` target with the layout's template and writes it to `/var/lib/docwizard-publish/<slug>/`, with images and an optional PDF download.
 - Published sites are served by the proxy from a **separate origin** (for example `pub.example.org`) with a strict CSP and no scripts. Documents can contain raw HTML, which must never run on the app origin.
 - Visibility is public or unlisted (unguessable slug). Republishing is manual by default; "update automatically" re-renders once edits settle.
-- Slugs match `[a-z0-9][a-z0-9-]{2,63}`. Every path starting with `_` on the publish host (such as `/_preview/`) is reserved for DocWizard and can never be a slug.
+- Slugs match `[a-z0-9][a-z0-9-]{2,63}`. Every path starting with `_` on the publish host (such as `/_preview/`) is reserved for DocWizard and can never be a slug. Names that read as part of the server or as official (`admin`, `api`, `assets`, `static`, `login`, `register`, `healthz`, `metrics`, `well-known`, `robots`, `sitemap`, `abuse`, `security`, `terms`, `privacy`, … in `RESERVED_SLUGS`) are refused too; a publication keeps an address it had before.
+- **Search engines**: unlisted sites always get `X-Robots-Tag: noindex, nofollow` (the proxy matches `/u-*`) and a `robots` meta tag. Public sites are indexable unless `server.index_public_sites = false`; the proxy reads `DOCWIZARD_PUBLIC_ROBOTS` (`all` or `noindex, nofollow`), so set both.
+- **Books** (*Publish as a book*, `render/edition.py`): the rendered page of the whole project (every `buildInputs` chapter) is split at its top-level sections into one page per chapter (`01-introduction.html`, …) and a front page with the title, authors, the contents, downloads and *Cite this work* (a plain reference and BibTeX, from the front matter's title, authors and date, and the site's address). Each chapter page has a contents sidebar (a collapsible list on narrow screens), previous and next links, its own footnotes, and links across chapters rewritten to the right page. Footnotes and citations show their text when hovered or focused, and a light/dark switch inverts the reading colors; both are CSS only (a checkbox and `:hover`/`:focus-within`), so the site keeps `script-src 'none'`.
+- **Downloads**: PDF, EPUB and Word (DOCX), each rendered from the same snapshot; with *Anonymize* every download is anonymized too ([§9.9](#99-checking-before-submitting-and-anonymized-exports)).
+- **Password** (optional, at least six characters, scrypt-hashed in `publications.password_hash`): the site is written to `<data_dir>/publish-locked/<slug>/` instead, which the proxy doesn't serve, and the app serves it at `/_site/<slug>/` on the publish host (`pages/sites.py`; the proxy passes `/_site/*` and `/_report/*` on). Without a valid cookie a form asks for the password (ten tries, then one every ten seconds per address and site). The cookie `dw_site` is scoped to `/_site/<slug>/`, lasts 30 days and is an HMAC of the slug and expiry keyed with the password's hash, so a new password locks every reader out. Protected sites are never indexed. Removing the password moves the site back to the public folder.
+- **Typo reports** (optional): every page ends with *Found a mistake? Report a typo*, a plain form (`/_report/<slug>/`, or `/_site/<slug>/_report` behind a password) with the passage as it reads, the correction, an optional note and name, and a hidden honeypot. The passage's words are looked up in the published documents' current text; when found exactly once, the smallest word-level change becomes a suggestion ([§8.10](#810-suggestions)) by "Name (reader)" or "A reader", without an account, and appears in the activity. Reports are rate limited per address (five, then one every two minutes) and per site.
 - Unpublishing deletes the folder.
+- **Moderation** (admin area, Publications): *Unpublish* deletes the folder and the row. *Take down* also blocks the address (`taken_down_slugs`) until an admin allows it again. *Suspend owner and unpublish all* disables the owner's account, ends their sessions and unpublishes every site of the projects they own; the Users page has the same action. Every step goes to the audit log, with the reason the admin gave.
 
 ## 15. Security model
 
@@ -1282,7 +1391,7 @@ People who review a text often don't write Markdown: supervisors, editors, produ
 | Account takeover | scrypt, throttling, TOTP, session rotation, `__Host-` cookies, OIDC matched by `(iss, sub)`, no automatic linking by email |
 | CSRF and cross-site WebSocket hijacking | `SameSite=Lax`, `Origin` checks, CSRF token header |
 | Malicious collaboration updates | Role check on every push; ChangeSets validated against document length and surrogate boundaries; size and rate limits |
-| Denial of service | Body and frame limits, render concurrency per user, job timeouts, quotas, scrypt semaphore, disconnecting slow clients; the proxy enforces connection limits |
+| Denial of service | Body and frame limits, render slots with a fast lane, per-person preview and export limits and optional render budgets ([§9.2](#92-render-jobs)), job timeouts, quotas, scrypt semaphore, disconnecting slow clients; the proxy enforces connection limits |
 | Secrets at rest | WebDAV and Zotero credentials and TOTP secrets are encrypted with AES-256-GCM, using a master key kept outside the database. Each ciphertext records its key id, so keys can be rotated |
 | Supply chain | Hash-pinned Python packages, vendored frontend code with checksums, verified binaries, CI check for new dependencies ([§17.5](#175-updating)) |
 | Leaks between users | Every query is scoped by permission checks. The render cache is keyed by content but served only to users with access to the project |
@@ -1360,6 +1469,10 @@ The goal is to own as little difficult code as possible, not to minimize the pac
 | CodeMirror helpers: `style-mod`, `w3c-keyname`, `crelt` | Internal dependencies, same maintainer | Editor route | MIT |
 | Temml | LaTeX to MathML in the editor | When a document contains math | MIT |
 | PDF.js (optional) | Better PDF preview, SyncTeX | On demand | Apache-2.0 |
+| pandoc (WebAssembly, optional) | PDF preview made in the browser ([§6.4](#64-preview)) | When chosen | GPL-2.0-or-later |
+| typst.ts web compiler (optional) | Typst in the browser for that preview | When chosen | Apache-2.0 |
+| @bjorn3/browser_wasi_shim (optional) | WASI for pandoc in the browser | When chosen | MIT or Apache-2.0 |
+| Tinos, Carlito, Cousine, Noto Serif, Noto Sans (optional) | Fonts for that preview | When chosen | Apache-2.0, OFL-1.1 |
 
 The exact package list and versions are recorded in `web/vendor/MANIFEST`.
 
@@ -1370,6 +1483,7 @@ The exact package list and versions are recorded in `web/vendor/MANIFEST`.
 | pandoc ≥ 3.9 | Parsing, citeproc, every writer | Worker | GPL-2.0-or-later |
 | Typst (pinned) | Fast PDF | Worker | Apache-2.0 |
 | TeX Live (optional image variant) | LaTeX documents and layouts | Worker | various free licenses |
+| Graphviz (`dot`) | Graphviz diagrams and Mermaid flowcharts (§9.7) | Worker | EPL-1.0 |
 | bubblewrap (optional) | Per-job sandbox outside Docker | Worker host | LGPL-2.0-or-later |
 | git (optional) | Git sync ([§12.7](#127-git-repositories)) | App | GPL-2.0-only |
 | Reverse proxy (Caddy recommended) | TLS, static files, publish origin | Proxy | Apache-2.0 (Caddy) |
@@ -1419,7 +1533,7 @@ AGPL section 13 requires offering the source to network users. Every page footer
 |---|---|---|
 | `app` | Python slim, the 11 packages, `server/` | Unix socket in the shared `run` volume |
 | `worker` | Python slim (stdlib only), pandoc, Typst; TeX Live in the `-tex` variant | No network, read-only root, shared caches read-only. Starts as root with only the five capabilities needed to run each job as its own user |
-| `proxy` | Caddy with `web/` under `/srv/static/<release>/` | Bound to `127.0.0.1:8080` (app) and `127.0.0.1:8081` (publish/preview) over HTTP by default for an external TLS proxy; opt-in `80`/`443` TLS via `deploy/compose.ssl.yaml` |
+| `proxy` | Caddy with `web/` under `/srv/static/<release>/`; a static file it lacks goes to the app, which serves its own release's (an app and a proxy image from different builds still match) | Bound to `127.0.0.1:8080` (app) and `127.0.0.1:8081` (publish/preview) over HTTP by default for an external TLS proxy; opt-in `80`/`443` TLS via `deploy/compose.ssl.yaml` |
 
 ```yaml
 # deploy/compose.yaml (sketch)
@@ -1481,8 +1595,15 @@ write.example.org {
 
 	handle_path /static/* {
 		root * /srv/static
-		header Cache-Control "public, max-age=31536000, immutable"
-		file_server
+		@shipped file
+		handle @shipped {
+			header Cache-Control "public, max-age=31536000, immutable"
+			file_server
+		}
+		handle {
+			rewrite * /static{uri}
+			reverse_proxy unix//run/docwizard/app.sock
+		}
 	}
 
 	handle {
@@ -1528,8 +1649,9 @@ Release notes call out breaking config changes. The service worker picks up the 
 ### 18.4 Observability
 
 - JSON-lines logs on stdout via stdlib `logging`, with request id, user id, route, status and duration.
-- `/healthz` reports app liveness and whether the worker is reachable.
-- Optional `/metrics` in Prometheus text format (hand-written), admin-only or on a separate socket.
+- `/healthz` reports app liveness, cheaply.
+- `/readyz` (no login, any host) checks that the database takes a write, the worker answers `hello` and the data, jobs, cache and publish disks have 200 MB free. It answers `200` or `503` with the checks as JSON, for load balancers and orchestrators.
+- `/metrics` in Prometheus text format (hand-written), admin-only. Besides counts of users, projects and the like: `docwizard_renders_total{target,status}`, `docwizard_render_duration_seconds{target}` (histogram), `docwizard_render_queue_depth`, `docwizard_render_rejections_total`, `docwizard_quota_rejections_total`, `docwizard_registrations_total` and `docwizard_storage_bytes`. Counters start at zero with each process. Labels never carry user names, ids or paths.
 - The admin health page ([§13.6](#136-admin)).
 
 ## 19. Configuration
@@ -1549,20 +1671,24 @@ cache_dir    = "/var/lib/docwizard-cache"
 durability   = "full"                       # or "normal", see §7.3
 serve_static = false
 source_url   = "https://git.example.org/docwizard"     # AGPL source offer
+index_public_sites = true                   # search engines may index public publications (§14.4)
 
 [security]
 secret_key_file        = "/run/secrets/docwizard_key"
 allow_private_outbound = ["nextcloud.lan"]          # exceptions to the SSRF policy
 session_idle_days      = 14
 guest_session_hours    = 24
+captcha_provider       = ""                          # turnstile | hcaptcha
+captcha_site_key       = ""
+captcha_secret_file    = "/run/secrets/captcha"
 
 [accounts]
 registration            = "invite"   # open | invite | oidc-only | closed
 guests                  = true
 guest_max_role          = "editor"
-scratch_projects        = false
 require_totp_for_admins = true
 min_password_length     = 12
+require_email_verification = false   # needs [smtp]
 
 [smtp]
 host          = "smtp.example.org"
@@ -1592,11 +1718,33 @@ timeout_seconds     = 90
 memory_mb           = 1536
 preview_debounce_ms = 300
 default_layout      = "default"
+fast_lane           = 1      # slots LaTeX can't take (§9.2)
+extra_workers       = []     # more worker folders, each with worker.sock and run/ (§9.2)
+user_previews       = 1      # per person, at a time
+user_exports        = 2      # per person, queued or running
+per_user_rpm        = 0      # renders per person per minute; 0: no limit
+latex_daily_limit   = 0      # LaTeX builds per person per day; 0: no limit
+allow_latex         = true   # users.allow_latex overrides it per account
+
+[assist]
+url                 = ""     # an OpenAI-compatible API for the writing helper (§8.10); empty: off
+model               = ""
+api_key             = ""
+max_chars           = 6000
+per_user_rpm        = 6
+
+[legal]
+terms_url    = "https://example.org/terms"
+privacy_url  = "https://example.org/privacy"
+imprint_url  = "https://example.org/imprint"
+abuse_email  = "abuse@example.org"
 
 [limits]
 max_document_bytes  = 5_000_000
 max_upload_bytes    = 50_000_000
-default_quota_bytes = 2_000_000_000
+default_quota_bytes = 2_000_000_000   # per account; 0: no limit (§7.7)
+max_projects_per_user = 0              # 0: no limit
+max_files_per_project = 0
 
 [sync]
 default_poll_seconds = 60
@@ -1625,6 +1773,8 @@ max_push_churn    = 1_000_000   # inserted + deleted code units per push
 | Sync | pytest with Nextcloud and Seafile containers | Every row of the [§12.2](#122-algorithm) table, conflicts, ETag races, renames in both directions keeping `doc_id` |
 | OIDC | pytest with a Keycloak container | Login, group mapping, logout |
 | Frontend unit | Node's built-in test runner | Pandoc syntax extensions, citation search, word count |
+| Browser smoke (CI) | Playwright with headless Chromium, `node --test tests/e2e/*.test.mjs` | At 390×844 and 1280×800: register and log in, create, rename and delete a file, the formatting toolbar, the phone's Edit/Preview switch with the HTML and PDF preview, the storage-quota message. Every page is checked for horizontal overflow, failed asset requests and page errors, and with axe-core (`tests/e2e/a11y.mjs`) for WCAG 2.1 A and AA violations: register, login, home, settings, project, editor and the PDF preview, and in `studio.test.mjs` the corkboard, the script breakdown, the drafting timeline and the status bar. `browser-render.test.mjs` makes a PDF in the browser, also offline |
+| Lint (CI) | `ruff check` (`E9`, `F`), `node --check`, template compilation | Syntax errors, undefined names and unused imports in Python, syntax of every frontend module, templates that don't compile |
 | End-to-end | Playwright (optional, dev-only) | Two browsers editing one document, offline reload and reconnect, share links, preview scroll sync without new history entries in Chromium, Firefox and WebKit, uploaded HTML/SVG never running on the app origin |
 | Performance | `scripts/` | Size budgets, render timings on a reference paper |
 
@@ -1789,7 +1939,7 @@ Text tokens meet WCAG AA (≥ 4.5:1) and control borders meet the 3:1 rule for U
 ### 25.5 Spacing and layout
 
 - **Spacing scale:** 4, 8, 12, 16, 24, 32 px. Nothing else.
-- **Controls:** 28px high, or 40px under `@media (pointer: coarse)`.
+- **Controls:** 28px high, or 36px under `@media (pointer: coarse)`.
 - **Page structure:** a 40px toolbar, the content, and an optional 24px status bar, laid out as a grid over `100dvh`.
 - **Widths:**
   - tables span the full width with 16px side padding;
@@ -1799,7 +1949,7 @@ Text tokens meet WCAG AA (≥ 4.5:1) and control borders meet the 3:1 rule for U
 
 ### 25.6 Screens
 
-Home: recent documents and projects, two plain tables.
+Home: a line of filters (text, tag, layout, *Shared with me*, *Archived (n)*), then recent documents and projects, two plain tables; a project's tags follow its name as muted `#tag` links that filter by the tag, and *Organize* sets the tags and archives it.
 
 ```text
 DocWizard                                     [ Search…        ]   New project   Jane ▾
@@ -1818,10 +1968,10 @@ Name ▴                                 Layout                Modified        M
   Urban infrastructure                 term-paper            3 min ago             2
 ```
 
-Editor: breadcrumb, presence, save state and three actions in the toolbar; text and preview below; facts in the status bar.
+Editor: breadcrumb, presence, save state and three actions in the toolbar, then *Actions ▾*, which holds everything in groups (Write, Review, Share and export, File) at every width; below 1100px *Comments* and *Share* move into it too. Text and preview below; facts in the status bar.
 
 ```text
-Projects / Urban infrastructure / paper.md     ● ● Jane, Ali   Saved   Preview  Export  Share
+Projects / Urban infrastructure / paper.md  ● ● Jane, Ali  Saved  Comments  Preview  Share  Actions ▾
 ──────────────────────────────────────────────────────────────────────────────────────
                                             │
   # Introduction                             │   Introduction
@@ -1833,6 +1983,10 @@ Projects / Urban infrastructure / paper.md     ● ● Jane, Ali   Saved   Previ
 ──────────────────────────────────────────────────────────────────────────────────────
 1 248 words · Markdown · term-paper · Nextcloud synced 1 min ago
 ```
+
+Project: the project's name with its layout, documents and members underneath, *Available offline* and *Download as .zip* beside it; the files as a table with *Upload files* and *Create document*; then the settings (layout and language, members, share links, sync, trash, the project itself) in columns, each set apart by a line and its heading.
+
+On phones, a page with a search field (home, search) puts search, *New project* and the account menu in one line.
 
 Settings: plain links as navigation (the current one in bold), then a simple form.
 
@@ -1858,7 +2012,7 @@ Editor font    [ Sans ▾ ]   Size [ 17 ▾ ]
 | Destructive button | `--danger` text and border. Always confirmed in a dialog that names the item |
 | Text input, select | Transparent background, 1px `--edge` border, `--radius`. Placeholder in `--muted` |
 | Checkbox, radio | Native, with `accent-color: var(--accent)` |
-| Link | `--accent`, no underline; underlined on hover and focus |
+| Link | `--accent`; underlined in running text (inside a paragraph), elsewhere only on hover and focus |
 | Table | Full width, no zebra stripes, 1px `--line` between rows, header text in `--muted`, sortable headers show ▴ or ▾. Row hover uses `--hover`. A whole row is clickable when it opens something |
 | Navigation | Plain text links; the current one in weight 600. No tab bars |
 | Dialog | Native `<dialog>`, `--bg` fill, 1px `--line` border, backdrop `rgb(0 0 0 / .6)`, max width 32rem. Title, text, then buttons right-aligned with the primary last |

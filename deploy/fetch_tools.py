@@ -7,6 +7,7 @@ Update versions and checksums together.
     python3 -I deploy/fetch_tools.py --fonts-only  # only the fonts
     python3 -I deploy/fetch_tools.py --fonts DIR   # fonts into DIR instead of the default
     python3 -I deploy/fetch_tools.py --harper DIR  # only the Harper grammar checker, into DIR
+    python3 -I deploy/fetch_tools.py --browser-render DIR  # pandoc and Typst as WebAssembly, and the fonts
 
 Typst runs with --ignore-system-fonts; the render jobs add the fonts folder below to its font
 path (server/docwizard/render/design.py), so every layout can use these fonts.
@@ -29,6 +30,22 @@ TYPST = "0.14.2"
 HARPER = ("3.2.0", "https://registry.npmjs.org/harper.js/-/harper.js-3.2.0.tgz",
           "99bbcbb4cbd630d2e802fd693a826926b1726ca1ac40ef109127a215d9fa2da6")
 HARPER_FILES = ("dist/index.js", "dist/binary.js", "dist/harper_wasm_bg.wasm", "LICENSE")
+
+# Previews rendered in the browser (ARCHITECTURE.md §6.4): pandoc's own WebAssembly build, the same
+# version as the worker's, Typst as WebAssembly (typst.ts, on the worker's Typst 0.14) and the small
+# WASI layer pandoc needs. Its files go to web/vendor/browser-render/ next to the fonts.
+BROWSER_RENDER = [
+    ("pandoc", f"https://github.com/jgm/pandoc/releases/download/{PANDOC}/pandoc-{PANDOC}.wasm.zip",
+     "db4e31bc0c665cee724a0be507f47a7cbce99eceee15b2165babbb3bcb1fb1a7", {"pandoc.wasm": "pandoc.wasm"}),
+    ("typst", "https://registry.npmjs.org/@myriaddreamin/typst-ts-web-compiler/-/typst-ts-web-compiler-0.7.0.tgz",
+     "07aa4e9a92632eba4898df1e09c9b91456e3c0c6e0ac8d44375979f2375e4cca",
+     {"package/pkg/typst_ts_web_compiler.mjs": "typst_ts_web_compiler.mjs",
+      "package/pkg/typst_ts_web_compiler_bg.wasm": "typst_ts_web_compiler_bg.wasm"}),
+    ("wasi", "https://registry.npmjs.org/@bjorn3/browser_wasi_shim/-/browser_wasi_shim-0.4.2.tgz",
+     "9c0281520d0e99f027ec7c1c79b4036c0f8168ed9bf98aba19db4737a1333782",
+     {f"package/dist/{n}": f"wasi/{n}" for n in ("index.js", "wasi.js", "wasi_defs.js", "fd.js", "fs_mem.js",
+                                                 "fs_opfs.js", "debug.js", "strace.js")} | {"package/LICENSE-MIT": "wasi/LICENSE"}),
+]
 
 TOOLS = {
     "x86_64": [
@@ -159,8 +176,36 @@ def install_harper(dest: Path) -> None:
     print(f"installed Harper {version} into {dest}")
 
 
+def install_browser_render(dest: Path) -> None:
+    dest.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        for name, url, digest, wanted in BROWSER_RENDER:
+            archive = Path(tmp) / name
+            _download(url, archive, digest)
+            if url.endswith(".zip"):
+                with zipfile.ZipFile(archive) as zf:
+                    found = {n: zf.read(n) for n in zf.namelist() if n in wanted}
+            else:
+                with tarfile.open(archive) as tar:
+                    found = {m.name: tar.extractfile(m).read() for m in tar.getmembers() if m.isfile() and m.name in wanted}
+            missing = set(wanted) - set(found)
+            if missing:
+                sys.exit(f"{name}: missing {', '.join(sorted(missing))}")
+            for src, rel in wanted.items():
+                target = dest / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(found[src])
+                target.chmod(0o644)
+    install_fonts(dest / "fonts")
+    (dest / "VERSION").write_text(f"pandoc {PANDOC}, typst.ts 0.7.0 (Typst {TYPST}), browser_wasi_shim 0.4.2\n")
+    print(f"installed the browser renderer into {dest}")
+
+
 def main() -> None:
     args = sys.argv[1:]
+    if "--browser-render" in args:
+        install_browser_render(Path(args[args.index("--browser-render") + 1]))
+        return
     if "--harper" in args:
         install_harper(Path(args[args.index("--harper") + 1]))
         return

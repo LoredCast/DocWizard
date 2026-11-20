@@ -2,77 +2,175 @@
 {% block title %}{{ project.name }} · DocWizard{% endblock %}
 {% block crumbs %}<a class="wordmark" href="/">DocWizard</a><span>/</span><span>{{ project.name }}</span>{% endblock %}
 {% block content %}
-{% if error %}<p class="error pad" role="alert">{{ _(error) }}</p>{% endif %}
-<div class="project-bar" data-project="{{ project.id }}" data-project-name="{{ project.name }}">
-  {% if not guest %}
-  <label class="switch" title="{{ _('Keep every document of this project in this browser, to read and edit without a connection.') }}">
-    <input type="checkbox" data-keep-offline> <span>{{ _("Available offline") }}</span>
-  </label>
-  <span class="muted" data-offline-state role="status"></span>
-  {% endif %}
-  <a class="spacer-left" href="/api/projects/{{ project.id }}/archive" download>{{ _("Download as .zip") }}</a>
-</div>
-<div class="table-wrap">
-<table>
-  <thead><tr><th>{{ _("Name") }} ▴</th><th class="opt">{{ _("Kind") }}</th><th>{{ _("Modified") }}</th><th class="num">{{ _("Size") }}</th></tr></thead>
-  <tbody>
-  {% for e in tree %}
-  <tr data-href="{{ doc_url(project.id, e.path) }}">
-    <td><a href="{{ doc_url(project.id, e.path) }}">{{ e.path }}</a></td>
-    <td class="opt">{{ _(e.kind) if e.type == "document" else _("file") }}</td>
-    <td title="{{ e.updatedAt }}">{{ e.updatedAt|reltime }}</td>
-    <td class="num">{{ e.size|filesize }}</td>
-  </tr>
-  {% else %}
-  <tr><td colspan="4">{{ _("No files yet.") }}</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
-</div>
-{% if can(role, "edit") %}
-<div class="pad file-actions">
-  <form method="post" class="row">
+{% set may_edit = can(role, "edit") %}
+{% set ns = namespace(layout=project.layout_id, docs=0) %}
+{% for lay in layouts %}{% if lay.id == project.layout_id %}{% set ns.layout = lay.name %}{% endif %}{% endfor %}
+{% for e in tree %}{% if e.type == "document" %}{% set ns.docs = ns.docs + 1 %}{% endif %}{% endfor %}
+<div class="project-page">
+{% if error %}<p class="error" role="alert">{{ _(error) }}</p>{% endif %}
+<header class="project-head">
+  <div class="project-title">
+    <h1>{{ project.name }}</h1>
+    <p class="muted project-meta">
+      <span>{{ ns.layout }}</span>
+      <span>{{ _("1 document") if ns.docs == 1 else _("{n} documents", n=ns.docs) }}</span>
+      {% if members %}<span>{{ _("1 member") if members|length == 1 else _("{n} members", n=members|length) }}</span>{% endif %}
+      <span>{{ _(role|capitalize) }}</span>
+    </p>
+  </div>
+  <div class="project-bar" data-project="{{ project.id }}" data-project-name="{{ project.name }}">
+    {% if not guest %}
+    <label class="switch" title="{{ _('Keep every document of this project in this browser, to read and edit without a connection.') }}">
+      <input type="checkbox" data-keep-offline> <span>{{ _("Available offline") }}</span>
+    </label>
+    <span class="muted" data-offline-state role="status"></span>
+    {% endif %}
+    <a class="button" href="/api/projects/{{ project.id }}/archive" download>{{ _("Download as .zip") }}</a>
+  </div>
+</header>
+
+<section class="card files-card" aria-labelledby="files-title">
+  <div class="section-head">
+    <h2 id="files-title">{{ _("Files") }}</h2>
+    {% if may_edit %}
+    <form class="row upload-form" data-upload="{{ project.id }}">
+      <span class="muted" data-upload-status></span>
+      <label class="button">{{ _("Upload files") }}<input type="file" name="file" multiple class="visually-hidden"></label>
+    </form>
+    {% endif %}
+  </div>
+  <div class="table-wrap">
+  <table class="files">
+    <thead><tr><th>{{ _("Name") }} ▴</th><th class="opt">{{ _("Kind") }}</th><th>{{ _("Modified") }}</th><th class="num opt">{{ _("Size") }}</th>{% if may_edit %}<th><span class="visually-hidden">{{ _("Actions") }}</span></th>{% endif %}</tr></thead>
+    <tbody>
+    {% for e in tree %}
+    <tr data-href="{{ doc_url(project.id, e.path) }}">
+      <td class="file-name"><a href="{{ doc_url(project.id, e.path) }}">{{ e.path }}</a></td>
+      <td class="opt muted">{{ _(e.kind) if e.type == "document" else _("file") }}</td>
+      <td class="muted" title="{{ e.updatedAt }}">{{ e.updatedAt|reltime }}</td>
+      <td class="num opt muted">{{ e.size|filesize }}</td>
+      {% if may_edit %}
+      <td class="num">
+        <details class="menu file-menu">
+          <summary aria-label="{{ _('Rename or delete {name}', name=e.path) }}">{{ _("Edit") }}</summary>
+          <div class="menu-body">
+            <form method="post" class="form">
+              <input type="hidden" name="_csrf" value="{{ csrf }}">
+              <input type="hidden" name="action" value="rename-file">
+              <input type="hidden" name="path" value="{{ e.path }}">
+              <label>{{ _("New name") }} <input name="new_path" value="{{ e.path }}" required></label>
+              <div><button type="submit">{{ _("Rename") }}</button></div>
+            </form>
+            <form method="post" data-confirm="{{ _('Move {name} to the trash?', name=e.path) }}">
+              <input type="hidden" name="_csrf" value="{{ csrf }}">
+              <input type="hidden" name="action" value="delete-file">
+              <input type="hidden" name="path" value="{{ e.path }}">
+              <button type="submit" class="danger">{{ _("Delete") }}</button>
+            </form>
+          </div>
+        </details>
+      </td>
+      {% endif %}
+    </tr>
+    {% else %}
+    <tr><td colspan="{{ 5 if may_edit else 4 }}" class="muted">{{ _("No files yet.") }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% if may_edit %}
+  <form method="post" class="row new-doc">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <input type="hidden" name="action" value="new-document">
     <input name="path" placeholder="chapter.md" required aria-label="{{ _('File name') }}">
     <button type="submit">{{ _("Create document") }}</button>
   </form>
-  <form class="row" data-upload="{{ project.id }}">
-    <label class="button">{{ _("Upload files") }}<input type="file" name="file" multiple class="visually-hidden"></label>
-    <span class="muted" data-upload-status></span>
-  </form>
-</div>
-<p class="pad muted hint">{{ _("Word files (.docx) keep their comments and tracked changes. Fountain screenplays (.fountain) become documents.") }}</p>
+  <p class="muted hint">{{ _("Word files (.docx) keep their comments and tracked changes. Fountain screenplays (.fountain) become documents.") }}</p>
+  {% endif %}
+</section>
+
+{% if not guest %}
+<section class="card activity-card" id="activity" aria-labelledby="activity-title">
+  <div class="section-head"><h2 id="activity-title">{{ _("Activity") }}</h2></div>
+  {% if timeline %}
+  <ol class="plain activity-list">
+    {% for a in timeline %}
+    <li class="activity-item activity-{{ a.kind }}">
+      <span class="spacer">{% if a.currentPath and a.kind not in ("delete",) %}<a href="{{ doc_url(project.id, a.currentPath) }}">{{ a.text }}</a>{% else %}{{ a.text }}{% endif %}</span>
+      <time class="muted" datetime="{{ a.when }}" title="{{ a.when }}">{{ a.at|reltime }}</time>
+    </li>
+    {% endfor %}
+  </ol>
+  {% if timeline_more %}<p><a href="?activity=more#activity">{{ _("Show older activity") }}</a></p>{% endif %}
+  {% else %}
+  <p class="muted">{{ _("Nothing has happened yet. Edits, comments, renames and syncs show up here.") }}</p>
+  {% endif %}
+</section>
 {% endif %}
-<div class="panels">
+
+{% if may_edit or not guest %}<h2 class="settings-title">{{ _("Settings") }}</h2>{% endif %}
+<div class="settings-grid">
 {% if can(role, "edit") %}
-<section>
-  <h2>{{ _("Layout") }}{% if not guest %} <a class="muted" href="/layouts/{{ project.layout_id }}">{{ _("Edit layouts") }}</a>{% endif %}</h2>
+<section class="card" aria-labelledby="layout-title">
+  <div class="section-head"><h2 id="layout-title">{{ _("Layout and language") }}</h2>{% if not guest %}<a href="/layouts/{{ project.layout_id }}">{{ _("Edit layouts") }}</a>{% endif %}</div>
   <form method="post" class="row">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <input type="hidden" name="action" value="layout">
+    <span class="row-label">{{ _("Layout") }}</span>
     <select name="layout" aria-label="{{ _('Layout') }}">
       {% for lay in layouts %}<option value="{{ lay.id }}" {% if lay.id == project.layout_id %}selected{% endif %}>{{ lay.name }}</option>{% endfor %}
     </select>
-    <button type="submit">{{ _("Change layout") }}</button>
+    <button type="submit" title="{{ _('Change layout') }}">{{ _("Apply") }}</button>
   </form>
-  <h2 id="language">{{ _("Document language") }}</h2>
-  <form method="post" class="row">
+  <form method="post" class="row" id="language">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <input type="hidden" name="action" value="language">
+    <span class="row-label">{{ _("Language") }}</span>
     <select name="lang" aria-label="{{ _('Document language') }}">
       <option value="" {% if not project.lang %}selected{% endif %}>{{ _("As the layout says") }}</option>
       {% for tag, label in languages %}<option value="{{ tag }}" {% if tag == project.lang %}selected{% endif %}>{{ label }} ({{ tag }}){% if tag not in full_languages %} – {{ _("quotation marks only") }}{% endif %}</option>{% endfor %}
     </select>
-    <button type="submit">{{ _("Change language") }}</button>
+    <button type="submit" title="{{ _('Change language') }}">{{ _("Apply") }}</button>
   </form>
   <p class="muted hint">{{ _("Dates, quotation marks, hyphenation and generated headings follow it. A document can set its own with lang: in its front matter.") }}</p>
+  <details class="disclosure" id="build"{% if build_inputs %} open{% endif %}>
+  <summary>{{ _("Build inputs") }}{% if build_inputs %} <span class="muted">({{ build_inputs|length }})</span>{% endif %}</summary>
+  <form method="post" class="form">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="build-inputs">
+    <label>{{ _("Files that make up the document, one per line, in order") }}
+      <textarea name="inputs" rows="3" placeholder="main.tex&#10;chapters/01.md">{{ build_inputs|join("\n") }}</textarea></label>
+    <p class="muted hint">{{ _("Empty: each document previews and exports on its own. A root file (main.tex) or a list of Markdown chapters renders as one document, whichever of them you edit.") }}</p>
+    <div><button type="submit">{{ _("Save build inputs") }}</button></div>
+  </form>
+  </details>
 </section>
 {% endif %}
 {% if not guest %}
-<section>
-  <h2>{{ _("Members") }}</h2>
-  <ul class="plain">
+<section class="card" id="dictionary" aria-labelledby="dictionary-title">
+  <div class="section-head"><h2 id="dictionary-title">{{ _("Project dictionary") }}</h2></div>
+  <p class="muted hint">{{ _("Names and terms the spelling check accepts in every document of this project, for everyone. Your own words are in your settings.") }}</p>
+  {% if dictionary %}
+  <ul class="word-list">
+    {% for w in dictionary %}
+    <li><span>{{ w }}</span>{% if may_edit %}<form method="post" class="inline"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="action" value="remove-word"><input type="hidden" name="word" value="{{ w }}"><button type="submit" class="link" aria-label="{{ _('Remove {word}', word=w) }}">×</button></form>{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="muted">{{ _("No words yet. Choose “Add to project dictionary” on a spelling mark, or add them here.") }}</p>{% endif %}
+  {% if may_edit %}
+  <form method="post" class="row">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="add-word">
+    <input name="words" required aria-label="{{ _('Words to add') }}" placeholder="{{ _('Words, separated by spaces') }}" spellcheck="false" autocomplete="off">
+    <button type="submit">{{ _("Add") }}</button>
+  </form>
+  {% endif %}
+</section>
+{% endif %}
+{% if not guest %}
+<section class="card" aria-labelledby="members-title">
+  <div class="section-head"><h2 id="members-title">{{ _("Members") }}</h2></div>
+  <ul class="plain member-list">
     {% for m in members %}
     <li><span class="spacer">{{ m.display_name }} <span class="muted">({{ _(m.role) }})</span></span>
       {% if can(role, "manage_members") and m.role != "owner" %}
@@ -87,7 +185,7 @@
     {% endfor %}
   </ul>
   {% if can(role, "manage_members") %}
-  <form method="post" class="row">
+  <form method="post" class="row add-member">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <input type="hidden" name="action" value="add-member">
     <input name="username" placeholder="{{ _('Username') }}" required aria-label="{{ _('Username') }}">
@@ -96,7 +194,7 @@
     </select>
     <button type="submit">{{ _("Add member") }}</button>
   </form>
-  <form method="post" class="form">
+  <form method="post" class="form compact-form">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <input type="hidden" name="action" value="sharing">
     <label class="choice"><input type="checkbox" name="editors_can_share" value="1" {% if project.editors_can_share %}checked{% endif %}> {{ _("Editors can create share links") }}</label>
@@ -107,8 +205,8 @@
 </section>
 {% endif %}
 {% if may_share %}
-<section id="share">
-  <h2>{{ _("Share links") }}</h2>
+<section class="card" id="share" aria-labelledby="share-title">
+  <div class="section-head"><h2 id="share-title">{{ _("Share links") }}</h2></div>
   {% if new_link %}
   <p role="status">{{ _("New link, copy it now:") }} <input readonly value="{{ new_link }}" aria-label="{{ _('New share link') }}" data-select-on-focus></p>
   {% endif %}
@@ -148,8 +246,8 @@
 </section>
 {% endif %}
 {% if may_sync %}
-<section id="sync" data-project="{{ project.id }}">
-  <h2>{{ _("Sync") }}</h2>
+<section class="card" id="sync" data-project="{{ project.id }}" aria-labelledby="sync-title">
+  <div class="section-head"><h2 id="sync-title">{{ _("Sync") }}</h2></div>
   {% if sync %}
   <p>
     {%- if sync.kind == "git" %}{{ _("Synced with the git repository") }} <strong>{{ sync.url }}</strong> <span class="muted">{{ _("branch {branch}", branch=sync.branch) }}{% if sync.author %}, {{ _("commits by {name}", name=sync.author) }}{% endif %}</span>
@@ -211,9 +309,54 @@
   {% endif %}
 </section>
 {% endif %}
+{% if trash %}
+<section class="card" id="trash" aria-labelledby="trash-title">
+  <div class="section-head"><h2 id="trash-title">{{ _("Trash") }}</h2></div>
+  <p class="muted hint">{{ _("Deleted files stay here for 30 days and still count towards the owner's storage.") }}</p>
+  <ul class="plain">
+    {% for t in trash %}
+    <li><span class="spacer">{{ t.path }} <span class="muted">{{ t.size|filesize }} · {{ t.deleted_at|reltime }}</span></span>
+      <form method="post" class="inline">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <input type="hidden" name="action" value="restore-file">
+        {% if t.type == "document" %}<input type="hidden" name="doc_id" value="{{ t.id }}">
+        {% else %}<input type="hidden" name="path" value="{{ t.path }}"><input type="hidden" name="deleted_at" value="{{ t.deleted_at }}">{% endif %}
+        <button type="submit" class="link">{{ _("Restore") }}</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  {% if can(role, "delete_project") %}
+  <form method="post" data-confirm="{{ _('Delete everything in the trash for good? This can\'t be undone.') }}">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="empty-trash">
+    <button type="submit" class="danger">{{ _("Empty trash permanently") }}</button>
+  </form>
+  {% endif %}
+</section>
+{% endif %}
+{% if home_state %}
+<section class="card" id="organize" aria-labelledby="organize-title">
+  <div class="section-head"><h2 id="organize-title">{{ _("Your home page") }}</h2></div>
+  <form method="post" class="row">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="organize">
+    <span class="row-label">{{ _("Tags") }}</span>
+    <input name="tags" value="{{ home_state.tags|join(', ') }}" maxlength="400" autocomplete="off" aria-label="{{ _('Tags') }}" placeholder="{{ _('thesis, 2026, seminar') }}">
+    <button type="submit">{{ _("Save tags") }}</button>
+  </form>
+  <form method="post" class="row">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="organize">
+    <input type="hidden" name="archived" value="{{ '0' if home_state.archived else '1' }}">
+    <span class="muted hint spacer">{{ _("Archived: listed under Archived on your home page.") if home_state.archived else _("Archive it to keep your home page short. Only you see your tags and archive.") }}</span>
+    <button type="submit">{{ _("Restore to home page") if home_state.archived else _("Archive") }}</button>
+  </form>
+</section>
+{% endif %}
 {% if can(role, "delete_project") %}
-<section>
-  <h2>{{ _("Project") }}</h2>
+<section class="card danger-zone" aria-labelledby="project-title">
+  <div class="section-head"><h2 id="project-title">{{ _("Project") }}</h2></div>
   <form method="post" class="row">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <input type="hidden" name="action" value="rename">
@@ -221,12 +364,14 @@
     <button type="submit">{{ _("Rename") }}</button>
   </form>
   <form method="post" class="row" data-confirm="{{ _('Delete the project {name}? It moves to the trash.', name=project.name) }}">
+    <span class="muted hint spacer">{{ _("The project and its files move to the trash.") }}</span>
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <input type="hidden" name="action" value="delete">
     <button type="submit" class="danger">{{ _("Delete project") }}</button>
   </form>
 </section>
 {% endif %}
+</div>
 </div>
 {% endblock %}
 {% block scripts %}<script type="module" src="{{ static }}/app/main.js"></script>{% endblock %}

@@ -46,6 +46,12 @@
       </select>
     </label>
     {% endif %}
+    {% if assist.enabled %}
+    <input type="hidden" name="assist_shown" value="1">
+    <label class="choice"><input type="checkbox" name="assist" {% if user.preferences.get("assist") is sameas true %}checked{% endif %}>
+      {{ _("Writing helper: let {model} suggest changes to passages I pick").replace("{model}", assist.model) }}</label>
+    <p class="muted hint">{{ _("The passage goes to this server's language model. Its answers only ever become suggestions that someone accepts or rejects; it never changes the text itself.") }}</p>
+    {% endif %}
     <label>{{ _("Email me about comments") }}
       <select name="notify_email">
         {% for value, label in [("all", "Mentions and replies"), ("mentions", "Only when someone mentions me"), ("off", "Never")] %}
@@ -56,6 +62,70 @@
     {% if saved == "profile" %}<p role="status">{{ _("Saved") }}</p>{% endif %}
     <div class="buttons"><button type="submit" class="primary">{{ _("Save") }}</button></div>
   </form>
+  <h2 id="words">{{ _("My dictionary") }}</h2>
+  <p class="muted">{{ _("Words the spelling check accepts in all your projects. Each project also has its own dictionary, shared by everyone in it.") }}</p>
+  {% if my_words %}
+  <ul class="word-list">
+    {% for w in my_words %}
+    <li><span>{{ w }}</span><form method="post" action="/settings/words" class="inline"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="action" value="remove"><input type="hidden" name="word" value="{{ w }}"><button type="submit" class="link" aria-label="{{ _('Remove {word}', word=w) }}">×</button></form></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  <form method="post" action="/settings/words" class="row">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input name="words" required aria-label="{{ _('Words to add') }}" placeholder="{{ _('Words, separated by spaces') }}" spellcheck="false" autocomplete="off">
+    <button type="submit">{{ _("Add") }}</button>
+  </form>
+  {% if saved == "words" %}<p role="status">{{ _("Saved") }}</p>{% endif %}
+  <h2 id="email">{{ _("Email address") }}</h2>
+  {% if saved == "email-sent" %}<p role="status">{{ _("We sent a link to confirm the address. It works for 2 days.") }}</p>
+  {% elif saved == "email-verified" %}<p role="status">{{ _("Your email address is confirmed.") }}</p>
+  {% elif saved == "email" %}<p role="status">{{ _("Saved") }}</p>{% endif %}
+  {% if user.email %}
+  <p>{{ user.email }}
+    {% if user.email_verified %}<span class="ok">{{ _("Confirmed") }}</span>
+    {% else %}<span class="error">{{ _("Not confirmed") }}</span>{% endif %}</p>
+  {% if not user.email_verified and mail %}
+  <form method="post" action="/settings/email" class="inline">
+    <input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="action" value="resend">
+    <button type="submit">{{ _("Send the confirmation link again") }}</button>
+  </form>
+  {% if email_required %}<p class="muted">{{ _("Publishing, sync and Zotero libraries work once your address is confirmed.") }}</p>{% endif %}
+  {% endif %}
+  {% else %}
+  <p class="muted">{{ _("No email address. Add one to reset your password yourself and to get notifications.") }}</p>
+  {% endif %}
+  {% if email_pending and (email_pending|lower) != ((user.email or "")|lower) %}<p class="muted">{{ _("Waiting for confirmation: {email}", email=email_pending) }}</p>{% endif %}
+  <form method="post" action="/settings/email" class="form">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <label>{{ _("New email address") if user.email else _("Email address") }} <input name="email" type="email" autocomplete="email" maxlength="200" required></label>
+    {% if has_password %}<label>{{ _("Current password") }} <input name="current" type="password" autocomplete="current-password" required></label>{% endif %}
+    {% if email_error %}<p class="error" role="alert">{{ _(email_error) }}</p>{% endif %}
+    {% if mail %}<p class="muted">{{ _("The new address is used once you open the link we send to it.") }}</p>{% endif %}
+    <div class="buttons"><button type="submit">{{ _("Change email address") if user.email else _("Add email address") }}</button></div>
+  </form>
+  <h2 id="storage">{{ _("Storage") }}</h2>
+  {% include "_storage.html" %}
+  {% if saved == "trash" %}<p role="status">{{ _("The trash was emptied.") }}</p>{% endif %}
+  {% if trashed_projects %}
+  <h3>{{ _("Deleted projects") }}</h3>
+  <ul class="plain">
+    {% for p in trashed_projects %}
+    <li><span class="spacer">{{ p.name }} <span class="muted">{{ p.deleted_at|reltime }}</span></span>
+      <form method="post" action="/settings/trash" class="inline">
+        <input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="project_id" value="{{ p.id }}">
+        <button type="submit" name="action" value="restore-project" class="link">{{ _("Restore") }}</button>
+        <button type="submit" name="action" value="purge-project" class="link danger-text" data-confirm="{{ _('Delete {name} for good? This can\'t be undone.', name=p.name) }}">{{ _("Delete for good") }}</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  <form method="post" action="/settings/trash" data-confirm="{{ _('Delete everything in the trash of your projects for good? This can\'t be undone.') }}">
+    <input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="action" value="empty-all">
+    <button type="submit" class="danger">{{ _("Empty trash permanently") }}</button>
+  </form>
+  <p class="muted">{{ _("Deleted projects and files are otherwise removed after 30 days.") }}</p>
   <h2>{{ _("Password") }}</h2>
   <form method="post" action="/settings/password" class="form">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
@@ -111,6 +181,25 @@
   {% endif %}
   {% if totp_error and not totp_setup %}<p class="error" role="alert">{{ _(totp_error) }}</p>{% endif %}
   {% if saved == "totp-off" %}<p role="status">{{ _("Two-step login is off.") }}</p>{% endif %}
+  <h2 id="sessions">{{ _("Where you're logged in") }}</h2>
+  {% if saved == "sessions" %}<p role="status">{{ _("Logged out.") }}</p>{% endif %}
+  <ul class="plain sessions">
+    {% for sess in sessions %}
+    <li><span class="spacer">{{ _(sess.label) }}{% if sess.current %} <span class="badge">{{ _("this device") }}</span>{% endif %}
+      <br><span class="muted">{{ _("Active {when}", when=sess.last_seen_at|reltime) }} · {{ _("since {when}", when=sess.created_at|reltime) }}</span></span>
+      <form method="post" action="/settings/sessions/revoke" class="inline">
+        <input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="id" value="{{ sess.id }}">
+        <button type="submit" class="link">{{ _("Log out") if sess.current else _("Revoke") }}</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  {% if sessions|length > 1 %}
+  <form method="post" action="/settings/sessions/revoke">
+    <input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="all_others" value="1">
+    <button type="submit">{{ _("Log out other devices") }}</button>
+  </form>
+  {% endif %}
   {% if identities or linkable %}
   <h2 id="logins">{{ _("Linked logins") }}</h2>
   <ul class="plain">
@@ -182,6 +271,21 @@
     {% if zotero_error %}<p class="error" role="alert">{{ _(zotero_error) }}</p>{% endif %}
     {% if saved == "zotero" %}<p role="status">{{ _("Saved") }}</p>{% endif %}
     <div class="buttons"><button type="submit">{{ _("Add library") }}</button></div>
+  </form>
+  <h2 id="data">{{ _("Your data") }}</h2>
+  <p>{{ _("Download everything this account holds: your projects as plain files, named versions, comments you wrote and your settings.") }}</p>
+  <p><a class="button" href="/settings/export" download>{{ _("Export my data (.zip)") }}</a></p>
+  <h2 id="delete">{{ _("Delete account") }}</h2>
+  <form method="post" action="/settings/delete-account" class="form" data-confirm="{{ _('Delete your account and its projects for good? This can\'t be undone.') }}">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <p class="muted">{{ _("Your projects are deleted with their published sites, unless you hand shared ones over. Comments you wrote in others' projects stay, under your name.") }}</p>
+    <label class="choice"><input type="checkbox" name="hand_over" value="1" checked> {{ _("Hand projects with other editors over to one of them instead of deleting them") }}</label>
+    <label>{{ _("Type your username to confirm") }} <input name="confirm_username" autocomplete="off" required></label>
+    {% if has_password %}<label>{{ _("Current password") }} <input name="password" type="password" autocomplete="current-password" required></label>
+    {% else %}<p class="muted">{{ _("Without a password, this works within 15 minutes of logging in.") }}</p>{% endif %}
+    {% if user.totp %}<label>{{ _("Two-step login code") }} <input name="code" inputmode="numeric" autocomplete="one-time-code" required></label>{% endif %}
+    {% if delete_error %}<p class="error" role="alert">{{ _(delete_error) }}</p>{% endif %}
+    <div><button type="submit" class="danger">{{ _("Delete my account") }}</button></div>
   </form>
 </section>
 {% endblock %}

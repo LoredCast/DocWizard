@@ -9,6 +9,7 @@ import os
 import shutil
 import time
 
+from . import activity
 from .logs import fields
 
 log = logging.getLogger("docwizard.maintenance")
@@ -59,6 +60,7 @@ class Maintenance:
             return projects, docs, assets
 
         projects, docs, assets = await self.app.db.write(work)
+        self.app.quotas.forget()
         for pid in projects:
             await asyncio.to_thread(shutil.rmtree, self.app.rooms.project_dir(pid), True)
         return {"projects": len(projects), "documents": docs, "assets": assets}
@@ -70,6 +72,7 @@ class Maintenance:
             tokens = c.execute("DELETE FROM account_tokens WHERE expires_at < ?", (now - 86400,)).rowcount
             clients = c.execute("DELETE FROM collab_clients WHERE last_seen_at < ?",
                                 (now - CLIENT_DAYS * 86400,)).rowcount
+            activity.prune(c, now)
             return tokens, clients
 
         tokens, clients = await self.app.db.write(work)

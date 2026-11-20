@@ -47,14 +47,78 @@ def get_project(conn: sqlite3.Connection, project_id: str) -> sqlite3.Row | None
 
 
 def list_projects(conn: sqlite3.Connection, user_id: int) -> list[dict]:
+    """The user's projects with their own tags and archive state (§6.2), by name."""
     rows = conn.execute(
-        "SELECT p.id, p.name, p.layout_id, p.updated_at, m.role,"
+        "SELECT p.id, p.name, p.layout_id, p.updated_at, m.role, m.tags, m.archived_at,"
+        " coalesce(nullif(o.display_name, ''), o.username) AS owner_name,"
         " (SELECT count(*) FROM project_members WHERE project_id = p.id) AS members"
         " FROM projects p JOIN project_members m ON m.project_id = p.id AND m.user_id = ?"
+        " LEFT JOIN users o ON o.id = p.owner_id"
         " WHERE p.deleted_at IS NULL ORDER BY p.name COLLATE NOCASE",
         (user_id,),
     ).fetchall()
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        item = dict(r)
+        item["tags"] = tags_of(item["tags"])
+        item["archived"] = item.pop("archived_at") is not None
+        item["shared"] = item["role"] != "owner"
+        out.append(item)
+    return out
+
+
+MAX_TAGS = 12
+MAX_TAG_LENGTH = 32
+
+
+def tags_of(raw: str | None) -> list[str]:
+    try:
+        value = json.loads(raw) if raw else []
+    except ValueError:
+        return []
+    return [t for t in value if isinstance(t, str)] if isinstance(value, list) else []
+
+
+def normalize_tags(value) -> list[str]:
+    """Tags as typed: a list, or one string separated by commas. Spaces are collapsed, the same tag
+    in another case counts once (the first spelling wins), and empty ones are dropped."""
+    items = value.split(",") if isinstance(value, str) else value if isinstance(value, list) else None
+    if items is None:
+        raise ValueError("Give the tags as a list.")
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if not isinstance(item, str):
+            raise ValueError("Tags are text.")
+        tag = " ".join(item.replace("#", " ").split())
+        if not tag:
+            continue
+        if len(tag) > MAX_TAG_LENGTH:
+            raise ValueError(f"Keep each tag to {MAX_TAG_LENGTH} characters.")
+        if tag.casefold() in seen:
+            continue
+        seen.add(tag.casefold())
+        out.append(tag)
+    if len(out) > MAX_TAGS:
+        raise ValueError(f"Use at most {MAX_TAGS} tags for a project.")
+    return out
+
+
+def set_home_state(conn: sqlite3.Connection, project_id: str, user_id: int, *,
+                   tags: list[str] | None = None, archived: bool | None = None) -> dict:
+    """Change the member's own tags and archive state for a project. Returns both."""
+    row = conn.execute("SELECT m.tags, m.archived_at FROM project_members m JOIN projects p ON p.id = m.project_id"
+                       " WHERE m.project_id = ? AND m.user_id = ? AND p.deleted_at IS NULL",
+                       (project_id, user_id)).fetchone()
+    if row is None:
+        raise ValueError("You're not a member of this project.")
+    new_tags = tags_of(row["tags"]) if tags is None else tags
+    archived_at = row["archived_at"]
+    if archived is not None:
+        archived_at = (archived_at or time.time()) if archived else None
+    conn.execute("UPDATE project_members SET tags = ?, archived_at = ? WHERE project_id = ? AND user_id = ?",
+                 (json.dumps(new_tags) if new_tags else None, archived_at, project_id, user_id))
+    return {"tags": new_tags, "archived": archived_at is not None}
 
 
 def create_project(conn: sqlite3.Connection, owner_id: int, name: str, layout_id: str) -> str:
@@ -159,6 +223,16 @@ def rename_document(conn: sqlite3.Connection, doc: sqlite3.Row, new_path: str) -
         raise ValueError("A file with this name already exists.")
     conn.execute("UPDATE documents SET path = ?, kind = ? WHERE id = ?",
                  (new_path, files.kind_for(new_path), doc["id"]))
+    # A renamed chapter keeps its place in the build.
+    row = conn.execute("SELECT build_inputs FROM projects WHERE id = ?", (doc["project_id"],)).fetchone()
+    if row and row["build_inputs"] and new_path != doc["path"]:
+        try:
+            inputs = json.loads(row["build_inputs"])
+        except ValueError:
+            inputs = None
+        if isinstance(inputs, list) and doc["path"] in inputs:
+            conn.execute("UPDATE projects SET build_inputs = ? WHERE id = ?",
+                         (json.dumps([new_path if p == doc["path"] else p for p in inputs]), doc["project_id"]))
     return new_path
 
 
@@ -223,6 +297,78 @@ def trash_asset(conn: sqlite3.Connection, project_id: str, path: str) -> None:
                  (now_iso(), project_id, path))
 
 
+def rename_asset(conn: sqlite3.Connection, project_id: str, path: str, new_path: str) -> str:
+    new_path = files.normalize(new_path)
+    if get_asset(conn, project_id, path) is None:
+        raise ValueError("No such file.")
+    if files.kind_for(new_path) is not None:
+        raise ValueError("Keep the file extension of this kind of file.")
+    if new_path != path and path_taken(conn, project_id, new_path):
+        raise ValueError("A file with this name already exists.")
+    conn.execute("UPDATE assets SET path = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
+                 " WHERE project_id = ? AND path = ? AND deleted_at IS NULL", (new_path, project_id, path))
+    touch_project(conn, project_id)
+    return new_path
+
+
+# -- trash -----------------------------------------------------------------
+
+def list_trash(conn: sqlite3.Connection, project_id: str) -> list[dict]:
+    """Trashed documents and files of a project, newest first."""
+    rows = conn.execute(
+        "SELECT 'document' AS type, id, path, deleted_at, json_extract(materialized_stat, '$[2]') AS size"
+        " FROM documents WHERE project_id = :p AND deleted_at IS NOT NULL"
+        " UNION ALL SELECT 'asset', NULL, path, deleted_at, size FROM assets"
+        " WHERE project_id = :p AND deleted_at IS NOT NULL ORDER BY deleted_at DESC", {"p": project_id}).fetchall()
+    return [dict(r) for r in rows]
+
+
+def restore_document(conn: sqlite3.Connection, project_id: str, doc_id: str) -> str:
+    row = conn.execute("SELECT path FROM documents WHERE id = ? AND project_id = ? AND deleted_at IS NOT NULL",
+                       (doc_id, project_id)).fetchone()
+    if row is None:
+        raise ValueError("This file is no longer in the trash.")
+    path = free_path(conn, project_id, row["path"])
+    conn.execute("UPDATE documents SET deleted_at = NULL, path = ?, materialized_version = -1 WHERE id = ?",
+                 (path, doc_id))
+    touch_project(conn, project_id)
+    return path
+
+
+def restore_asset(conn: sqlite3.Connection, project_id: str, path: str, deleted_at: str) -> tuple[str, str]:
+    row = conn.execute("SELECT rowid, sha256 FROM assets WHERE project_id = ? AND path = ? AND deleted_at = ?",
+                       (project_id, path, deleted_at)).fetchone()
+    if row is None:
+        raise ValueError("This file is no longer in the trash.")
+    new_path = free_path(conn, project_id, path)
+    conn.execute("UPDATE assets SET deleted_at = NULL, path = ? WHERE rowid = ?", (new_path, row["rowid"]))
+    touch_project(conn, project_id)
+    return new_path, row["sha256"]
+
+
+def empty_trash(conn: sqlite3.Connection, project_id: str) -> dict:
+    """Delete a project's trashed documents and files for good. Blobs go with the daily collection."""
+    docs = conn.execute("DELETE FROM documents WHERE project_id = ? AND deleted_at IS NOT NULL",
+                        (project_id,)).rowcount
+    assets = conn.execute("DELETE FROM assets WHERE project_id = ? AND deleted_at IS NOT NULL",
+                          (project_id,)).rowcount
+    return {"documents": docs, "assets": assets}
+
+
+def purge_project(conn: sqlite3.Connection, project_id: str) -> list[str]:
+    """Delete a project and everything in it for good. Returns the slugs of its publications."""
+    slugs = [r[0] for r in conn.execute("SELECT slug FROM publications WHERE project_id = ?", (project_id,))]
+    conn.execute("DELETE FROM publications WHERE project_id = ?", (project_id,))
+    conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+    return slugs
+
+
+def trashed_projects(conn: sqlite3.Connection, owner_id: int) -> list[dict]:
+    rows = conn.execute("SELECT id, name, deleted_at FROM projects WHERE owner_id = ? AND deleted_at IS NOT NULL"
+                        " ORDER BY deleted_at DESC", (owner_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
 def tree(conn: sqlite3.Connection, project_id: str) -> list[dict]:
     docs = conn.execute(
         "SELECT id, path, kind, version, updated_at, materialized_stat FROM documents"
@@ -238,6 +384,59 @@ def tree(conn: sqlite3.Connection, project_id: str) -> list[dict]:
         out.append({"type": "asset", "path": a["path"], "size": a["size"], "updatedAt": a["updated_at"]})
     out.sort(key=lambda e: (e["path"].count("/"), e["path"].lower()))
     return out
+
+
+# -- storage (§7.7) ---------------------------------------------------------
+
+def user_storage_bytes(conn: sqlite3.Connection, user_id: int) -> int:
+    """Bytes the projects *user_id* owns take up, trashed projects and files included.
+
+    Counted: every asset row (active and trashed), each document at its current size (the file
+    on disk, or its latest snapshot before it was first written), and named versions. Rows the
+    daily purge removed no longer count. Automatic history is not counted: it is thinned by age
+    and nobody can delete it by hand.
+    """
+    row = conn.execute(
+        "SELECT"
+        " (SELECT COALESCE(SUM(a.size), 0) FROM assets a JOIN projects p ON p.id = a.project_id"
+        "   WHERE p.owner_id = :u),"
+        " (SELECT COALESCE(SUM(COALESCE(json_extract(d.materialized_stat, '$[2]'),"
+        "   (SELECT length(CAST(s.text AS BLOB)) FROM doc_snapshots s WHERE s.doc_id = d.id"
+        "    ORDER BY s.version DESC, s.id DESC LIMIT 1), 0)), 0)"
+        "   FROM documents d JOIN projects p ON p.id = d.project_id WHERE p.owner_id = :u),"
+        " (SELECT COALESCE(SUM(length(CAST(s.text AS BLOB))), 0) FROM doc_snapshots s"
+        "   JOIN documents d ON d.id = s.doc_id JOIN projects p ON p.id = d.project_id"
+        "   WHERE p.owner_id = :u AND s.label IS NOT NULL)",
+        {"u": user_id}).fetchone()
+    return int(row[0] + row[1] + row[2])
+
+
+def total_storage_bytes(conn: sqlite3.Connection) -> int:
+    """What every account's storage adds up to, counted as in user_storage_bytes (for /metrics)."""
+    row = conn.execute(
+        "SELECT (SELECT COALESCE(SUM(size), 0) FROM assets),"
+        " (SELECT COALESCE(SUM(COALESCE(json_extract(d.materialized_stat, '$[2]'),"
+        "   (SELECT length(CAST(s.text AS BLOB)) FROM doc_snapshots s WHERE s.doc_id = d.id"
+        "    ORDER BY s.version DESC, s.id DESC LIMIT 1), 0)), 0) FROM documents d),"
+        " (SELECT COALESCE(SUM(length(CAST(text AS BLOB))), 0) FROM doc_snapshots WHERE label IS NOT NULL)").fetchone()
+    return int(row[0] + row[1] + row[2])
+
+
+def project_owner(conn: sqlite3.Connection, project_id: str) -> int | None:
+    row = conn.execute("SELECT owner_id FROM projects WHERE id = ?", (project_id,)).fetchone()
+    return row[0] if row else None
+
+
+def count_owned_projects(conn: sqlite3.Connection, user_id: int) -> int:
+    return conn.execute("SELECT COUNT(*) FROM projects WHERE owner_id = ? AND deleted_at IS NULL",
+                        (user_id,)).fetchone()[0]
+
+
+def count_files(conn: sqlite3.Connection, project_id: str) -> int:
+    return conn.execute(
+        "SELECT (SELECT COUNT(*) FROM documents WHERE project_id = ? AND deleted_at IS NULL)"
+        " + (SELECT COUNT(*) FROM assets WHERE project_id = ? AND deleted_at IS NULL)",
+        (project_id, project_id)).fetchone()[0]
 
 
 # -- recent --------------------------------------------------------------

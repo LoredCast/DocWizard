@@ -17,6 +17,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable
@@ -24,6 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .. import activity
 from ..auth import permissions
 from ..logs import fields
 from ..projects import files, history
@@ -116,6 +118,9 @@ class Room:
         self.dirty_since: float | None = None
         self.last_op = 0.0
         self.last_activity = time.monotonic()
+        # Edits per author since the last materialization, for the project's activity (§8.12):
+        # {author: [changes, first_at, last_at]}. Written when the room materializes.
+        self.edit_tally: dict[str, list[float]] = {}
         self.closed = False
         self.task = asyncio.create_task(self._run(), name=f"room-{self.doc_id}")
 
@@ -281,9 +286,21 @@ class Room:
             new_len = cs.new_length
         if new_len > self.rooms.cfg.limits.max_document_bytes:
             raise PushError("too_large", "The document would exceed the size limit.")
+        await self.check_quota(new_len - len(self.buf))
         records = [{"clientID": peer.client_id, "changes": cs.to_json()} for cs in parsed]
         await self._commit(parsed, records, author=peer.author)
         return True
+
+    async def check_quota(self, growth: int) -> None:
+        """Text that grows the document counts against the project owner's storage (§7.7)."""
+        if growth <= 0:
+            return
+        from ..projects.quota import QuotaExceeded
+
+        try:
+            await self.rooms.app.quotas.check(self.project_id, growth, live=True)
+        except QuotaExceeded as exc:
+            raise PushError(exc.code, exc.message) from None
 
     async def _commit(self, changesets: list[ChangeSet], records: list[dict], author: int | str | None,
                       merge_id: str | None = None) -> int:
@@ -312,6 +329,11 @@ class Room:
             log.exception("commit failed", extra=fields(doc=self.doc_id))
             raise PushError("not_saved", "The change could not be saved. It will be sent again.") from None
         self.ops_since_snapshot += len(changesets)
+        if author is not None and re.fullmatch(r"g?\d+", str(author)):
+            now = time.time()
+            tally = self.edit_tally.setdefault(str(author), [0, now, now])
+            tally[0] += len(changesets)
+            tally[2] = now
         for i, cs in enumerate(changesets):
             self.recent.append((start_version + i, cs))
         for peer in self.peers.values():
@@ -469,6 +491,7 @@ class Room:
         if not cs.empty_changes:
             if cs.new_length > self.rooms.cfg.limits.max_document_bytes:
                 raise PushError("too_large", "The document would exceed the size limit.")
+            await self.check_quota(cs.new_length - n)
             # The thread is decided: its anchor goes before the edit, so it isn't orphaned by it.
             self.anchors.pop(key, None)
             try:
@@ -489,6 +512,39 @@ class Room:
             return self.version
         return await self._commit([cs], [{"clientID": client_id, "changes": cs.to_json()}], author)
 
+    async def replace_ranges(self, version: int, edits: list[tuple[int, int, str, str]], *, author: str | None,
+                             label: str) -> tuple[int, int]:
+        """Apply a project-wide replacement (§8.12): *edits* are ``(from, to, expected, insert)``
+        at *version*. Each range is mapped to now and replaced only if it still holds the
+        expected text, so edits made since the preview are kept. One named version before, one
+        update for all. Returns (replaced, skipped)."""
+        changes = await self._changes_from(version)
+        if changes is None:
+            raise PushError("stale", "This document changed too much since the search. Search again.")
+        base_len = changes[0].length if changes else len(self.buf)
+        mapped, skipped = [], 0
+        for frm, to, expected, insert in sorted(edits):
+            if not 0 <= frm <= to <= base_len:
+                skipped += 1
+                continue
+            for cs in changes:
+                frm, to = map_range(cs, frm, to)
+            if (mapped and frm < mapped[-1][1]) or not (self.buf.is_boundary(frm) and self.buf.is_boundary(to)) \
+                    or self.buf.slice(frm, to) != expected:
+                skipped += 1
+                continue
+            mapped.append((frm, to, insert))
+        if not mapped:
+            return 0, skipped
+        cs = ChangeSet.of(mapped, len(self.buf))
+        new_len = cs.new_length
+        if new_len > self.rooms.cfg.limits.max_document_bytes:
+            raise PushError("too_large", "The document would exceed the size limit.")
+        await self.check_quota(new_len - len(self.buf))
+        await self.snapshot(label, user_of(author))
+        await self._commit([cs], [{"clientID": "system:replace", "changes": cs.to_json()}], author)
+        return len(mapped), skipped
+
     async def merge(self, peer: Peer, merge_id: str, base: str, text: str) -> dict:
         """Reconcile a client's offline text (§8.6)."""
         permissions.require(peer.role, "edit")
@@ -496,6 +552,7 @@ class Room:
             "SELECT version FROM doc_ops WHERE doc_id = ? AND merge_id = ?", (self.doc_id, merge_id)).fetchone())
         if prior is not None:
             return {"t": "merged", "doc": self.doc_id, "mergeId": merge_id, "version": prior[0] + 1, "conflicts": 0}
+        await self.check_quota(u16len(text) - u16len(base))
         conflicts = await self._reconcile(base, text, source=f"offline:{peer.name}", author=peer.author,
                                           label=f"Offline version, {peer.name}", merge_id=merge_id,
                                           client_id=f"merge:{merge_id}")
@@ -509,6 +566,8 @@ class Room:
         if not result.changes.empty_changes:
             await self._commit([result.changes], [{"clientID": client_id, "changes": result.changes.to_json()}],
                                author, merge_id)
+            if not source.startswith("offline:"):
+                await self._activity("outside", detail={"source": source})
         elif merge_id is not None:
             # Record the merge id so a repeated merge gets the same answer.
             cs = ChangeSet.empty(len(self.buf))
@@ -532,6 +591,7 @@ class Room:
             ids = await self.db.write(record)
             for cid, k in zip(ids, result.conflicts):
                 self.anchors[("conflict", cid)] = [k.anchor_from, k.anchor_to]
+            await self._activity("conflict", detail={"source": source}, count=len(result.conflicts))
             self.broadcast({"t": "conflicts", "doc": self.doc_id, "count": len(result.conflicts)})
         return len(result.conflicts)
 
@@ -540,6 +600,24 @@ class Room:
         """Reconcile a text edited elsewhere (sync, upload) with the current one (§12.3)."""
         return await self._reconcile(base, theirs, source=source, author=author, label=label,
                                      client_id=f"system:{source}")
+
+    async def _activity(self, kind: str, *, detail: dict | None = None, count: int = 1) -> None:
+        """Record an event about this document; the edit itself is committed either way."""
+        try:
+            await self.db.write(lambda c: activity.record(c, self.project_id, kind, doc_id=self.doc_id,
+                                                          path=self.path, detail=detail, count=count))
+        except Exception:  # noqa: BLE001
+            log.exception("recording activity failed", extra=fields(doc=self.doc_id))
+
+    async def flush_activity(self) -> None:
+        """Write the edit counts gathered since the last call into the timeline (§8.12)."""
+        if not self.edit_tally:
+            return
+        tally, self.edit_tally = self.edit_tally, {}
+        try:
+            await self.db.write(lambda c: activity.add_edits(c, self.project_id, self.doc_id, self.path, tally))
+        except Exception:  # noqa: BLE001
+            log.exception("recording edits failed", extra=fields(doc=self.doc_id))
 
     async def snapshot(self, label: str | None = None, user_id: int | None = None) -> int:
         await self.persist_anchors()
@@ -571,6 +649,7 @@ class Room:
     async def materialize(self, force: bool = False) -> None:
         """Write the current text to the project folder (§11.2)."""
         await self.persist_anchors()
+        await self.flush_activity()
         text, version = self.text(), self.version
         data = files.encode_text(text, self.line_ending)
         digest = files.sha256(data)

@@ -178,6 +178,9 @@ export class CommentsPanel {
     } else {
       view.dispatch({ effects });
     }
+    // On touch screens, choosing a thread is reading, not typing: the keyboard goes down so the
+    // passage and the thread both stay in view.
+    if (moveCursor && window.matchMedia("(pointer: coarse)").matches && view.hasFocus) view.contentDOM.blur();
     for (const node of this.list.querySelectorAll(".thread")) {
       node.classList.toggle("active", node.dataset.thread === String(id));
     }
@@ -250,7 +253,7 @@ export class CommentsPanel {
         this.canComment ? tr("No comments yet. Select text and choose Comment.") : tr("No comments yet.")));
     }
     const resolvedCount = this.threads.length - open.length;
-    const toggle = resolvedCount ? el("label", { class: "choice" },
+    const toggle = resolvedCount ? el("label", { class: "choice show-resolved" },
       el("input", { type: "checkbox", checked: this.showResolved,
                     onchange: (e) => { this.showResolved = e.target.checked; this.render(); } }),
       tr("Show resolved ({n})", { n: resolvedCount })) : null;
@@ -294,7 +297,7 @@ export class CommentsPanel {
     // One row at the end: the reply box, then Resolve or Reopen.
     const foot = el("div", { class: "thread-foot" });
     if (t.resolved) {
-      node.append(el("p", { class: "muted" }, t.resolvedBy ? tr("Resolved by {name}", { name: t.resolvedBy }) : tr("Resolved")));
+      foot.append(el("span", { class: "muted resolved-by" }, t.resolvedBy ? tr("Resolved by {name}", { name: t.resolvedBy }) : tr("Resolved")));
     } else if (this.canComment) {
       const reply = el("form", { class: "reply" },
         el("textarea", { name: "body", rows: 1, placeholder: tr("Reply"), "aria-label": tr("Reply"), maxlength: 10000 }),

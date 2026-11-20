@@ -1,8 +1,13 @@
 {% extends "base.html" %}
 {% block actions %}<form action="/search" method="get" role="search" class="inline"><input type="search" name="q" placeholder="{{ _('Search…') }}" aria-label="{{ _('Search your documents') }}" class="toolbar-search"></form>
+<button type="button" class="home-import" data-import-word title="{{ _('Open a Word file as a new document, with its comments and tracked changes') }}">{{ _("Import Word") }}</button>
 <button type="button" class="primary" data-open-dialog="new-project">{{ _("New project") }}</button>{% endblock %}
 {% block content %}
 {% if error %}<p class="error pad" role="alert">{{ _(error) }}</p>{% endif %}
+{% if verify == "sent" %}<p class="pad" role="status">{{ _("Welcome! We sent you a link to confirm your email address.") }}</p>
+{% elif verify == "failed" %}<p class="pad error" role="alert">{{ _("The confirmation link couldn't be sent. Try again in your settings.") }} <a href="/settings#email">{{ _("Settings") }}</a></p>
+{% elif email_reminder %}<p class="pad" role="status">{{ _("Confirm your email address to publish and sync.") }} <a href="/settings#email">{{ _("Settings") }}</a></p>{% endif %}
+{% if storage and storage.full %}<p class="pad error" role="alert">{{ _("Your storage is full. Delete files or empty the trash of your projects to keep writing.") }} <a href="/settings#storage">{{ _("Storage") }}</a></p>{% endif %}
 {% if inbox %}
 <h2 class="pad">{{ _("For you") }} <a class="muted" href="/notifications">{{ _("All notifications") }}</a></h2>
 <ul class="plain pad inbox">
@@ -12,15 +17,34 @@
   {% endfor %}
 </ul>
 {% endif %}
+{% if projects %}
+{# Organizing (§6.2): a GET form without JavaScript; home.js filters as people type. #}
+<form class="home-filter pad" action="/" method="get" role="search" aria-label="{{ _('Filter projects') }}" id="home-filter">
+  <input type="search" name="q" value="{{ flt.q }}" placeholder="{{ _('Filter projects…') }}" aria-label="{{ _('Filter projects and recent documents') }}" title="{{ _('Filter (/)') }}" autocomplete="off">
+  {% if all_tags %}<select name="tag" aria-label="{{ _('Tag') }}">
+    <option value="">{{ _("All tags") }}</option>
+    {% for tag in all_tags %}<option value="{{ tag }}"{% if tag|lower == flt.tag|lower %} selected{% endif %}>{{ tag }}</option>{% endfor %}
+  </select>{% endif %}
+  {% if used_layouts|length > 1 %}<select name="layout" aria-label="{{ _('Layout') }}">
+    <option value="">{{ _("All layouts") }}</option>
+    {% for id, name in used_layouts %}<option value="{{ id }}"{% if id == flt.layout %} selected{% endif %}>{{ name }}</option>{% endfor %}
+  </select>{% endif %}
+  {% if shared_count %}<label class="choice"><input type="checkbox" name="shared" value="1"{% if flt.shared %} checked{% endif %}> {{ _("Shared with me") }}</label>{% endif %}
+  {% if archived_count or show_archived %}<label class="choice"><input type="checkbox" name="archived" value="1"{% if show_archived %} checked{% endif %}> {{ _("Archived ({n})", n=archived_count) }}</label>{% endif %}
+  <input type="hidden" name="sort" value="{{ flt.sort }}">
+  <button type="submit" data-no-js>{{ _("Filter") }}</button>
+  <button type="button" class="link" data-clear-filter{% if not (flt.q or flt.tag or flt.layout or flt.shared or show_archived) %} hidden{% endif %}>{{ _("Clear") }}</button>
+</form>
+{% endif %}
 <h2 class="pad">{{ _("Recent") }}</h2>
 <script type="application/json" id="recent-data">{{ recent_json|safe }}</script>
 {% if recent %}
-<div class="table-wrap">
-<table>
+<div class="table-wrap" id="recent-wrap"{% if not shown_recent %} hidden{% endif %}>
+<table id="recent-table">
   <thead><tr><th>{{ _("Name") }}</th><th>{{ _("Project") }}</th><th class="opt">{{ _("Opened") }}</th><th class="num opt">{{ _("Size") }}</th><th><span class="visually-hidden">{{ _("Pin") }}</span></th></tr></thead>
   <tbody>
   {% for d in recent %}
-  <tr data-href="{{ doc_url(d.project_id, d.path) }}">
+  <tr data-href="{{ doc_url(d.project_id, d.path) }}" data-project="{{ d.project_id }}" data-path="{{ d.path }}"{% if d.hidden %} hidden{% endif %}>
     <td><a href="{{ doc_url(d.project_id, d.path) }}">{% if d.pinned %}★ {% endif %}{{ d.path }}</a></td>
     <td>{{ d.project }}</td>
     <td class="opt" title="{{ d.opened_at }}">{{ d.opened_at|reltime }}</td>
@@ -37,29 +61,54 @@
   </tbody>
 </table>
 </div>
+<p class="pad muted" id="recent-none"{% if shown_recent %} hidden{% endif %}>{{ _("No recent documents match.") }}</p>
 {% else %}
 <p class="pad muted">{{ _("Documents you open appear here.") }}</p>
 {% endif %}
-<h2 class="pad">{{ _("Projects") }}</h2>
+<h2 class="pad" id="projects-heading">{{ _("Archived projects") if show_archived else _("Projects") }}</h2>
 {% if projects %}
-<div class="table-wrap">
-<table>
-  <thead><tr><th>{{ _("Name") }} ▴</th><th class="opt">{{ _("Layout") }}</th><th>{{ _("Modified") }}</th><th class="num opt">{{ _("Members") }}</th></tr></thead>
+<div class="table-wrap" id="projects-wrap"{% if not shown_projects %} hidden{% endif %}>
+<table id="projects-table">
+  {% macro sorthead(key, label, cls="") %}{% set sortkey = flt.sort.lstrip("-") %}{% set desc = flt.sort.startswith("-") %}<th class="{{ cls }}" data-sort="{{ key }}" aria-sort="{{ ('descending' if desc else 'ascending') if sortkey == key else 'none' }}"><a href="{{ sort_url(key) }}" class="sort-link">{{ label }}{% if sortkey == key %} {{ "▾" if desc else "▴" }}{% endif %}</a></th>{% endmacro %}
+  <thead><tr>{{ sorthead("name", _("Name")) }}{{ sorthead("layout", _("Layout"), "opt") }}{{ sorthead("updated", _("Modified")) }}{{ sorthead("members", _("Members"), "num opt") }}<th><span class="visually-hidden">{{ _("Organize") }}</span></th></tr></thead>
   <tbody>
   {% for p in projects %}
-  <tr data-href="/p/{{ p.id }}">
-    <td><a href="/p/{{ p.id }}">{{ p.name }}</a></td>
-    <td class="opt">{{ p.layout_id }}</td>
+  <tr data-href="/p/{{ p.id }}" data-project="{{ p.id }}" data-name="{{ p.name }}" data-layout="{{ p.layout_id }}" data-layout-name="{{ layout_names.get(p.layout_id, p.layout_id) }}" data-updated="{{ p.updated_at }}" data-members="{{ p.members }}" data-owner="{{ p.owner_name or '' }}" data-tags="{{ p.tags|tojson|forceescape }}"{% if p.shared %} data-shared{% endif %}{% if p.archived %} data-archived{% endif %}{% if p.hidden %} hidden{% endif %}>
+    <td><a href="/p/{{ p.id }}">{{ p.name }}</a>{% if p.shared %} <span class="muted" title="{{ _('Shared with you by {name}', name=p.owner_name) }}">({{ _("shared") }})</span>{% endif %}<span class="tags">{% for tag in p.tags %} <a class="tag" href="/?tag={{ tag|urlencode }}" data-tag="{{ tag }}">#{{ tag }}</a>{% endfor %}</span></td>
+    <td class="opt">{{ layout_names.get(p.layout_id, p.layout_id) }}</td>
     <td title="{{ p.updated_at }}">{{ p.updated_at|reltime }}</td>
     <td class="num opt">{{ p.members }}</td>
+    <td class="num"><button type="button" class="link" hidden data-organize="{{ p.id }}" aria-label="{{ _('Organize {name}', name=p.name) }}">{{ _("Organize") }}</button><form method="post" action="/p/{{ p.id }}" class="inline" data-no-js-form>
+        <input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="action" value="organize"><input type="hidden" name="next" value="/">
+        <input type="hidden" name="archived" value="{{ '0' if p.archived else '1' }}">
+        <button type="submit" class="link">{{ _("Restore") if p.archived else _("Archive") }}</button></form></td>
   </tr>
   {% endfor %}
   </tbody>
 </table>
 </div>
+<p class="pad muted" id="projects-none"{% if shown_projects %} hidden{% endif %}>{% if show_archived and not archived_count %}{{ _("No archived projects.") }}{% else %}{{ _("No projects match.") }}{% endif %} <a href="/" data-clear-filter>{{ _("Show all projects") }}</a></p>
 {% else %}
-<p class="pad">{{ _("No projects yet.") }} <button type="button" class="link" data-open-dialog="new-project">{{ _("New project") }}</button></p>
+<p class="pad">{{ _("No projects yet.") }} <button type="button" class="link" data-open-dialog="new-project">{{ _("New project") }}</button> · <button type="button" class="link" data-import-word>{{ _("Import a Word file") }}</button></p>
 {% endif %}
+{% if projects %}
+<dialog id="organize-dialog" aria-labelledby="organize-title">
+  <form method="post" class="form" id="organize-form">
+    <h2 id="organize-title">{{ _("Organize") }}</h2>
+    <input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="action" value="organize"><input type="hidden" name="next" value="/">
+    <label>{{ _("Tags") }} <input name="tags" id="organize-tags" maxlength="400" autocomplete="off" placeholder="{{ _('thesis, 2026, seminar') }}"></label>
+    <p class="hint muted" id="organize-hint">{{ _("Separate tags with commas. Only you see your tags.") }}</p>
+    <div class="tag-picks" id="organize-picks"></div>
+    <label class="choice"><input type="checkbox" name="archived" value="1" id="organize-archived"> {{ _("Archive: hide it from your home page") }}</label>
+    <p class="hint muted">{{ _("Archiving changes only your home page. The project and its members stay as they are.") }}</p>
+    <div class="buttons">
+      <button type="button" data-close-dialog>{{ _("Cancel") }}</button>
+      <button type="submit" class="primary">{{ _("Save") }}</button>
+    </div>
+  </form>
+</dialog>
+{% endif %}
+{% if storage %}<p class="pad muted storage-line"><a href="/settings#storage">{{ _("Storage") }}</a>: {% if storage.limit %}{{ _("{used} of {limit} used", used=storage.used|filesize or "0 B", limit=storage.limit|filesize) }}{% else %}{{ _("{used} used", used=storage.used|filesize or "0 B") }}{% endif %}</p>{% endif %}
 <dialog id="new-project" aria-labelledby="new-project-title">
   <form method="post" action="/projects" class="form">
     <h2 id="new-project-title">{{ _("New project") }}</h2>
@@ -71,11 +120,15 @@
       </select>
     </label>
     <label class="choice"><input type="checkbox" name="starter" value="1" checked> {{ _("Start with sample files for the layout") }}</label>
+    <p class="hint muted">{{ _("Have a Word file already?") }} <button type="button" class="link" data-import-word>{{ _("Import it instead") }}</button></p>
     <div class="buttons">
       <button type="button" data-close-dialog>{{ _("Cancel") }}</button>
       <button type="submit" class="primary">{{ _("Create") }}</button>
     </div>
   </form>
 </dialog>
+<input type="file" id="import-word" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
+<p class="visually-hidden" id="import-status" role="status"></p>
 {% endblock %}
-{% block scripts %}<script type="module" src="{{ static }}/app/main.js"></script>{% endblock %}
+{% block footer_links %}<a href="/source">{{ _("Source code") }}</a>{% endblock %}
+{% block scripts %}<script type="module" src="{{ static }}/app/main.js"></script>{% if projects %}<script type="module" src="{{ static }}/app/home.js"></script>{% endif %}{% endblock %}

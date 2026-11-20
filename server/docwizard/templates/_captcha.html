@@ -1,0 +1,4 @@
+{% if captcha %}
+<div class="{{ captcha.class }}" data-sitekey="{{ captcha.site_key }}"></div>
+<script src="{{ captcha.script }}" async defer></script>
+{% endif %}

@@ -1,6 +1,7 @@
 // Small DOM and fetch helpers shared by every page.
 
 import { currentOwner, forgetAccount } from "../store/idb.js";
+import { wireKeyboard } from "./keyboard.js";
 
 export const $ = (sel, root = document) => root.querySelector(sel);
 export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -81,10 +82,106 @@ export function confirmDialog(message, actionLabel = t("Delete")) {
   });
 }
 
+// Menus inside horizontal-scroll tables (project files, admin tables) would be clipped by their
+// overflow container if left position: absolute; float them over the viewport anchored to <summary>.
+function hasOverflowAncestor(node) {
+  for (let p = node.parentElement; p && p !== document.body && p !== document.documentElement; p = p.parentElement) {
+    const s = getComputedStyle(p);
+    if (s.overflowX !== "visible" || s.overflowY !== "visible") return true;
+  }
+  return false;
+}
+
+function clearFloating(details) {
+  delete details.dataset.floating;
+  const body = details.querySelector(":scope > .menu-body");
+  if (!body) return;
+  for (const prop of ["position", "top", "left", "right", "bottom", "maxHeight", "overflowY", "zIndex"]) {
+    body.style[prop] = "";
+  }
+}
+
+function placeMenu(details) {
+  const summary = details.querySelector(":scope > summary");
+  const body = details.querySelector(":scope > .menu-body");
+  if (!summary || !body) return;
+  const r = summary.getBoundingClientRect();
+  const vv = window.visualViewport;
+  const vw = vv?.width ?? window.innerWidth;
+  const vh = vv?.height ?? window.innerHeight;
+  const vLeft = vv?.offsetLeft ?? 0;
+  const vTop = vv?.offsetTop ?? 0;
+  const pad = 8;
+  if ((r.bottom < vTop || r.top > vTop + vh || r.right < vLeft || r.left > vLeft + vw)
+      && !details.contains(document.activeElement)) {
+    details.open = false;
+    return;
+  }
+  body.style.position = "fixed";
+  body.style.right = "auto";
+  body.style.bottom = "auto";
+  body.style.zIndex = "30";
+  body.style.maxHeight = `${Math.max(120, vh - 2 * pad)}px`;
+  body.style.overflowY = "";
+  const bw = body.offsetWidth;
+  const bh = body.offsetHeight;
+  const left = Math.max(vLeft + pad, Math.min(r.right - bw, vLeft + vw - bw - pad));
+  const spaceBelow = vTop + vh - r.bottom - pad - 4;
+  const spaceAbove = r.top - vTop - pad - 4;
+  let top;
+  let avail;
+  if (bh <= spaceBelow || spaceBelow >= spaceAbove) {
+    avail = Math.max(120, spaceBelow);
+    top = Math.max(vTop + pad, Math.min(r.bottom + 4, vTop + vh - Math.min(bh, avail) - pad));
+  } else {
+    avail = Math.max(120, spaceAbove);
+    top = Math.max(vTop + pad, r.top - Math.min(bh, avail) - 4);
+  }
+  body.style.maxHeight = `${avail}px`;
+  body.style.overflowY = bh > avail ? "auto" : "";
+  body.style.left = `${Math.round(left)}px`;
+  body.style.top = `${Math.round(top)}px`;
+}
+
+function wireFloatingMenus(root) {
+  document.documentElement.dataset.js = "1";
+  const floating = new Set();
+  const reposition = (event) => {
+    for (const d of [...floating]) {
+      if (!d.isConnected || !d.open) {
+        floating.delete(d);
+        continue;
+      }
+      if (event?.type === "scroll" && event.target instanceof Node && d.contains(event.target)) continue;
+      placeMenu(d);
+    }
+  };
+  root.addEventListener("toggle", (event) => {
+    const details = event.target;
+    if (!(details instanceof HTMLDetailsElement) || !details.matches("details.menu")) return;
+    if (!details.open) {
+      floating.delete(details);
+      clearFloating(details);
+      return;
+    }
+    if (hasOverflowAncestor(details)) {
+      details.dataset.floating = "1";
+      floating.add(details);
+      placeMenu(details);
+    }
+  }, true);
+  window.addEventListener("scroll", reposition, { capture: true, passive: true });
+  window.addEventListener("resize", reposition, { passive: true });
+  window.visualViewport?.addEventListener("resize", reposition);
+  window.visualViewport?.addEventListener("scroll", reposition);
+}
+
 // Shared behaviour: dialogs, clickable rows, confirmations.
 export function wireCommon(root = document) {
   registerServiceWorker();
   wireNetState();
+  wireKeyboard();
+  wireFloatingMenus(root);
   root.addEventListener("click", (event) => {
     for (const d of root.querySelectorAll("details.menu[open]")) {
       if (!d.contains(event.target)) d.open = false;
@@ -100,7 +197,7 @@ export function wireCommon(root = document) {
       return;
     }
     const row = event.target.closest("tr[data-href]");
-    if (row && !event.target.closest("a, button, input")) {
+    if (row && !event.target.closest("a, button, input, details, label, form")) {
       location.href = row.dataset.href;
     }
   });

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="$lang$" class="dw-deck$if(theme)$ theme-$theme$$endif$$if(slide-numbers)$$else$ no-numbers$endif$" data-aspect="$aspect$">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+$for(author-meta)$
+<meta name="author" content="$author-meta$">
+$endfor$
+<title>$if(title-prefix)$$title-prefix$ – $endif$$pagetitle$</title>
+$for(css)$
+<link rel="stylesheet" href="$css$">
+$endfor$
+$for(header-includes)$
+$header-includes$
+$endfor$
+</head>
+<body>
+<main class="deck" aria-label="$pagetitle$">
+$body$
+</main>
+</body>
+</html>

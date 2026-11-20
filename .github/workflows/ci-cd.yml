@@ -30,14 +30,97 @@ jobs:
           pip install --require-hashes -r requirements.lock
           pip install pytest pytest-asyncio hypothesis
 
-      - name: Install pinned pandoc and Typst
-        run: sudo python3 -I deploy/fetch_tools.py
+      - name: Install pinned pandoc and Typst, and Graphviz
+        run: |
+          sudo python3 -I deploy/fetch_tools.py
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends graphviz
 
       - name: Run test suite
         run: pytest
 
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Python (ruff, settings in pyproject.toml)
+        run: |
+          pip install ruff==0.16.9
+          ruff check server worker tests scripts deploy
+
+      - name: JavaScript syntax
+        run: |
+          find web/app tests/e2e -name '*.js' -o -name '*.mjs' | sort | xargs -n1 node --check
+          node --check web/sw.js
+
+      - name: Translations parse and templates compile
+        run: |
+          python -m json.tool server/docwizard/locale/de.json > /dev/null
+          pip install --require-hashes -r requirements.lock
+          PYTHONPATH=server python -c "
+          from docwizard.http.templates import make_env
+          from pathlib import Path
+          env = make_env()
+          for t in sorted(Path('server/docwizard/templates').glob('*.html')):
+              env.get_template(t.name)
+          print('templates ok')"
+
+  e2e:
+    runs-on: ubuntu-24.04  # Playwright 1.55 has no Chromium build for 26.04 yet
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.lock
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --require-hashes -r requirements.lock
+
+      - name: Install pinned pandoc and Typst
+        run: sudo python3 -I deploy/fetch_tools.py
+
+      - name: Install the browser renderer (pandoc and Typst as WebAssembly)
+        run: python3 -I deploy/fetch_tools.py --browser-render web/vendor/browser-render
+
+      - name: Install Playwright and Chromium
+        run: |
+          npm install --no-save --no-package-lock playwright@1.55.0 axe-core@4.10.3
+          npx playwright install --with-deps chromium
+
+      - name: Browser smoke tests (phone 390×844, desktop 1280×800)
+        env:
+          E2E_SCREENSHOTS: ${{ runner.temp }}/e2e-screenshots
+          PYTHON: python
+        run: node --test tests/e2e/*.test.mjs
+
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: ${{ runner.temp }}/e2e-screenshots
+          if-no-files-found: ignore
+          retention-days: 7
+
   images:
-    needs: test
+    needs: [test, lint, e2e]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -69,6 +152,7 @@ jobs:
             rel="pr-${{ github.event.pull_request.number || 'dev' }}"
           fi
           echo "release=${rel//\//-}" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/docwizard-${{ matrix.service }}:sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         if: github.event_name != 'pull_request'
@@ -108,8 +192,58 @@ jobs:
           file: ${{ matrix.dockerfile }}
           platforms: ${{ github.event_name != 'pull_request' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
+          # Only this commit's own tag here: the shared ones (nightly, main, versions) move in the
+          # tags job once all three images are pushed, so a pull never mixes images from two builds.
+          tags: ${{ steps.release.outputs.image }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: RELEASE=${{ steps.release.outputs.release }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  tags:
+    # Moves the shared tags to this commit's images together, once every image is pushed. When each
+    # image job tagged its own, a pull in between got e.g. a new proxy with an old app, whose
+    # /static/<release>/ links the proxy didn't have: no stylesheets or scripts.
+    needs: [images]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Shared tags for each image
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/${{ github.repository_owner }}/docwizard-app
+            ghcr.io/${{ github.repository_owner }}/docwizard-worker
+            ghcr.io/${{ github.repository_owner }}/docwizard-proxy
+          flavor: |
+            latest=auto
+          tags: |
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=nightly,enable=${{ github.ref == 'refs/heads/nightly' }}
+            type=raw,value=nightly-{{date 'YYYYMMDD'}},enable=${{ github.ref == 'refs/heads/nightly' }}
+            type=sha,prefix=sha-
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+
+      - name: Point the shared tags at this commit's images
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          while read -r tag; do
+            source="${tag%:*}:sha-${GITHUB_SHA::7}"
+            [ -n "$tag" ] && [ "$tag" != "$source" ] || continue
+            docker buildx imagetools create -t "$tag" "$source"
+          done <<< "$TAGS"

@@ -77,6 +77,8 @@ class App:
         self.settings: dict = {}
         self._secrets = None
         self.net_resolver = None  # tests replace DNS resolution here
+        self.captcha_verifier = None  # tests answer the anti-bot check here
+        self.registrations = 0  # accounts created through /register since start, for /metrics
         self._tasks: list[asyncio.Task] = []
         self._startup_hooks: list = []
         self._shutdown_hooks: list = []
@@ -117,13 +119,16 @@ class App:
         from .maintenance import Maintenance
 
         self.maintenance = Maintenance(self)
+        from .projects.quota import Quotas
+
+        self.quotas = Quotas(self)
         self._ws_handler = Hub(self)
         pages.register(self)
         api.register(self)
 
     # -- instance settings ------------------------------------------------
     POLICY_KEYS = {"registration": "accounts", "guests": "accounts", "guest_max_role": "accounts",
-                   "scratch_projects": "accounts", "require_totp_for_admins": "accounts",
+                   "require_totp_for_admins": "accounts", "require_email_verification": "accounts",
                    "min_password_length": "accounts", "default_layout": "render",
                    "allow_private_outbound": "security"}
 
@@ -132,6 +137,20 @@ class App:
         if key in self.settings:
             return self.settings[key]
         return getattr(getattr(self.cfg, self.POLICY_KEYS[key]), key)
+
+    def require_verified_email(self, req: Request, what: str = "publish") -> None:
+        """With accounts.require_email_verification, publishing, sync and Zotero wait until the
+        account's email address is confirmed (§13.2). Admins are exempt."""
+        user = req.user
+        if user is None or user.is_admin or user.email_verified or not self.policy("require_email_verification"):
+            return
+        messages = {
+            "publish": "Confirm your email address before you publish. You can send yourself a new link in Settings.",
+            "sync": "Confirm your email address before you connect sync. You can send yourself a new link in Settings.",
+            "zotero": "Confirm your email address before you add a Zotero library. You can send yourself a new link"
+                      " in Settings.",
+        }
+        raise HTTPError(403, "email_unverified", messages.get(what, messages["publish"]))
 
     async def load_settings(self) -> None:
         rows = await self.db.fetchall("SELECT key, value_json FROM settings")
@@ -142,6 +161,9 @@ class App:
             except ValueError:
                 continue
         self.settings = {k: v for k, v in values.items() if k in self.POLICY_KEYS}
+        if self.policy("require_email_verification") and not self.mail.enabled:
+            log.warning("accounts.require_email_verification is on, but mail isn't set up: nobody can confirm"
+                        " an email address. Add an [smtp] section or turn the setting off.")
         approved = values.get("approved_filters")
         if isinstance(approved, list):
             self.layouts.approved_filters = {h for h in approved if isinstance(h, str)}
@@ -340,7 +362,11 @@ class App:
             user=req.user.id if req.user else None, ms=round((time.monotonic() - start) * 1000, 1)))
 
     async def dispatch(self, req: Request) -> Response:
-        if self.cfg.server.serve_static and req.path.startswith("/static/"):
+        if req.path.startswith("/static/") and (
+                self.cfg.server.serve_static or req.path.startswith(self.static_prefix + "/")):
+            # Behind the proxy, a file reaches the app only when the proxy has no such file: its
+            # image comes from another build than the app's (a pull between two image pushes), so
+            # it lacks this release's folder. The app serves its own release's files then.
             return self.static(req)
         on_preview_host = bool(req.host) and self._is_preview_host(req)
         if (self.cfg.server.serve_static and on_preview_host and req.method in ("GET", "HEAD")
@@ -411,7 +437,7 @@ class App:
 
     def published_file(self, req: Request) -> Response:
         """Published sites on the publish host, for setups without a proxy (§14.4)."""
-        from .render.publish import SITE_CSP
+        from .render.publish import SITE_CSP, robots_tag
 
         rel = req.path.lstrip("/")
         parts = Path(rel).parts
@@ -436,6 +462,9 @@ class App:
         resp.set_header("x-content-type-options", "nosniff")
         resp.set_header("referrer-policy", "no-referrer")
         resp.set_header("cache-control", "public, max-age=60")
+        robots = robots_tag(parts[0], self.cfg.server.index_public_sites)
+        if robots:
+            resp.set_header("x-robots-tag", robots)
         return resp
 
     def error_response(self, req: Request, err: HTTPError) -> Response:
@@ -448,7 +477,8 @@ class App:
             err.message = self.t(req, err.message)
         if req.wants_json:
             return error_json(err)
-        resp = html(self.render(req, "error.html", status=err.status, message=err.message), err.status)
+        resp = html(self.render(req, "error.html", status=err.status, message=err.message, code=err.code),
+                    err.status)
         for k, v in err.headers:
             resp.set_header(k, v)
         return resp
@@ -481,8 +511,12 @@ class App:
 
         theme = req.user.theme if req.user else (req.cookies.get("theme") or "dark")
         lang = self.lang_of(req)
+        raw = req.raw_path or req.path
+        qs = req.scope.get("query_string", b"").decode("latin-1")
+        current_url = f"{raw}?{qs}" if qs else raw
         base = {
             "lang": lang,
+            "ui_languages": i18n.LANGUAGES,
             "_": lambda message, **values: i18n.gettext(lang, message, **values),
             "i18n_json": script_json(i18n.catalog(lang)) if lang != i18n.DEFAULT else "",
             "user": req.user,
@@ -493,6 +527,8 @@ class App:
             "release": self.cfg.release,
             "theme": theme if theme in ("dark", "light", "system") else "dark",
             "path": req.path,
+            "current_url": current_url,
+            "legal": self.cfg.legal,
         }
         base.update(ctx)
         return self.templates.get_template(name).render(**base)

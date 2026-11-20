@@ -1,4 +1,4 @@
-"""Interface languages: English (the source strings) and German (§21, M6).
+"""Interface languages: English (the source strings), German, French and Spanish (§21, M6).
 
 Strings are looked up by their English text in ``locale/<lang>.json``; a missing
 entry falls back to English. Placeholders use ``str.format`` names, so a
@@ -14,7 +14,7 @@ import json
 from functools import lru_cache
 from pathlib import Path
 
-LANGUAGES = {"en": "English", "de": "Deutsch"}
+LANGUAGES = {"en": "English", "de": "Deutsch", "fr": "Français", "es": "Español"}
 DEFAULT = "en"
 LOCALE_DIR = Path(__file__).resolve().parent / "locale"
 
@@ -58,6 +58,8 @@ def pick(accept_language: str | None) -> str:
 
 
 _MONTHS_DE = ["Jan.", "Feb.", "März", "Apr.", "Mai", "Juni", "Juli", "Aug.", "Sept.", "Okt.", "Nov.", "Dez."]
+_MONTHS_FR = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."]
+_MONTHS_ES = ["ene.", "feb.", "mar.", "abr.", "may.", "jun.", "jul.", "ago.", "sept.", "oct.", "nov.", "dic."]
 
 
 def reltime(lang: str, value) -> str:
@@ -87,4 +89,8 @@ def reltime(lang: str, value) -> str:
         return _("{n} days ago", n=int(secs // 86400))
     if lang == "de":
         return f"{when.day}. {_MONTHS_DE[when.month - 1]} {when.year}"
+    if lang == "fr":
+        return f"{when.day} {_MONTHS_FR[when.month - 1]} {when.year}"
+    if lang == "es":
+        return f"{when.day} {_MONTHS_ES[when.month - 1]} {when.year}"
     return f"{when.day} {when.strftime('%b %Y')}"

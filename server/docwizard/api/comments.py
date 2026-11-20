@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .. import notifications
+from .. import activity, notifications
 from ..auth import permissions
 from ..collab.authority import PushError
 from ..http.request import HTTPError, Request, bad_request, not_found
@@ -146,6 +146,8 @@ def register(app) -> None:
 
             cid, notified = await app.db.write(reply)
             room.broadcast({"t": "comments", "doc": doc["id"]})
+            await activity.log(app, project["id"], "reply", req, doc_id=doc["id"], path=doc["path"],
+                               detail={"thread": thread_id, "excerpt": text})
             _announce(room, doc["id"], notified)
             return json_response({"id": cid}, 201)
 
@@ -174,6 +176,8 @@ def register(app) -> None:
         except PushError as exc:
             raise HTTPError(409, exc.code, exc.message) from None
         _announce(room, doc["id"], notified)
+        await activity.log(app, project["id"], "suggestion" if suggestion is not None else "comment", req,
+                           doc_id=doc["id"], path=doc["path"], detail={"thread": result["id"], "excerpt": text})
         return json_response(result, 201)
 
     async def patch_comment(req: Request) -> Response:
@@ -208,6 +212,9 @@ def register(app) -> None:
             else:
                 await app.db.write(lambda c: update(c, None))
                 room.broadcast({"t": "comments", "doc": doc["id"]})
+            if resolved:
+                await activity.log(app, project["id"], "resolve", req, doc_id=doc["id"], path=doc["path"],
+                                   detail={"thread": row["id"]})
             return json_response({"ok": True})
         if "body" in body:
             mine = (uid is not None and row["author_user_id"] == uid) or (gid is not None and row["author_guest_id"] == gid)
@@ -267,6 +274,8 @@ def register(app) -> None:
             await app.db.write(lambda c: update(c, None, 0))
             room.broadcast({"t": "comments", "doc": doc["id"]})
         _announce(room, doc["id"], notified)
+        await activity.log(app, project["id"], decision, req, doc_id=doc["id"], path=doc["path"],
+                           detail={"thread": row["id"]})
         return json_response({"ok": True, "state": state})
 
     async def delete_comment(req: Request) -> Response:

@@ -100,6 +100,8 @@ def register(app) -> None:
 
         return await app.db.write(store)
 
+    app.check_totp_code = check_code
+
     async def code_post(req: Request) -> Response:
         key, ticket = ticket_of(req)
         if ticket is None:

@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import json
 
+from .. import activity
 from ..auth import permissions
 from ..citations import lookup
 from ..netpolicy import FetchError, PolicyError
 from ..http.request import HTTPError, Request, bad_request, not_found
 from ..http.response import Response, json_response, user_content
-from ..projects import docx_import, files, fountain, history, starters
+from ..projects import docx_import, files, fountain, history, starters, timeline
+from ..projects.quota import QuotaExceeded
 from ..projects import service as svc
 from ..render import fields, languages
 
@@ -42,6 +45,21 @@ async def project_access(app, req: Request, project_id: str, capability: str):
     return project, role
 
 
+async def enforce_quota(app, project_id: str, growth: int, new_files: int = 0) -> None:
+    """413 when the write would go over the owner's storage quota or the project's file limit (§7.7)."""
+    try:
+        await app.quotas.check(project_id, growth, new_files=new_files)
+    except QuotaExceeded as exc:
+        raise HTTPError(413, exc.code, exc.message) from None
+
+
+async def enforce_project_limit(app, user_id: int, growth: int = 1) -> None:
+    try:
+        await app.quotas.check_new_project(user_id, growth)
+    except QuotaExceeded as exc:
+        raise HTTPError(413, exc.code, exc.message) from None
+
+
 def user_id_of(req: Request) -> int | None:
     return req.user.id if req.user is not None else None
 
@@ -71,6 +89,7 @@ async def create_project_with_starter(app, user, name: str, layout: str, starter
     lay = app.layouts.get(layout) if app.layouts.exists(layout) else None
     extra = fields.starter_lines(lay) if lay is not None else []
     plan = starters.for_layout(lay, lang, user.display_name, today, extra) if starter else None
+    await enforce_project_limit(app, user.id, sum(len(text.encode()) for _, text in plan.files) if plan else 1)
 
     def work(c):
         pid = svc.create_project(c, user.id, name, layout)
@@ -88,6 +107,79 @@ async def create_project_with_starter(app, user, name: str, layout: str, starter
         room = await app.rooms.get(doc["id"])
         await room.call(room.materialize)
     return pid, main, plan.main if plan is not None else None
+
+
+async def rename_file(app, project_id: str, path: str, new_path: str) -> str:
+    """Rename a document or a file of the project; returns the new path. Raises ValueError or PathError."""
+    path = files.normalize(path)
+    doc = await app.db.read(lambda c: svc.get_document_by_path(c, project_id, path))
+    if doc is not None:
+        new = await app.db.write(lambda c: svc.rename_document(c, doc, new_path))
+        if new != path:
+            room = await app.rooms.get(doc["id"])
+
+            async def move():
+                room.path = new
+                await room.materialize(force=True)
+                await asyncio.to_thread(files.remove, room.project_dir, path)
+
+            await room.call(move)
+        return new
+    new = await app.db.write(lambda c: svc.rename_asset(c, project_id, path, new_path))
+    if new != path:
+        root = app.rooms.project_dir(project_id)
+        asset = await app.db.read(lambda c: svc.get_asset(c, project_id, new))
+
+        def move_file():
+            data = files.get_blob(app.cfg.data_dir, asset["sha256"])
+            st = files.atomic_write(root, new, data)
+            files.remove(root, path)
+            return st
+
+        st = await asyncio.to_thread(move_file)
+        await app.db.write(lambda c: c.execute(
+            "UPDATE assets SET materialized_stat = ? WHERE project_id = ? AND path = ? AND deleted_at IS NULL",
+            (json.dumps(st), project_id, new)))
+    return new
+
+
+async def trash_file(app, project_id: str, path: str) -> None:
+    """Move a document or a file to the project's trash."""
+    path = files.normalize(path)
+    doc = await app.db.read(lambda c: svc.get_document_by_path(c, project_id, path))
+    if doc is not None:
+        await app.db.write(lambda c: svc.trash_document(c, doc["id"]))
+        await app.rooms.close_document(doc["id"])
+        await app.publisher.prune()
+    else:
+        await app.db.write(lambda c: svc.trash_asset(c, project_id, path))
+    await asyncio.to_thread(files.remove, app.rooms.project_dir(project_id), path)
+
+
+async def restore_file(app, project_id: str, kind: str, ident: str, deleted_at: str = "") -> str:
+    """Bring a document (by id) or a file (by path and when it was deleted) back from the trash."""
+    # Trashed files already count against the quota; only the file limit matters here.
+    if kind == "document":
+        await enforce_quota(app, project_id, 0, new_files=1)
+        path = await app.db.write(lambda c: svc.restore_document(c, project_id, ident))
+        room = await app.rooms.get(ident)
+        await room.call(lambda: room.materialize(force=True))
+        return path
+    await enforce_quota(app, project_id, 0, new_files=1)
+    path, sha = await app.db.write(lambda c: svc.restore_asset(c, project_id, ident, deleted_at))
+    root = app.rooms.project_dir(project_id)
+
+    def write():
+        return files.atomic_write(root, path, files.get_blob(app.cfg.data_dir, sha))
+
+    await asyncio.to_thread(write)
+    return path
+
+
+async def empty_trash(app, project_id: str, owner_id: int | None = None) -> dict:
+    result = await app.db.write(lambda c: svc.empty_trash(c, project_id))
+    app.quotas.forget(owner_id)
+    return result
 
 
 def register(app) -> None:
@@ -118,6 +210,25 @@ def register(app) -> None:
         return json_response({"id": p["id"], "name": p["name"], "layout": p["layout_id"], "role": role,
                               "layoutOptions": _json(p["layout_options"]),
                               "buildInputs": _json(p["build_inputs"]), "lang": p.get("lang"), "tree": tree})
+
+    async def put_home_state(req: Request) -> Response:
+        """The member's own tags and archive state for the project, for the home page (§6.2)."""
+        project, _ = await project_access(app, req, req.param("id"), "read")
+        body = await req.json_object()
+        try:
+            tags = svc.normalize_tags(body["tags"]) if "tags" in body else None
+        except ValueError as exc:
+            raise bad_request(str(exc)) from None
+        archived = body.get("archived")
+        if archived is not None and not isinstance(archived, bool):
+            raise bad_request("archived must be true or false.")
+        uid = req.user.id
+        try:
+            state = await app.db.write(lambda c: svc.set_home_state(c, project["id"], uid, tags=tags,
+                                                                   archived=archived))
+        except ValueError as exc:
+            raise bad_request(str(exc)) from None
+        return json_response(state)
 
     async def patch_project(req: Request) -> Response:
         project, role = await project_access(app, req, req.param("id"), "change_layout")
@@ -176,6 +287,7 @@ def register(app) -> None:
         text = body.get("text", "")
         if not isinstance(text, str) or len(text) > limits.max_document_bytes:
             raise bad_request("Invalid text.")
+        await enforce_quota(app, project["id"], len(text.encode()), new_files=1)
         try:
             doc_id = await app.db.write(lambda c: svc.create_document(c, project["id"], str(body.get("path", "")),
                                                                       text.replace("\r\n", "\n")))
@@ -183,6 +295,7 @@ def register(app) -> None:
             raise bad_request(str(exc)) from None
         room = await app.rooms.get(doc_id)
         await room.call(room.materialize)
+        await activity.log(app, project["id"], "create", req, doc_id=doc_id, path=room.path)
         return json_response({"id": doc_id}, 201)
 
     async def patch_document(req: Request) -> Response:
@@ -203,6 +316,8 @@ def register(app) -> None:
                     await asyncio.to_thread(files.remove, room.project_dir, old_path)
 
                 await room.call(move)
+                await activity.log(app, project["id"], "rename", req, doc_id=doc["id"], path=new_path,
+                                   detail={"from": old_path})
             return json_response({"path": new_path})
         if "pinned" in body and req.user is not None:
             await app.db.write(lambda c: svc.set_pinned(c, req.user.id, doc["id"], bool(body["pinned"])))
@@ -214,6 +329,7 @@ def register(app) -> None:
         await app.rooms.close_document(doc["id"])
         await asyncio.to_thread(files.remove, app.rooms.project_dir(project["id"]), doc["path"])
         await app.publisher.prune()
+        await activity.log(app, project["id"], "delete", req, doc_id=doc["id"], path=doc["path"])
         return json_response({"ok": True})
 
     async def put_asset(req: Request) -> Response:
@@ -223,6 +339,16 @@ def register(app) -> None:
         except files.PathError as exc:
             raise bad_request(str(exc)) from None
         data = await req.body(limits.max_upload_bytes)
+        def existing_size(c):
+            asset = svc.get_asset(c, project["id"], path)
+            if asset is not None:
+                return asset["size"]
+            return 0 if svc.path_taken(c, project["id"], path) else None
+
+        old_size = await app.db.read(existing_size)
+        replaces = old_size is not None and req.query.get("unique") != "1"
+        await enforce_quota(app, project["id"], len(data) - (old_size or 0) if replaces else len(data),
+                            new_files=0 if replaces else 1)
         if path.lower().endswith(".docx"):
             return await import_docx(project, path, data, req)
         if path.lower().endswith(".fountain"):
@@ -250,6 +376,7 @@ def register(app) -> None:
                 raise bad_request(str(exc)) from None
             room = await app.rooms.get(doc_id)
             await room.call(room.materialize)
+            await activity.log(app, project["id"], "upload", req, doc_id=doc_id, path=path)
             return json_response({"id": doc_id, "type": "document"}, 201)
         root = app.rooms.project_dir(project["id"])
         if req.query.get("unique") == "1":
@@ -266,6 +393,7 @@ def register(app) -> None:
             await app.db.write(lambda c: svc.put_asset(c, project["id"], path, digest, len(data), st))
         except ValueError as exc:
             raise bad_request(str(exc)) from None
+        await activity.log(app, project["id"], "upload", req, path=path)
         return json_response({"path": path, "type": "asset", "size": len(data)}, 201)
 
     async def store_asset(project_id: str, path: str, data: bytes) -> None:
@@ -337,6 +465,7 @@ def register(app) -> None:
             raise bad_request(str(exc)) from None
         if not target.endswith(".json"):
             raise bad_request("References are added to a CSL-JSON file (.json).")
+        await enforce_quota(app, project["id"], 4096)
         try:
             item = await asyncio.to_thread(lookup.fetch_item, app.net, str(body.get("id", "")))
         except lookup.IdentifierError as exc:
@@ -384,7 +513,46 @@ def register(app) -> None:
         path = req.param("path")
         await app.db.write(lambda c: svc.trash_asset(c, project["id"], path))
         await asyncio.to_thread(files.remove, app.rooms.project_dir(project["id"]), path)
+        await activity.log(app, project["id"], "delete", req, path=path)
         return json_response({"ok": True})
+
+    async def rename_asset(req: Request) -> Response:
+        project, _ = await project_access(app, req, req.param("id"), "upload")
+        body = await req.json_object()
+        try:
+            new = await rename_file(app, project["id"], req.param("path"), str(body.get("path", "")))
+        except (ValueError, files.PathError) as exc:
+            raise bad_request(str(exc)) from None
+        if new != req.param("path"):
+            await activity.log(app, project["id"], "rename", req, path=new, detail={"from": req.param("path")})
+        return json_response({"path": new})
+
+    async def trash(req: Request) -> Response:
+        project, _ = await project_access(app, req, req.param("id"), "edit")
+        return json_response({"trash": await app.db.read(lambda c: svc.list_trash(c, project["id"]))})
+
+    async def trash_restore(req: Request) -> Response:
+        project, _ = await project_access(app, req, req.param("id"), "edit")
+        body = await req.json_object()
+        kind = body.get("type")
+        if kind not in ("document", "asset"):
+            raise bad_request("type must be document or asset.")
+        try:
+            path = await restore_file(app, project["id"], kind, str(body.get("id") or body.get("path") or ""),
+                                      str(body.get("deletedAt", "")))
+        except (ValueError, files.PathError) as exc:
+            raise bad_request(str(exc)) from None
+        await activity.log(app, project["id"], "restore", req, path=path,
+                           doc_id=str(body.get("id")) if kind == "document" else None)
+        return json_response({"path": path})
+
+    async def trash_empty(req: Request) -> Response:
+        """Delete the trash for good, so its space is free now and not after 30 days (§7.6, §7.7)."""
+        project, _ = await project_access(app, req, req.param("id"), "delete_project")
+        result = await empty_trash(app, project["id"], project["owner_id"])
+        await app.db.execute("INSERT INTO audit_log(actor, action, target, meta_json) VALUES (?, 'trash.empty', ?, ?)",
+                             (f"user:{req.user.id}", project["id"], json.dumps(result)))
+        return json_response(result)
 
     async def members(req: Request) -> Response:
         project, _ = await project_access(app, req, req.param("id"), "read")
@@ -426,18 +594,25 @@ def register(app) -> None:
         if not label:
             raise bad_request("Name the version.")
         room = await app.rooms.get(doc["id"])
+        await enforce_quota(app, doc["project_id"], len((await room.call(lambda: _text(room))).encode()))
         version = await room.call(lambda: room.snapshot(label, user_id_of(req)))
+        await activity.log(app, doc["project_id"], "version", req, doc_id=doc["id"], path=room.path,
+                           detail={"label": label})
         return json_response({"version": version}, 201)
 
     async def restore_version(req: Request) -> Response:
         doc, _, _ = await document_access(app, req, req.param("id"), "versions")
         snap_id = req.param("v")
-        row = await app.db.fetchone("SELECT text FROM doc_snapshots WHERE id = ? AND doc_id = ?",
+        row = await app.db.fetchone("SELECT text, label, created_at FROM doc_snapshots WHERE id = ? AND doc_id = ?",
                                     (int(snap_id) if snap_id.isdigit() else -1, doc["id"]))
         if row is None:
             raise not_found("No such version.")
         room = await app.rooms.get(doc["id"])
         user_id = user_id_of(req)
+        current = await room.call(lambda: _text(room))
+        # The text being replaced is kept as a version, and the restored text replaces it.
+        await enforce_quota(app, doc["project_id"], len(current.encode()) + max(0, len(row["text"].encode())
+                                                                                 - len(current.encode())))
 
         async def restore():
             # Keep the text being replaced, so a restore can be undone.
@@ -445,6 +620,8 @@ def register(app) -> None:
             return await room.apply_text(row["text"], "system:restore", user_id)
 
         version = await room.call(restore)
+        await activity.log(app, doc["project_id"], "restore_version", req, doc_id=doc["id"], path=room.path,
+                           detail={"label": row["label"] or row["created_at"][:16].replace("T", " ")})
         return json_response({"version": version})
 
     async def version_text(req: Request) -> Response:
@@ -476,23 +653,56 @@ def register(app) -> None:
             newer = o["text"]
         return json_response(await asyncio.to_thread(history.compare, row["text"], newer))
 
+    async def get_timeline(req: Request) -> Response:
+        """The drafting timeline's points and who wrote how much (§8.5)."""
+        doc, _, _ = await document_access(app, req, req.param("id"), "read")
+        room = await app.rooms.get(doc["id"])
+        _, version = await room.call(lambda: _text_version(room))
+
+        def load(c):
+            return timeline.points(c, doc["id"], version), timeline.contributions(c, doc["id"])
+
+        pts, people = await app.db.read(load)
+        return json_response({"version": version, "points": pts, "people": people})
+
+    async def timeline_text(req: Request) -> Response:
+        """The text at a point of the timeline, with what was written since ?since=<version>."""
+        doc, _, _ = await document_access(app, req, req.param("id"), "read")
+        v, since = req.param("v"), req.query.get("since")
+        if not v.isdigit() or (since is not None and not since.isdigit()):
+            raise bad_request("Versions are numbers.")
+        room = await app.rooms.get(doc["id"])
+        current = await room.call(lambda: _text_version(room))
+        out = await app.db.read(lambda c: timeline.text_at(c, doc["id"], int(v), int(since) if since else None,
+                                                           (current[1], current[0])))
+        if out is None:
+            raise not_found("That version isn't kept.")
+        return json_response(out)
+
     r.add("GET", "/api/projects", list_projects)
     r.add("POST", "/api/projects", create_project)
     r.add("POST", "/api/projects/{id}/references", add_reference)
     r.add("GET", "/api/projects/{id}", get_project, guest=True)
     r.add("PATCH", "/api/projects/{id}", patch_project, guest=True)
     r.add("DELETE", "/api/projects/{id}", delete_project)
+    r.add("PUT", "/api/projects/{id}/home", put_home_state)
     r.add("GET", "/api/projects/{id}/tree", tree, guest=True)
     r.add("POST", "/api/projects/{id}/documents", create_document, guest=True)
     r.add("PUT", "/api/projects/{id}/assets/{path:path}", put_asset, guest=True)
     r.add("GET", "/api/projects/{id}/assets/{path:path}", get_asset, guest=True)
     r.add("DELETE", "/api/projects/{id}/assets/{path:path}", delete_asset, guest=True)
+    r.add("PATCH", "/api/projects/{id}/assets/{path:path}", rename_asset, guest=True)
+    r.add("GET", "/api/projects/{id}/trash", trash)
+    r.add("POST", "/api/projects/{id}/trash/restore", trash_restore)
+    r.add("POST", "/api/projects/{id}/trash/empty", trash_empty)
     r.add("GET", "/api/projects/{id}/members", members)
     r.add("POST", "/api/projects/{id}/members", add_member)
     r.add("DELETE", "/api/projects/{id}/members", remove_member)
     r.add("PATCH", "/api/documents/{id}", patch_document, guest=True)
     r.add("DELETE", "/api/documents/{id}", delete_document, guest=True)
     r.add("GET", "/api/documents/{id}/versions", list_versions, guest=True)
+    r.add("GET", "/api/documents/{id}/timeline", get_timeline, guest=True)
+    r.add("GET", "/api/documents/{id}/timeline/{v}", timeline_text, guest=True)
     r.add("POST", "/api/documents/{id}/versions", create_version, guest=True)
     r.add("GET", "/api/documents/{id}/versions/{v}", version_text, guest=True)
     r.add("GET", "/api/documents/{id}/versions/{v}/compare", compare_version, guest=True)
@@ -501,6 +711,10 @@ def register(app) -> None:
 
 async def _text(room) -> str:
     return room.text()
+
+
+async def _text_version(room):
+    return room.text(), room.version
 
 
 def _json(value):

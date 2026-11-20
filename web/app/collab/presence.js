@@ -158,11 +158,12 @@ export class PresenceView {
   }
 
   list() {
-    // One entry per person, even with several tabs open.
+    // One entry per person, even with several tabs open; *ids* are their tabs, to follow (§8.7).
     const seen = new Map();
     for (const p of this.peers.values()) {
       const key = `${p.name}:${p.color}`;
-      if (!seen.has(key)) seen.set(key, { name: p.name, color: p.color });
+      if (!seen.has(key)) seen.set(key, { key, name: p.name, color: p.color, ids: [] });
+      seen.get(key).ids.push(p.id);
     }
     this.onList([...seen.values()]);
   }

@@ -123,7 +123,10 @@ class Hub:
         finally:
             renderer = getattr(self.app, "renderer", None)
             if renderer is not None:
-                renderer.forget(conn.key)
+                try:
+                    await renderer.forget(conn.key)
+                except Exception:  # noqa: BLE001
+                    log.warning("preview tokens not expired", exc_info=True)
             for doc_id in list(conn.docs):
                 room = self.app.rooms.loaded(doc_id)
                 if room is not None:

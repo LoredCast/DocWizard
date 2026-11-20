@@ -1,0 +1,28 @@
+# DocWizard configuration. Every key can also be set as DOCWIZARD_<SECTION>_<KEY>,
+# e.g. DOCWIZARD_SERVER_PUBLIC_URL. Values shown are the container defaults.
+
+[server]
+public_url = "http://localhost:8080"          # the app origin
+publish_url = "http://localhost:8081"           # a separate origin for previews and published sites
+preview_url = "http://localhost:8081/_preview"
+socket = "/run/docwizard/app.sock"                # or leave empty and set host/port
+data_dir = "/var/lib/docwizard"
+publish_dir = "/var/lib/docwizard-publish"
+jobs_dir = "/var/lib/docwizard-jobs"
+cache_dir = "/var/lib/docwizard-cache"
+serve_static = false                              # the proxy serves /static/
+
+[accounts]
+registration = "closed"                           # open | closed
+min_password_length = 8
+
+[render]
+worker_socket = "/var/lib/docwizard-jobs/sock/worker.sock"
+concurrency = 2
+timeout_seconds = 90
+memory_mb = 2097152
+default_layout = "default"
+
+[limits]
+max_document_bytes = 5000000
+max_upload_bytes = 50000000

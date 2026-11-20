@@ -17,7 +17,23 @@ def test_catalog_is_complete_for_placeholders():
     assert i18n.gettext("en", "Projects") == "Projects"
     assert i18n.gettext("de", "no such message {n}", n=3) == "no such message 3"
     assert i18n.pick("de-AT,de;q=0.9,en;q=0.5") == "de"
-    assert i18n.pick("fr-FR,fr;q=0.9") == "en"
+    assert i18n.pick("fr-FR,fr;q=0.9") == "fr"
+    assert i18n.pick("es-MX,es;q=0.9,en;q=0.5") == "es"
+    assert i18n.pick("it-IT") == "en"
+
+
+def test_every_language_has_every_german_string():
+    """French and Spanish follow the German catalog, which follows the source strings."""
+    de = i18n.catalog("de")
+    for lang in ("fr", "es"):
+        catalog = i18n.catalog(lang)
+        assert set(catalog) == set(de), (lang, sorted(set(de) ^ set(catalog))[:10])
+        for key, value in catalog.items():
+            assert set(re.findall(r"\{(\w+)\}", key)) == set(re.findall(r"\{(\w+)\}", value)), (lang, key)
+    assert i18n.gettext("fr", "Projects") == "Projets"
+    assert i18n.gettext("es", "{n} words", n=3) == "3 palabras"
+    assert i18n.reltime("fr", "2020-03-04T10:00:00Z") == "4 mars 2020"
+    assert i18n.reltime("es", "2020-08-04T10:00:00Z") == "4 ago. 2020"
     assert i18n.pick(None) == "en"
 
 
@@ -54,3 +70,46 @@ async def test_browser_language_and_account_choice(app, client):
     doc = r.json()["mainDocument"]
     text = await app.db.read(lambda c: svc.load_state(c, doc).text)
     assert "# Einleitung" in text and "lang: de-DE" in text
+
+
+async def test_quick_language_switch_and_footer_links(app, client):
+    from tests.integration.test_collab import new_project
+    from tests.integration.test_sharing import as_guest, share
+
+    # Logged-out visitor switches language from the login page footer.
+    anon = Client(app)
+    login = await anon.get("/login", headers={"Accept-Language": "en-US"})
+    assert 'action="/language"' in login.text and 'href="/source"' in login.text
+    r = await anon.post("/language", form={"lang": "de", "next": "/login"})
+    assert r.status == 303 and r.header("location") == "/login"
+    assert any(k.lower() == "set-cookie" and v.startswith("lang=de") for k, v in r.headers)
+    login_de = await anon.get("/login", headers={"Accept-Language": "en-US"})
+    assert '<html lang="de"' in login_de.text and "Passwort vergessen?" in login_de.text
+    # Open redirects in next are rejected.
+    bad = await anon.post("/language", form={"lang": "fr", "next": "//evil.example/phish"})
+    assert bad.status == 303 and bad.header("location") == "/"
+
+    # Logged-in user switches language from any page and stays on that page; Source code only on home/login.
+    pid = await new_project(client)
+    home = await client.get("/")
+    assert 'href="/source"' in home.text and 'action="/language"' in home.text
+    project = await client.get(f"/p/{pid}")
+    assert 'href="/source"' not in project.text and 'action="/language"' in project.text
+    editor = await client.get(f"/p/{pid}/paper.md")
+    assert 'href="/source"' not in editor.text and 'action="/language"' in editor.text
+    settings = await client.get("/settings")
+    assert 'href="/source"' not in settings.text and 'action="/language"' in settings.text
+
+    csrf = re.search(r'name="_csrf" value="([^"]+)"', project.text).group(1)
+    r = await client.post("/language", form={"_csrf": csrf, "lang": "fr", "next": f"/p/{pid}?tab=files"})
+    assert r.status == 303 and r.header("location") == f"/p/{pid}?tab=files"
+    project_fr = await client.get(f"/p/{pid}", headers={"Accept-Language": "en-US"})
+    assert '<html lang="fr"' in project_fr.text and "Fichiers" in project_fr.text
+
+    # Guests can also switch language via /language.
+    token = await share(client, pid)
+    guest, loc = await as_guest(app, token)
+    r = await guest.post("/language", form={"_csrf": guest.csrf, "lang": "es", "next": loc})
+    assert r.status == 303 and r.header("location") == loc
+    guest_editor = await guest.get(loc, headers={"Accept-Language": "en-US"})
+    assert '<html lang="es"' in guest_editor.text

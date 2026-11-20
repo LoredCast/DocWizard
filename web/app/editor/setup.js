@@ -10,6 +10,7 @@ import { markdownKeymap } from "./commands.js";
 import { latexLanguage } from "./latex-mode.js";
 import { livePreview } from "./live-preview.js";
 import { pandocExtensions, pandocTags } from "./pandoc-syntax.js";
+import { nextCell, previousCell } from "./tables.js";
 
 const markdownData = defineLanguageFacet({
   commentTokens: { block: { open: "<!--", close: "-->" } },
@@ -75,6 +76,8 @@ export function languageFor(kind) {
       headingFold,
       libraryField,
       keymap.of(markdownKeymap),
+      // In a table, Tab and Shift+Tab move between cells; elsewhere they keep their usual job.
+      keymap.of([{ key: "Tab", run: nextCell }, { key: "Shift-Tab", run: previousCell }]),
     ];
   }
   if (kind === "latex") return [latexLanguage, syntaxHighlighting(latexHighlight)];
@@ -92,7 +95,7 @@ export function accessExtensions(readOnly, editable = !readOnly) {
 }
 
 // Everything except collaboration, which the session adds per version.
-export function baseExtensions({ kind, readOnly, live = true, lang = "", reading = false, editable = !readOnly }) {
+export function baseExtensions({ kind, readOnly, live = true, lang = "", reading = false, editable = !readOnly, label = "" }) {
   return [
     EditorView.cspNonce.of(cspNonce()),
     highlightSpecialChars(),
@@ -109,7 +112,7 @@ export function baseExtensions({ kind, readOnly, live = true, lang = "", reading
     EditorView.lineWrapping,
     access.of(accessExtensions(readOnly, editable)),
     EditorView.contentAttributes.of({ spellcheck: "true", autocorrect: "on", autocapitalize: "sentences",
-                                      ...(lang ? { lang } : {}) }),
+                                      ...(lang ? { lang } : {}), ...(label ? { "aria-label": label } : {}) }),
     languageFor(kind),
     kind === "markdown" && live ? livePreview({ reading }) : [],
     keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap,

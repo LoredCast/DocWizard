@@ -52,7 +52,7 @@ python -m docwizard create-admin you
 DOCWIZARD_RENDER_SPAWN_WORKER=true python -m docwizard serve
 ```
 
-Open `http://localhost:8080`. Local data is stored in `./data/`. Run `pytest` to test.
+Open `http://localhost:8080`. Local data is stored in `./data/`. Run `pytest` to test. Browser tests need the Node `playwright` package with Chromium: `node --test tests/e2e/*.test.mjs`.
 
 ## Documentation
 

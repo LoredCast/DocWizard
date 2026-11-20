@@ -1,0 +1,10 @@
+<details class="menu lang-menu">
+  <summary aria-label="{{ _('Language') }}: {{ ui_languages.get(lang, lang) }}" title="{{ _('Language') }}">{{ ui_languages.get(lang, lang) }}</summary>
+  <form method="post" action="/language" class="menu-body actions-list">
+    {% if csrf %}<input type="hidden" name="_csrf" value="{{ csrf }}">{% endif %}
+    <input type="hidden" name="next" value="{{ current_url }}">
+    {% for code, label in ui_languages.items() %}
+    <button type="submit" name="lang" value="{{ code }}"{% if code == lang %} aria-current="true"{% endif %}>{{ label }}</button>
+    {% endfor %}
+  </form>
+</details>

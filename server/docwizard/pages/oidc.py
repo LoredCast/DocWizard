@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import re
 import time
@@ -63,6 +62,8 @@ def register(app) -> None:
             return fail("Your account isn't in a group that may use DocWizard.")
         issuer, subject = provider.issuer, claims["sub"]
         email = claims.get("email") if isinstance(claims.get("email"), str) else None
+        # A provider vouches for the address unless it says otherwise (§13.2).
+        email_ok = email is not None and claims.get("email_verified") is not False
         identity = await app.db.fetchone("SELECT * FROM identities WHERE issuer = ? AND subject = ?", (issuer, subject))
 
         if pending.link_user is not None:
@@ -99,7 +100,9 @@ def register(app) -> None:
                 while users.get_by_username(c, name) is not None:
                     n += 1
                     name = f"{base}{n}"
-                uid = users.create(c, name, None, display_name=(display or name)[:80], email=email)
+                taken = email is not None and users.email_taken(c, email)
+                uid = users.create(c, name, None, display_name=(display or name)[:80],
+                                   email=None if taken else email, email_verified=email_ok)
                 c.execute("INSERT INTO identities(user_id, provider, issuer, subject, email) VALUES (?, ?, ?, ?, ?)",
                           (uid, provider.id, issuer, subject, email))
                 c.execute("INSERT INTO audit_log(actor, action, meta_json) VALUES (?, 'oidc.create', ?)",
@@ -111,6 +114,15 @@ def register(app) -> None:
         def touch(c):
             c.execute("UPDATE identities SET last_login_at = ?, email = COALESCE(?, email)"
                       " WHERE issuer = ? AND subject = ?", (time.time(), email, issuer, subject))
+            if email_ok:
+                # The provider vouches for the address: confirm it if it is the account's, or
+                # take it when the account has none and nobody else uses it.
+                c.execute("UPDATE users SET email_verified_at = COALESCE(email_verified_at, ?)"
+                          " WHERE id = ? AND email IS NOT NULL AND lower(email) = lower(?)",
+                          (time.time(), user_id, email))
+                if not users.email_taken(c, email, exclude_user=user_id):
+                    c.execute("UPDATE users SET email = ?, email_verified_at = ? WHERE id = ? AND email IS NULL",
+                              (email, time.time(), user_id))
             if provider.admin_groups:
                 # Re-evaluated at every login (§13.4).
                 role = "admin" if groups.intersection(provider.admin_groups) else "user"
