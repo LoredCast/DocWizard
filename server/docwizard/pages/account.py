@@ -199,7 +199,7 @@ def register(app) -> None:
         prefs = dict(user.preferences)
         if form.get("theme") in ("dark", "light", "system"):
             prefs["theme"] = form["theme"]
-        if form.get("editor_font") in ("sans", "mono"):
+        if form.get("editor_font") in ("sans", "serif", "mono"):
             prefs["editor_font"] = form["editor_font"]
         from ..i18n import LANGUAGES
 

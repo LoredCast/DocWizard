@@ -21,12 +21,54 @@ _TOKEN = re.compile(r"^[0-9a-f]{32}$")
 DARK_CSS = (b"html{filter:invert(1) hue-rotate(180deg);background:#fff}"
             b"img,video,svg image,picture{filter:invert(1) hue-rotate(180deg)}")
 
+_LINK_TAG = re.compile(rb"<link\b[^>]*>", re.IGNORECASE)
+_REL_STYLE = re.compile(rb'\brel\s*=\s*["\']stylesheet["\']', re.IGNORECASE)
+_HREF_LAYOUT = re.compile(rb'\bhref\s*=\s*["\'](_layout/[^"\']+\.css)["\']', re.IGNORECASE)
+_STYLE_CLOSE = re.compile(rb"</style", re.IGNORECASE)
+_HEAD_CLOSE = re.compile(rb"</head>", re.IGNORECASE)
 
-def preview_csp(app_origin: str, *, same_origin: bool = False) -> str:
+
+def _inline_style(href: bytes, css: bytes) -> bytes:
+    safe = _STYLE_CLOSE.sub(rb"<\/style", css)
+    return b'<style data-href="' + href + b'">\n' + safe + b"\n</style>"
+
+
+def _inline_preview_css(base: Path, body: bytes, *, dark: bool) -> bytes:
+    """Inline layout stylesheets (and dark-paper CSS) into the preview HTML response.
+
+    Preview frames run inside a sandboxed iframe (opaque origin) with strict CSP; inlining
+    prevents opaque-origin stylesheet blocks, subresource races, and first-render FOUC.
+    """
+    def replace(match: re.Match[bytes]) -> bytes:
+        tag = match.group(0)
+        if not _REL_STYLE.search(tag):
+            return tag
+        href_m = _HREF_LAYOUT.search(tag)
+        if not href_m:
+            return tag
+        href_b = href_m.group(1)
+        try:
+            href = href_b.decode("utf-8")
+        except UnicodeDecodeError:
+            return tag
+        css_path = _safe_child(base, href)
+        if css_path is None or not css_path.is_file():
+            return tag
+        return _inline_style(href_b, css_path.read_bytes())
+
+    out = _LINK_TAG.sub(replace, body)
+    if dark:
+        dark_tag = _inline_style(b"_dark.css", DARK_CSS)
+        out = _HEAD_CLOSE.sub(lambda m: dark_tag + m.group(0), out, count=1)
+    return out
+
+
+def preview_csp(app_origin: str, *, same_origin: bool = False, preview_origin: str = "") -> str:
+    src = f"'self' {preview_origin}".strip() if preview_origin else "'self'"
     if same_origin:
-        return ("sandbox; default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
-                "font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'")
-    return ("default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; "
+        return (f"sandbox; default-src 'none'; img-src {src} data:; style-src {src} 'unsafe-inline'; "
+                f"font-src {src}; base-uri 'none'; form-action 'none'; frame-ancestors 'self'")
+    return (f"default-src 'none'; img-src {src} data:; style-src {src} 'unsafe-inline'; font-src {src}; "
             f"base-uri 'none'; form-action 'none'; frame-ancestors {app_origin}")
 
 
@@ -111,13 +153,16 @@ def register(app) -> None:
                 path = files.blob_path(app.cfg.data_dir, asset["sha256"])
             body = path.read_bytes()
             ctype = guess_type(rel)
-            if rel.endswith(".html") and req.query.get("paper") == "dark":
-                body = body.replace(b"</head>", b'<link rel="stylesheet" href="_dark.css"></head>', 1)
+            if rel.endswith(".html"):
+                body = _inline_preview_css(base, body, dark=req.query.get("paper") == "dark")
         if ctype.startswith("text/") or ctype == "image/svg+xml":
             ctype += "; charset=utf-8"
         resp = Response(body, 200, ctype)
         same_origin = app.cfg.preview_origin == app.cfg.app_origin
-        resp.set_header("content-security-policy", preview_csp(app.cfg.app_origin, same_origin=same_origin))
+        resp.set_header(
+            "content-security-policy",
+            preview_csp(app.cfg.app_origin, same_origin=same_origin, preview_origin=app.cfg.preview_origin),
+        )
         resp.set_header("referrer-policy", "no-referrer")
         resp.set_header("x-content-type-options", "nosniff")
         resp.set_header("cross-origin-resource-policy", "cross-origin")

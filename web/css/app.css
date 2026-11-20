@@ -16,6 +16,7 @@
     --ok:        light-dark(#1e7e34, #5fd38d);
     --sel:       light-dark(rgb(11 87 208 / .2), rgb(77 163 255 / .35));
     --font: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+    --serif: Charter, "Bitstream Charter", "Iowan Old Style", "Noto Serif", Georgia, ui-serif, serif;
     --mono: ui-monospace, "SF Mono", "Cascadia Mono", "DejaVu Sans Mono", monospace;
     --radius: 2px;
     --control: 28px;
@@ -895,7 +896,7 @@
   .grammar-fix { font-weight: 600; }
   .grammar-actions { display: flex; gap: 12px; font-size: 0.85rem; }
   /* The review view (§14.1): the text as it reads */
-  .review-mode #editor .cm-content { font-family: Charter, "Bitstream Charter", "Noto Serif", Georgia, serif; font-size: calc(var(--editor-size) + 1px); line-height: 1.7; max-width: 42rem; margin: 0 auto; padding: 24px 16px 96px; }
+  .review-mode #editor .cm-content { font-family: var(--serif); font-size: calc(var(--editor-size) + 1px); line-height: 1.7; max-width: 42rem; margin: 0 auto; padding: 24px 16px 96px; }
   .review-mode #editor .cm-gutters { display: none; }
   .review-mode #editor .cm-md-frontmatter { display: none; }
   .review-banner { margin: 0; padding: 6px 16px; border-bottom: 1px solid var(--line); color: var(--muted); }

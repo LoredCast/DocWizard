@@ -14,6 +14,7 @@ export class HtmlPreview {
     this.heading = "";
     this.current = "";
     this.loaded = false;
+    this.pendingHash = false;
     this.timer = null;
 
     this.iframe.addEventListener("load", () => {
@@ -22,6 +23,10 @@ export class HtmlPreview {
       this.timer = null;
       this.loaded = true;
       this.onLoad?.();
+      if (this.pendingHash) {
+        this.pendingHash = false;
+        this.navigate();
+      }
     });
 
     this.iframe.addEventListener("error", () => {
@@ -59,16 +64,24 @@ export class HtmlPreview {
 
   navigate() {
     const next = this.address();
-    if (!next || next === this.current) return;
+    if (!next || (next === this.current && (this.loaded || this.timer))) return;
     const prevBase = this.current ? this.current.split("#", 1)[0] : "";
     const nextBase = next.split("#", 1)[0];
-    const hashOnly = prevBase && prevBase === nextBase && this.loaded;
+    const wasLoaded = this.loaded;
+    if (prevBase && prevBase === nextBase && !wasLoaded && this.timer) {
+      // Wait for the initial document load to finish before applying a hash scroll so
+      // we never interrupt an in-flight preview navigation on first render.
+      this.pendingHash = true;
+      return;
+    }
+    const hashOnly = prevBase && prevBase === nextBase && wasLoaded;
+    this.pendingHash = false;
     this.current = next;
     if (!hashOnly) {
       this.loaded = false;
       this.armTimeout();
     }
-    if (!prevBase) {
+    if (!prevBase || !wasLoaded) {
       this.iframe.src = next;
       return;
     }
@@ -87,6 +100,7 @@ export class HtmlPreview {
   reload() {
     this.current = "";
     this.loaded = false;
+    this.pendingHash = false;
     this.navigate();
   }
 

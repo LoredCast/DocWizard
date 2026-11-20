@@ -93,11 +93,15 @@ async def test_html_preview_on_preview_origin(rapp, rclient):
     assert "An Example Book" in r.text and "@doe2020" not in r.text  # citeproc resolved the citation
     csp = r.header("content-security-policy")
     assert "default-src 'none'" in csp and "script" not in csp
+    assert rapp.cfg.preview_origin in csp
     assert r.header("referrer-policy") == "no-referrer"
+    # Layout stylesheets are inlined into the preview HTML so first render always has its CSS.
+    assert '<link rel="stylesheet" href="_layout/' not in r.text
+    assert '<style data-href="_layout/' in r.text and "font-family:" in r.text
     css = re.search(r'href="(_layout/[^"]+)"', r.text).group(1)
     assert (await preview.get(path.rsplit("/", 1)[0] + "/" + css)).status == 200
     dark = await preview.get(path + "?paper=dark")
-    assert "_dark.css" in dark.text
+    assert '<style data-href="_dark.css">' in dark.text and "filter:invert(1)" in dark.text
     # A forged token gets nothing.
     forged = re.sub(r"/_preview/[0-9a-f]{32}/", "/_preview/" + "0" * 32 + "/", path)
     assert (await preview.get(forged)).status == 404

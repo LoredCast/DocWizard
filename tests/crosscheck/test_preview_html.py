@@ -72,6 +72,23 @@ function makeIframe() {
     fn({ effectiveDirective: "frame-src" });
   }
   assert.equal(failedUrl, "https://pub.example.org/_preview/tok/key/index.html");
+  // After an error, calling show with the same URL retries instead of staying stuck.
+  iframe.src = "";
+  hp.show("https://pub.example.org/_preview/tok/key/index.html");
+  assert.equal(iframe.src, "https://pub.example.org/_preview/tok/key/index.html");
+}
+
+// 3. Hash scroll during initial load waits until load finishes so it never interrupts CSS/doc loading.
+{
+  const iframe = makeIframe();
+  const hp = new HtmlPreview(iframe);
+  hp.show("https://pub.example.org/_preview/tok/key/index.html");
+  assert.equal(iframe.src, "https://pub.example.org/_preview/tok/key/index.html");
+  hp.scrollTo("methods");
+  assert.equal(iframe.replaced.length, 0);
+  assert.equal(iframe.src, "https://pub.example.org/_preview/tok/key/index.html");
+  iframe.emit("load");
+  assert.deepEqual(iframe.replaced, ["https://pub.example.org/_preview/tok/key/index.html#methods"]);
 }
 
 assert.equal(headingId("Hello *World*!"), "hello-world");

@@ -95,7 +95,8 @@ let deckVersion = -1;
 
 // -- Preferences ---------------------------------------------------------
 const root = document.documentElement;
-root.style.setProperty("--editor-font", snap.prefs.font === "mono" ? "var(--mono)" : "var(--font)");
+const editorFonts = { sans: "var(--font)", serif: "var(--serif)", mono: "var(--mono)" };
+root.style.setProperty("--editor-font", editorFonts[snap.prefs.font] ?? "var(--font)");
 root.style.setProperty("--editor-size", `${snap.prefs.size}px`);
 
 const stored = (key, fallback) => {

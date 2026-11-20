@@ -52,8 +52,10 @@ async def test_browser_language_and_account_choice(app, client):
     settings = await client.get("/settings")
     csrf = re.search(r'name="_csrf" value="([^"]+)"', settings.text).group(1)
     r = await client.post("/settings/profile", form={"_csrf": csrf, "display_name": "Jane", "theme": "dark",
-                                                    "language": "de", "editor_font": "sans", "editor_size": "16"})
+                                                    "language": "de", "editor_font": "serif", "editor_size": "16"})
     assert r.status == 303 and any(k.lower() == "set-cookie" and v.startswith("lang=de") for k, v in r.headers)
+    settings_after = await client.get("/settings")
+    assert '<option value="serif" selected>Serifen</option>' in settings_after.text
     home = await client.get("/", headers={"Accept-Language": "en"})
     assert '<html lang="de"' in home.text and "Zuletzt geöffnet" in home.text and "Neues Projekt" in home.text
     # The editor's scripts get their strings from the page.
@@ -70,6 +72,10 @@ async def test_browser_language_and_account_choice(app, client):
     doc = r.json()["mainDocument"]
     text = await app.db.read(lambda c: svc.load_state(c, doc).text)
     assert "# Einleitung" in text and "lang: de-DE" in text
+    # Editor snapshot carries the chosen serif font preference.
+    ed = await client.get(f"/p/{r.json()['id']}/{r.json()['mainPath']}")
+    snap_m = re.search(r'<script type="application/json" id="snapshot">(.*?)</script>', ed.text, re.S)
+    assert snap_m and json.loads(snap_m.group(1))["prefs"]["font"] == "serif"
 
 
 async def test_quick_language_switch_and_footer_links(app, client):

@@ -21,7 +21,7 @@
     </label>
     <label>{{ _("Editor font") }}
       <select name="editor_font">
-        {% for value, label in [("sans", "Sans"), ("mono", "Mono")] %}
+        {% for value, label in [("sans", "Sans"), ("serif", "Serif"), ("mono", "Mono")] %}
         <option value="{{ value }}" {% if user.preferences.get("editor_font", "sans") == value %}selected{% endif %}>{{ _(label) }}</option>
         {% endfor %}
       </select>
