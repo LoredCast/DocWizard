@@ -310,7 +310,8 @@ export class PdfPreview {
     const div = document.createElement("div");
     div.className = "textLayer";
     sheet.append(div);
-    sheet.removeAttribute("role"); // the page's text is there for screen readers now
+    // The page's text is there for screen readers now: a labelled group of it, not a picture.
+    sheet.setAttribute("role", "group");
     const layer = new TextLayer({ textContentSource: content, container: div, viewport });
     this.textLayers.set(sheet, layer);
     try {
