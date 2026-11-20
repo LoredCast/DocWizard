@@ -7,6 +7,7 @@ import { Socket } from "../collab/socket.js";
 import { HtmlPreview, headingId } from "../preview/html.js";
 import { PdfPreview } from "../preview/pdf.js";
 import { LocalRenderer } from "../preview/local.js";
+import { openTimeline } from "./timeline.js";
 import { getCitations, getDoc, getDocByUrl, prune, putCitations, putLayout } from "../store/idb.js";
 import { $, api, confirmDialog, el, t, toast, wireCommon } from "../ui/dom.js";
 import { AnchorLoader, anchorsField, conflictGutter } from "./anchors.js";
@@ -1255,6 +1256,7 @@ $("#open-versions").addEventListener("click", () => {
   versionsDialog.showModal();
   loadVersions();
 });
+$("#open-timeline")?.addEventListener("click", () => openTimeline({ docId, name: snap.doc.path }));
 $("#version-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const label = event.target.elements.label.value.trim();

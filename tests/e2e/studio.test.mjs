@@ -158,6 +158,23 @@ describe("writing studio", () => {
     assert.ok(await target.evaluate((n) => n.classList.contains("target-reached")));
   });
 
+  test("the drafting timeline replays the edits", async () => {
+    await menu("open-timeline");
+    const dialog = page.locator("dialog[open].timeline-dialog");
+    await dialog.waitFor();
+    const slider = dialog.locator('input[type="range"]');
+    assert.ok(Number(await slider.getAttribute("max")) >= 1);
+    // The newest point has the words typed for the daily target, marked as written since the point before.
+    await dialog.locator(".timeline-ins", { hasText: "Three more words." }).waitFor();
+    await shot("timeline");
+    await slider.focus();
+    await page.keyboard.press("Home");
+    await page.waitForFunction(() => !document.querySelector(".timeline-text").textContent.includes("Three more words"));
+    assert.match(await dialog.locator(".timeline-text").textContent(), /Mara arrives at the harbour/);
+    await dialog.locator("button", { hasText: "Close" }).click();
+    assert.deepEqual(page.problems, []);
+  });
+
   test("a script's breakdown lists scenes and cast and highlights a character", async () => {
     await project("screenplay", "harbour.md", SCRIPT);
     await menu("open-breakdown");

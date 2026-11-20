@@ -44,6 +44,7 @@
       <button type="button" id="open-export" title="{{ _('PDF, Word, e-book and more (Ctrl+E)') }}">{{ _("Download or print") }}</button>
       {% if can(role, "publish", project) and not guest %}<button type="button" id="open-publish">{{ _("Publish") }}</button>{% endif %}
       <button type="button" id="open-versions">{{ _("Version history") }}</button>
+      <button type="button" id="open-timeline" title="{{ _('Replay how the text came about, and who wrote what') }}">{{ _("Drafting timeline") }}</button>
     </div>
     {% if can(role, "edit", project) %}
     <div class="menu-group" role="group" aria-labelledby="menu-file">
