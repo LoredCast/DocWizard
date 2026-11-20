@@ -278,6 +278,26 @@ for (const vp of VIEWPORTS) {
       await page.locator("#table-bar[hidden]").waitFor({ state: "attached" });
       const padded = (await source()).split("\n");
       assert.ok(padded.every((l) => l.length === padded[0].length), "the columns are padded again");
+      // The Insert dropdown wraps long item hints cleanly without horizontal overflow.
+      const insertBtn = page.locator('[data-cmd="insert"]');
+      if (await insertBtn.isVisible()) {
+        await insertBtn.click();
+        await page.locator(".dw-insert-menu").waitFor();
+        const menuCheck = await page.evaluate(() => {
+          const pop = document.querySelector(".dw-popover");
+          const rect = pop.getBoundingClientRect();
+          const buttons = [...pop.querySelectorAll(".dw-insert-menu button")];
+          const btnOverflow = buttons.some((b) => b.scrollWidth > b.clientWidth + 1);
+          return {
+            popOverflow: pop.scrollWidth > pop.clientWidth + 1,
+            btnOverflow,
+            withinViewport: rect.left >= -1 && rect.right <= window.innerWidth + 1,
+          };
+        });
+        assert.ok(!menuCheck.popOverflow && !menuCheck.btnOverflow && menuCheck.withinViewport,
+          `Insert dropdown overflows: ${JSON.stringify(menuCheck)}`);
+        await page.keyboard.press("Escape");
+      }
       noProblems(page);
     });
 
@@ -298,19 +318,26 @@ for (const vp of VIEWPORTS) {
       const frame = page.frameLocator("#preview");
       await frame.locator("body").getByText(/\S/).first().waitFor({ timeout: 30_000 });
       await noOverflow(page, "HTML preview");
-      // The editor stays locked to the viewport (no scrolling below the footer) and Page setup stays on screen.
+      // The editor stays locked to the viewport (no scrolling below the footer). On mobile, Page setup
+      // lives in the Actions menu so the preview bar stays uncluttered; on desktop it stays in the bar.
       const layoutCheck = await page.evaluate(() => {
-        const opts = document.getElementById("open-options").getBoundingClientRect();
+        const previewOpts = document.querySelector(".preview-options");
+        const optsRect = previewOpts ? previewOpts.getBoundingClientRect() : null;
         const bar = document.getElementById("statusbar").getBoundingClientRect();
         return {
           scrollH: document.documentElement.scrollHeight, innerH: window.innerHeight,
-          optsRight: opts.right, innerW: window.innerWidth, barH: bar.height,
+          optsVisible: Boolean(optsRect && optsRect.width > 0 && optsRect.height > 0),
+          optsRight: optsRect?.right ?? 0, innerW: window.innerWidth, barH: bar.height,
         };
       });
       assert.ok(layoutCheck.scrollH <= layoutCheck.innerH,
         `editor overflows vertically: scrollHeight=${layoutCheck.scrollH} > innerHeight=${layoutCheck.innerH}`);
-      assert.ok(layoutCheck.optsRight <= layoutCheck.innerW + 1,
-        `Page setup overflows horizontally: right=${layoutCheck.optsRight} > innerWidth=${layoutCheck.innerW}`);
+      if (vp.isMobile) {
+        assert.ok(!layoutCheck.optsVisible, "Page setup button should be moved to Actions on phones");
+      } else {
+        assert.ok(layoutCheck.optsVisible && layoutCheck.optsRight <= layoutCheck.innerW + 1,
+          `Page setup overflows horizontally: right=${layoutCheck.optsRight} > innerWidth=${layoutCheck.innerW}`);
+      }
       assert.ok(layoutCheck.barH <= 36, `editor statusbar wrapped to multiple lines: height=${layoutCheck.barH}`);
 
       await page.locator('input[name="preview-target"][value="pdf"]').check();

@@ -100,6 +100,11 @@ class Layout:
         return self.owner is not None
 
     @property
+    def external_source(self) -> dict | None:
+        src = self.manifest.get("source")
+        return src if isinstance(src, dict) and src.get("provider") else None
+
+    @property
     def designable(self) -> bool:
         """Whether the layout's Typst template reads the design settings."""
         src = self.files.get(self.targets.get("pdf-typst", {}).get("template", ""))
@@ -109,11 +114,18 @@ class Layout:
             return False
 
     def public(self) -> dict:
-        return {"id": self.id, "name": self.name, "version": self.manifest.get("version", ""),
-                "description": self.description, "targets": sorted(self.targets), "defaultPdf": self.default_pdf,
-                "variables": self.variables, "hash": self.content_sha256[:12], "custom": self.custom,
-                "parent": self.parent, "script": "screenplay" in self.manifest.get("filters", []),
-                "slides": "slides" in self.manifest.get("filters", [])}
+        out = {"id": self.id, "name": self.name, "version": self.manifest.get("version", ""),
+               "description": self.description, "targets": sorted(self.targets), "defaultPdf": self.default_pdf,
+               "variables": self.variables, "hash": self.content_sha256[:12], "custom": self.custom,
+               "parent": self.parent, "script": "screenplay" in self.manifest.get("filters", []),
+               "slides": "slides" in self.manifest.get("filters", [])}
+        if self.external_source:
+            src = self.external_source
+            out["source"] = {k: src[k] for k in ("provider", "slug", "category", "url", "pdfUrl") if k in src}
+            engine = self.targets.get("pdf-latex", {}).get("engine")
+            if engine:
+                out["engine"] = engine
+        return out
 
     def option_defaults(self) -> dict:
         return {k: v.get("default") for k, v in self.variables.items() if "default" in v}
@@ -402,6 +414,8 @@ class Layouts:
         tmp = target.with_name(target.name + ".tmp-" + os.urandom(4).hex())
         shutil.rmtree(tmp, ignore_errors=True)
         for rel, src in layout.files.items():
+            if rel.startswith("starter/"):
+                continue
             dest = tmp / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(src, dest)

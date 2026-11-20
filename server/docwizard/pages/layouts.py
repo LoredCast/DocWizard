@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..api.layouts import _get, can_edit
+from ..api.layouts import _get, can_edit, can_uninstall
 from ..http.request import Request
 from ..http.response import Response
 from ..render.fields import shown_keys
@@ -13,7 +13,8 @@ def register(app) -> None:
     async def gallery(req: Request) -> Response:
         uid = req.user.id
         layouts = app.layouts.list() if req.user.is_admin else app.layouts.visible(uid)
-        builtin = [lay for lay in layouts if not lay.custom]
+        installed = [lay for lay in layouts if not lay.custom and lay.external_source]
+        builtin = [lay for lay in layouts if not lay.custom and not lay.external_source]
         mine = [lay for lay in layouts if lay.custom and lay.owner == uid]
         shared = [lay for lay in layouts if lay.custom and lay.owner != uid]
         owners = {}
@@ -22,10 +23,13 @@ def register(app) -> None:
             rows = await app.db.fetchall(f"SELECT id, display_name FROM users WHERE id IN ({','.join('?' * len(ids))})",
                                          tuple(ids))
             owners = {r["id"]: r["display_name"] for r in rows}
-        return app.page(req, "layouts.html", builtin=builtin, mine=mine, shared=shared, owners=owners,
-                        styles=style_labels(), default_layout=app.policy("default_layout"),
+        return app.page(req, "layouts.html", builtin=builtin, installed=installed, mine=mine, shared=shared,
+                        owners=owners, styles=style_labels(), default_layout=app.policy("default_layout"),
                         names={lay.id: lay.name for lay in app.layouts.list()},
-                        can_edit=lambda lay: can_edit(req, lay), field_keys=shown_keys)
+                        can_edit=lambda lay: can_edit(req, lay),
+                        can_uninstall=lambda lay: can_uninstall(req, lay),
+                        allow_latex=app.cfg.render.allow_latex,
+                        field_keys=shown_keys)
 
     async def editor(req: Request) -> Response:
         layout = _get(app, req, req.param("id"))

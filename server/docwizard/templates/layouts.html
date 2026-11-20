@@ -1,7 +1,8 @@
 {% extends "base.html" %}
 {% block title %}{{ _("Layouts") }} · DocWizard{% endblock %}
 {% block crumbs %}<a class="wordmark" href="/">DocWizard</a><span>/</span><span>{{ _("Layouts") }}</span>{% endblock %}
-{% block actions %}<button type="button" class="primary" data-new-layout="default">{{ _("New layout") }}</button>{% endblock %}
+{% block actions %}<button type="button" id="open-latex-browser">{{ _("LaTeX templates") }}</button>
+<button type="button" class="primary" data-new-layout="default">{{ _("New layout") }}</button>{% endblock %}
 {% macro layout_row(lay, owner=None) %}
 <li class="layout-card">
   <div class="layout-card-main">
@@ -29,19 +30,71 @@
   </div>
 </li>
 {% endmacro %}
+{% macro installed_row(lay) %}
+{% set src = lay.external_source %}
+{% set engine = lay.targets.get("pdf-latex", {}).get("engine", "pdflatex") %}
+<li class="layout-card" data-installed-id="{{ lay.id }}">
+  <div class="layout-card-main">
+    <a href="{{ src.url }}" target="_blank" rel="noopener noreferrer"><strong>{{ lay.name }}</strong></a>
+    <span class="badge">LaTeX</span>
+    <span class="badge muted">{{ engine }}</span>
+    {% if src.category %}<span class="badge muted">{{ src.category }}</span>{% endif %}
+    {% if lay.description %}<p class="muted">{{ lay.description }}</p>{% endif %}
+  </div>
+  <div class="row">
+    <button type="button" class="primary" data-use-layout="{{ lay.id }}" data-name="{{ lay.name }}">{{ _("New project") }}</button>
+    {% if src.pdfUrl %}<a class="button" href="{{ src.pdfUrl }}" target="_blank" rel="noopener noreferrer">{{ _("Preview PDF") }}</a>{% endif %}
+    {% if can_uninstall(lay) %}<button type="button" class="danger" data-uninstall-layout="{{ lay.id }}" data-name="{{ lay.name }}">{{ _("Uninstall") }}</button>{% endif %}
+  </div>
+</li>
+{% endmacro %}
 {% block content %}
 <section class="narrow wide">
-  <p class="muted">{{ _("A layout decides how documents look: fonts, margins, headings, citations, the title page and more. Make a copy of any layout to change it in the layout editor; your projects can then use it.") }}</p>
-  {% if mine %}
-  <h2>{{ _("Your layouts") }}</h2>
-  <ul class="plain layout-list">{% for lay in mine %}{{ layout_row(lay) }}{% endfor %}</ul>
-  {% endif %}
-  <h2>{{ _("Built-in layouts") }}</h2>
-  <ul class="plain layout-list">{% for lay in builtin %}{{ layout_row(lay) }}{% endfor %}</ul>
-  {% if shared %}
-  <h2>{{ _("Shared by others") }}</h2>
-  <ul class="plain layout-list">{% for lay in shared %}{{ layout_row(lay, owners.get(lay.owner, "")) }}{% endfor %}</ul>
-  {% endif %}
+  <div class="layout-tabs" role="tablist" aria-label="{{ _('Layout browser') }}">
+    <button type="button" role="tab" id="tab-library" aria-controls="panel-library" aria-selected="true">{{ _("Library") }}</button>
+    <button type="button" role="tab" id="tab-catalog" aria-controls="panel-catalog" aria-selected="false">{{ _("LaTeX Templates") }}</button>
+  </div>
+  <div id="panel-library" role="tabpanel" aria-labelledby="tab-library">
+    <p class="muted">{{ _("A layout decides how documents look: fonts, margins, headings, citations, the title page and more. Make a copy of any layout to change it in the layout editor; your projects can then use it.") }}
+      <button type="button" class="link" id="jump-catalog">{{ _("Browse 900+ LaTeX templates from latextemplates.com") }}</button></p>
+    {% if mine %}
+    <h2>{{ _("Your layouts") }}</h2>
+    <ul class="plain layout-list">{% for lay in mine %}{{ layout_row(lay) }}{% endfor %}</ul>
+    {% endif %}
+    <div id="installed-section"{% if not installed %} hidden{% endif %}>
+      <h2>{{ _("Installed LaTeX templates") }}</h2>
+      <ul class="plain layout-list" id="installed-list">{% for lay in installed %}{{ installed_row(lay) }}{% endfor %}</ul>
+    </div>
+    <h2>{{ _("Built-in layouts") }}</h2>
+    <ul class="plain layout-list">{% for lay in builtin %}{{ layout_row(lay) }}{% endfor %}</ul>
+    {% if shared %}
+    <h2>{{ _("Shared by others") }}</h2>
+    <ul class="plain layout-list">{% for lay in shared %}{{ layout_row(lay, owners.get(lay.owner, "")) }}{% endfor %}</ul>
+    {% endif %}
+  </div>
+  <div id="panel-catalog" role="tabpanel" aria-labelledby="tab-catalog" hidden>
+    <p class="muted">{{ _("Search and install free LaTeX templates from") }} <a href="https://latextemplates.com" target="_blank" rel="noopener noreferrer">latextemplates.com</a>. {{ _("Installed templates appear in your library and can be used immediately for new projects.") }}</p>
+    {% if not allow_latex %}<p class="callout muted">{{ _("LaTeX builds are currently turned off on this server. You can still browse and install templates; an admin can turn LaTeX builds on.") }}</p>{% endif %}
+    <form class="catalog-filter" id="catalog-filter" role="search" aria-label="{{ _('Search LaTeX templates') }}">
+      <input type="search" name="q" id="catalog-q" placeholder="{{ _('Search templates (CV, thesis, IEEE, poster…)') }}" aria-label="{{ _('Search LaTeX templates') }}" autocomplete="off">
+      <select name="category" id="catalog-category" aria-label="{{ _('Category') }}">
+        <option value="">{{ _("All categories") }}</option>
+      </select>
+      <select name="engine" id="catalog-engine" aria-label="{{ _('LaTeX engine') }}">
+        <option value="">{{ _("All engines") }}</option>
+        <option value="pdflatex">pdfLaTeX</option>
+        <option value="xelatex">XeLaTeX</option>
+        <option value="lualatex">LuaLaTeX</option>
+      </select>
+      <button type="submit">{{ _("Search") }}</button>
+    </form>
+    <div class="catalog-meta">
+      <span class="muted" id="catalog-status" role="status"></span>
+      <button type="button" class="link" id="catalog-refresh">{{ _("Refresh") }}</button>
+    </div>
+    <ul class="plain layout-list" id="catalog-list"></ul>
+    <p id="catalog-more-wrap" hidden><button type="button" id="catalog-more">{{ _("Show more") }}</button></p>
+  </div>
 </section>
 {% endblock %}
 {% block scripts %}<script type="module" src="{{ static }}/app/layouts/gallery.js"></script>{% endblock %}

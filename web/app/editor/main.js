@@ -1941,7 +1941,7 @@ function paletteItems() {
   }
   // The Actions menu, as it is now (what's hidden or not allowed here stays out).
   for (const node of document.querySelectorAll("#toolbar-buttons button, #toolbar-buttons a.button")) {
-    if (!shown_(node) || node.id === "open-palette") continue;
+    if (!shown_(node) || node.id === "open-palette" || node.id === "open-options") continue;
     const group = node.closest(".menu-group")?.querySelector(".menu-heading")?.textContent ?? "";
     const pressed = node.getAttribute("aria-pressed");
     add({ id: `menu:${node.id || labelOf(node)}`, label: labelOf(node), group,

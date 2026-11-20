@@ -8,6 +8,7 @@ can change or delete it. Shared layouts are listed for everyone on the instance.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import secrets
@@ -15,7 +16,7 @@ import secrets
 from ..http.request import HTTPError, Request, bad_request, not_found
 from ..http.response import Response, json_response, user_content
 from ..render import design as designs
-from ..render import fields
+from ..render import fields, latextemplates
 from ..render.layouts import Layout, LayoutError, option_specs, style_labels
 
 _KEY = re.compile(r"^[0-9a-f]{64}$")
@@ -32,9 +33,17 @@ def can_edit(req: Request, layout: Layout) -> bool:
     return layout.custom and req.user is not None and (layout.owner == req.user.id or req.user.is_admin)
 
 
+def can_uninstall(req: Request, layout: Layout) -> bool:
+    src = layout.external_source
+    if not src or src.get("provider") != "latextemplates" or req.user is None:
+        return False
+    return req.user.is_admin or src.get("installedBy") == req.user.id
+
+
 def describe(req: Request, layout: Layout) -> dict:
     out = layout.public()
     out["editable"] = can_edit(req, layout)
+    out["uninstallable"] = can_uninstall(req, layout)
     out["designable"] = layout.designable
     out["shared"] = layout.shared
     out["mine"] = req.user is not None and layout.owner == req.user.id
@@ -199,8 +208,65 @@ def register(app) -> None:
             raise not_found()
         return user_content(base / name, name)
 
+    async def catalog_search(req: Request) -> Response:
+        """Browse and search downloadable templates from latextemplates.com."""
+        q = req.query.get("q", "").strip()[:200]
+        category = req.query.get("category", "").strip()[:80]
+        engine = req.query.get("engine", "").strip()[:20]
+        refresh = req.query.get("refresh") == "1"
+        try:
+            offset = int(req.query.get("offset", "0"))
+        except ValueError:
+            offset = 0
+        try:
+            limit = int(req.query.get("limit", "24"))
+        except ValueError:
+            limit = 24
+        try:
+            catalog = await asyncio.to_thread(latextemplates.load_catalog, app, refresh=refresh)
+        except latextemplates.CatalogError as exc:
+            raise HTTPError(502, "upstream_error", str(exc)) from None
+        installed = {lay.id: lay for lay in app.layouts.list() if lay.external_source}
+        result = latextemplates.search_catalog(
+            catalog, q=q, category=category, engine=engine, offset=offset, limit=limit,
+            installed_ids=set(installed),
+        )
+        for item in result["items"]:
+            lay = installed.get(item["layoutId"])
+            item["uninstallable"] = bool(lay and can_uninstall(req, lay))
+        return json_response(result)
+
+    async def catalog_install(req: Request) -> Response:
+        """Download and install a latextemplates.com template as a layout."""
+        body = await req.json_object()
+        slug = str(body.get("slug") or "").strip()
+        try:
+            lid, already = await asyncio.to_thread(latextemplates.install_template, app, slug, user_id=req.user.id)
+        except latextemplates.CatalogError as exc:
+            raise bad_request(str(exc)) from None
+        return json_response({"layout": describe(req, app.layouts.get(lid)), "alreadyInstalled": already},
+                             200 if already else 201)
+
+    async def catalog_uninstall(req: Request) -> Response:
+        """Remove an installed latextemplates.com layout."""
+        lid = req.param("id")
+        try:
+            await asyncio.to_thread(
+                latextemplates.uninstall_template, app, lid, user_id=req.user.id, is_admin=req.user.is_admin,
+            )
+        except LookupError as exc:
+            raise not_found(str(exc)) from None
+        except PermissionError as exc:
+            raise HTTPError(403, "forbidden", str(exc)) from None
+        except latextemplates.CatalogError as exc:
+            raise bad_request(str(exc)) from None
+        return json_response({"deleted": lid})
+
     r.add("GET", "/api/layouts", list_layouts, guest=True)
     r.add("GET", "/api/layouts/schema", schema)
+    r.add("GET", "/api/layouts/catalog", catalog_search)
+    r.add("POST", "/api/layouts/catalog/install", catalog_install)
+    r.add("DELETE", "/api/layouts/catalog/{id}", catalog_uninstall)
     r.add("POST", "/api/layouts/preview", preview)
     r.add("GET", "/api/layouts/previews/{key}/{file}", preview_file)
     r.add("POST", "/api/layouts", create)

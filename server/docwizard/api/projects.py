@@ -89,14 +89,26 @@ async def create_project_with_starter(app, user, name: str, layout: str, starter
     lay = app.layouts.get(layout) if app.layouts.exists(layout) else None
     extra = fields.starter_lines(lay) if lay is not None else []
     plan = starters.for_layout(lay, lang, user.display_name, today, extra) if starter else None
-    await enforce_project_limit(app, user.id, sum(len(text.encode()) for _, text in plan.files) if plan else 1)
+    planned_bytes = (
+        sum(len(text.encode()) for _, text in plan.files) + sum(len(raw) for _, raw in plan.assets)
+        if plan else 1
+    )
+    await enforce_project_limit(app, user.id, planned_bytes)
+    asset_blobs: list[tuple[str, str, int, bytes]] = []
+    if plan and plan.assets:
+        def store_blobs():
+            return [(path, files.put_blob(app.cfg.data_dir, raw), len(raw), raw) for path, raw in plan.assets]
+
+        asset_blobs = await asyncio.to_thread(store_blobs)
 
     def work(c):
         pid = svc.create_project(c, user.id, name, layout)
         main = None
         if plan is not None:
             ids = [svc.create_document(c, pid, path, text) for path, text in plan.files]
-            main = ids[0]
+            main = ids[0] if ids else None
+            for path, digest, size, _ in asset_blobs:
+                svc.put_asset(c, pid, path, digest, size)
             if plan.build:
                 svc.update_project(c, pid, build_inputs=plan.build)
         return pid, main
@@ -106,6 +118,21 @@ async def create_project_with_starter(app, user, name: str, layout: str, starter
     for doc in await app.db.fetchall("SELECT id FROM documents WHERE project_id = ?", (pid,)):
         room = await app.rooms.get(doc["id"])
         await room.call(room.materialize)
+    if asset_blobs:
+        root = app.rooms.project_dir(pid)
+
+        def write_assets():
+            return [(path, files.atomic_write(root, path, raw)) for path, _, _, raw in asset_blobs]
+
+        written = await asyncio.to_thread(write_assets)
+
+        def record_stats(c):
+            for path, st in written:
+                c.execute(
+                    "UPDATE assets SET materialized_stat = ? WHERE project_id = ? AND path = ? AND deleted_at IS NULL",
+                    (json.dumps(st), pid, path))
+
+        await app.db.write(record_stats)
     return pid, main, plan.main if plan is not None else None
 
 

@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from . import files as project_files
+
 KINDS = ("paper", "thesis", "book", "novel", "story", "screenplay", "avscript")
 
 REFERENCES = """[
@@ -150,18 +152,19 @@ Ein Absatz ohne beides setzt die Zelle darüber fort; eine Überschrift beginnt 
 class Starter:
     kind: str
     files: list[tuple[str, str]] = field(default_factory=list)  # (path, text); the first one opens
+    assets: list[tuple[str, bytes]] = field(default_factory=list)  # (path, bytes) for bundled binary files
     build: list[str] | None = None  # the project's build inputs, in order
 
     @property
-    def main(self) -> str:
-        return self.files[0][0]
+    def main(self) -> str | None:
+        return self.files[0][0] if self.files else None
 
 
 def kind_of(layout) -> str:
     if layout is None:
         return "paper"
     kind = layout.manifest.get("starter")
-    if kind in KINDS:
+    if kind == "latex-bundle" or kind in KINDS:
         return kind
     filters = layout.manifest.get("filters") or []
     if "screenplay" in filters:
@@ -214,10 +217,50 @@ def _comment(text: str) -> str:
     return f"<!-- {text} -->\n"
 
 
+def _latex_bundle_starter(layout) -> Starter:
+    """Bundled files from an installed LaTeX template's starter/ folder."""
+    out = Starter("latex-bundle")
+    main_rel = layout.manifest.get("starterMain") or "main.tex"
+    docs: list[tuple[str, str]] = []
+    layout_files = getattr(layout, "files", None) or {}
+    for key in sorted(layout_files):
+        if not key.startswith("starter/"):
+            continue
+        rel = key.removeprefix("starter/")
+        try:
+            rel = project_files.normalize(rel)
+            raw = layout_files[key].read_bytes()
+        except (OSError, project_files.PathError):
+            continue
+        kind = project_files.kind_for(rel)
+        if kind is not None:
+            try:
+                text, _ = project_files.decode_text(raw)
+            except UnicodeDecodeError:
+                if kind in ("latex", "bib"):
+                    text = raw.decode("latin-1").replace("\r\n", "\n").replace("\r", "\n")
+                else:
+                    out.assets.append((rel, raw))
+                    continue
+            docs.append((rel, text))
+        else:
+            out.assets.append((rel, raw))
+    docs.sort(key=lambda item: (item[0] != main_rel, item[0].lower()))
+    out.files = docs
+    if docs and docs[0][0].lower().endswith(".tex"):
+        out.build = [docs[0][0]]
+    return out
+
+
 def for_layout(layout, ui_lang: str, author: str, date: str, fields: list[str] | tuple = ()) -> Starter:
     """The files a new project with *layout* starts with. *fields* are front matter lines for what
     the layout prints besides title, author and date (render/fields.py)."""
     kind = kind_of(layout)
+    if kind == "latex-bundle" and layout is not None:
+        bundle = _latex_bundle_starter(layout)
+        if bundle.files:
+            return bundle
+        kind = "paper"
     lang = language(layout, ui_lang)
     s = TEXT[lang]
     refs_title = _bib_heading(layout)

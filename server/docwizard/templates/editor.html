@@ -38,6 +38,7 @@
       <button type="button" id="open-target" hidden>{{ _("Daily target") }}</button>
       <button type="button" id="open-assist" hidden title="{{ _('Have the writing helper suggest a change to the selected passage') }}">{{ _("Writing helper") }}</button>{% endif %}
       <a class="button" id="switch-view" title="{{ _('Edit the Markdown') if review else _('Read the document as it prints, without Markdown, to comment and suggest') }}" href="?view={{ 'source' if review else 'review' }}">{{ _("Edit the source") if review else _("Review view") }}</a>{% endif %}
+      <button type="button" id="open-options" title="{{ _('Template and page setup') }}">{{ _("Page setup") }}</button>
     </div>
     <div class="menu-group" role="group" aria-labelledby="menu-review">
       <span class="menu-heading" id="menu-review">{{ _("Review") }}</span>
@@ -125,7 +126,7 @@
       <label class="choice"><input type="radio" name="preview-target" value="pdf"> PDF</label>
       <label class="choice" hidden title="{{ _('Make the PDF here as you type, also offline') }}"><input type="checkbox" id="local-render"> {{ _("In this browser") }}</label>
       <label class="choice"><input type="checkbox" id="dark-paper"> {{ _("Dark paper") }}</label>
-      <button type="button" id="open-options" title="{{ _('Template and page setup') }}">{{ _("Page setup") }}</button>
+      <button type="button" class="preview-options" data-proxy="open-options" title="{{ _('Template and page setup') }}">{{ _("Page setup") }}</button>
     </div>
     <div class="pdf-bar" id="pdf-bar" role="toolbar" aria-label="{{ _('PDF') }}" hidden>
       <button type="button" data-pdf-zoom-out aria-label="{{ _('Zoom out') }}" title="{{ _('Zoom out (−)') }}">−</button>
