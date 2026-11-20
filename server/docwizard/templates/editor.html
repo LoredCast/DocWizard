@@ -14,6 +14,7 @@
 {# The actions used most stay in the bar on wide screens; the rest are grouped in the Actions menu. #}
 <button type="button" class="tb-quick" data-proxy="open-comments">{{ _("Comments") }}</button>
 <button type="button" id="toggle-preview" aria-pressed="true">{{ _("Preview") }}</button>
+{% if doc.kind == "markdown" and layout.public is defined and layout.public().slides %}<button type="button" class="tb-quick" data-proxy="open-presenter">{{ _("Present") }}</button>{% endif %}
 {% if can(role, "share", project) and not guest %}<button type="button" class="tb-quick" data-proxy="open-share">{{ _("Share") }}</button>{% endif %}
 <div class="editor-more" id="editor-more">
   <button type="button" id="more-actions" aria-expanded="false" aria-controls="toolbar-buttons">{{ _("Actions") }}</button>
@@ -44,6 +45,9 @@
       <span class="menu-heading" id="menu-share">{{ _("Share and export") }}</span>
       {% if can(role, "share", project) and not guest %}<button type="button" id="open-share" class="pinned">{{ _("Share") }}</button>{% endif %}
       <button type="button" id="open-export" title="{{ _('PDF, Word, e-book and more (Ctrl+E)') }}">{{ _("Download or print") }}</button>
+      {% if doc.kind == "markdown" and layout.public is defined and layout.public().slides %}<button type="button" id="open-sorter" title="{{ _('All slides at a glance; drag them into a new order') }}">{{ _("Slide sorter") }}</button>
+      <button type="button" id="open-presenter" title="{{ _('Present with notes, a timer and the next slide; the audience window goes on the projector') }}">{{ _("Present") }}</button>
+      {% elif doc.kind == "markdown" and not guest and can(role, "edit", project) %}<button type="button" id="make-deck" title="{{ _('A new slides project with this document’s headings, key points, figures and references') }}">{{ _("Make slides") }}</button>{% endif %}
       {% if can(role, "publish", project) and not guest %}<button type="button" id="open-publish">{{ _("Publish") }}</button>{% endif %}
       <button type="button" id="open-versions">{{ _("Version history") }}</button>
       <button type="button" id="open-timeline" title="{{ _('Replay how the text came about, and who wrote what') }}">{{ _("Drafting timeline") }}</button>
@@ -167,6 +171,8 @@
       <label class="choice"><input type="radio" name="target" value="odt"> OpenDocument (ODT)</label>
       <label class="choice"><input type="radio" name="target" value="html"> {{ _("Web page (HTML)") }}</label>
       <label class="choice"><input type="radio" name="target" value="epub"> {{ _("E-book (EPUB)") }}</label>
+      {% if layout.public is defined and layout.public().slides %}<label class="choice"><input type="radio" name="target" value="pptx"> PowerPoint (PPTX)</label>
+      <label class="choice"><input type="radio" name="target" value="pdf-typst" data-handout> {{ _("Handout PDF (slides with notes)") }}</label>{% endif %}
       {% if layout.public is defined and layout.public().script %}<label class="choice"><input type="radio" name="target" value="fountain"> {{ _("Fountain screenplay") }}</label>{% endif %}
       {% endif %}
       <details class="export-tech"{% if doc.kind == "latex" %} open{% endif %}>

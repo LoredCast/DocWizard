@@ -30,8 +30,10 @@ jobs:
           pip install --require-hashes -r requirements.lock
           pip install pytest pytest-asyncio hypothesis
 
-      - name: Install pinned pandoc and Typst
-        run: sudo python3 -I deploy/fetch_tools.py
+      - name: Install pinned pandoc and Typst, and Graphviz
+        run: |
+          sudo python3 -I deploy/fetch_tools.py
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends graphviz
 
       - name: Run test suite
         run: pytest

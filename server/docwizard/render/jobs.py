@@ -26,6 +26,7 @@ OUTPUTS = {
     "pdf-latex": "document.pdf",
     "docx": "document.docx",
     "odt": "document.odt",
+    "pptx": "document.pptx",
     "epub": "document.epub",
     "md-resolved": "document.md",
     "md-gfm": "document.md",
@@ -43,7 +44,7 @@ PREVIEW_TARGETS = {"html", "pdf-typst", "pdf-latex"}
 LATEXMK = ["-interaction=nonstopmode", "-halt-on-error", "-file-line-error", "-no-shell-escape", "-synctex=1",
            "-jobname=document", "-outdir={job}/out", "-auxdir={job}/tmp/latex"]
 LATEX_ENGINES = {"lualatex", "xelatex", "pdflatex"}
-BUILTIN_FILTERS = {"crossref", "pagebreak", "wordcount", "screenplay", "avscript"}
+BUILTIN_FILTERS = {"crossref", "pagebreak", "wordcount", "screenplay", "avscript", "slides"}
 
 
 @dataclass
@@ -137,6 +138,9 @@ def metadata(layout: Layout, project_options: dict, inputs: list[str], layout_di
                 meta.setdefault(k, v)
     if "link-citations" in defaults:
         meta.setdefault("link-citations", defaults["link-citations"])
+    # Fonts for the pictures diagram.lua and data.lua draw with Typst, as for the document (§9.6).
+    if layout_dir is not None:
+        meta["dw-font-paths"] = [f"{layout_dir}/fonts", fonts_dir()]
     meta.setdefault("pagetitle", os.path.splitext(os.path.basename(inputs[0]))[0] if inputs else "Document")
     # Design settings that pandoc itself handles. The document's front matter still wins.
     design = layout.design
@@ -229,7 +233,9 @@ def pandoc_steps(layout: Layout, layout_dir: Path, target: str, inputs: list[str
     common = [*inputs, "--from", "markdown", "--standalone", "--metadata-file", "../options.json",
               "--resource-path", f".:{L}/_csl",
               # The document's languages come first, so the layout's filters and citeproc see them (§9.8).
-              "--lua-filter", f"{L}/_builtin/lang.lua"]
+              "--lua-filter", f"{L}/_builtin/lang.lua",
+              # Tables and charts from data files, and diagrams, before crossref.lua numbers them (§9.7).
+              "--lua-filter", f"{L}/_builtin/data.lua", "--lua-filter", f"{L}/_builtin/diagram.lua"]
     for name in layout.manifest.get("filters", []):
         if name in BUILTIN_FILTERS:
             common += ["--lua-filter", f"{L}/_builtin/{name}.lua"]
@@ -276,8 +282,10 @@ def pandoc_steps(layout: Layout, layout_dir: Path, target: str, inputs: list[str
         for css in layout.targets.get("html", {}).get("css", []):
             args += ["--css", f"{L}/{css}"]
         return [{"tool": "pandoc", "args": [*args, "-o", out]}], copies
-    if target in ("docx", "odt"):
+    if target in ("docx", "odt", "pptx"):
         args = [*common, "--to", target]
+        if target == "pptx" and str(options.get("slide-level", "")) in ("1", "2", "3"):
+            args += ["--slide-level", str(options["slide-level"])]
         ref = spec.get("reference")
         if ref and (layout_dir / ref).is_file():
             args += ["--reference-doc", f"{L}/{ref}"]

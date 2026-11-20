@@ -25,3 +25,7 @@ nav#TOC { margin: 0 0 2.5em; }
 nav#TOC ul { list-style: none; padding-left: 1.25em; }
 nav#TOC > ul { padding-left: 0; }
 @media (max-width: 40rem) { body { font-size: 0.95em; } }
+/* Diagrams and charts drawn by the filters (diagram.lua, data.lua). */
+.dw-graphic-block { margin: 1.5em 0; text-align: center; }
+.dw-graphic-error { border-left: 3px solid #c5221f; padding: 0.2em 0.8em; color: #c5221f; }
+table.data-table td, table.data-table th { padding: 0.15em 0.6em; }

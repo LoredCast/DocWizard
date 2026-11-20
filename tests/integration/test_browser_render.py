@@ -44,7 +44,7 @@ async def test_render_kit(app, client, monkeypatch):
     files = kit["files"]
     assert "src/paper.md" in files and "src/figures/dot.png" in files and "b64" in files["src/figures/dot.png"]
     assert json.loads(files["options.json"]["text"])
-    assert "dwlocale.lua" in files and "locales.json" in files
+    assert all(m in files for m in ("dwlocale.lua", "dwgraphics.lua", "dwsheet.lua", "locales.json"))
     for f in kit["pandoc"]["filters"]:
         assert f["type"] == "citeproc" or f["path"] in files
     assert all(not k.startswith("layout/_csl/") or k.endswith(".csl") for k in files)
