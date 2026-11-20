@@ -1008,6 +1008,7 @@
     .split.source-open .source-panel { position: absolute; inset: 0; z-index: 2; }
   }
   .source-panel { display: flex; flex-direction: column; min-width: 0; }
+  .source-panel[hidden] { display: none; }
   .source-panel .source-pick { display: flex; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
   .source-panel .source-pick select { flex: 1 1 10rem; min-width: 0; }
   .source-panel .source-pages { flex: 1; overflow: auto; padding: 8px; }
