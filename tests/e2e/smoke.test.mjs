@@ -157,6 +157,39 @@ for (const vp of VIEWPORTS) {
       noProblems(page);
     });
 
+    test("home: tags, archive and the filter bar", async () => {
+      await page.goto("/");
+      await page.locator("#home-filter").waitFor();
+      const row = page.locator("#projects-table tbody tr").first();
+      await row.locator("[data-organize]").click();
+      await page.fill("#organize-tags", "thesis, 2026");
+      await page.locator("#organize-form button[type=submit]").click();
+      await row.locator("a.tag", { hasText: "#thesis" }).waitFor();
+      await noOverflow(page, "home with tags");
+      // Filtering is instant and kept in the address.
+      await page.fill('#home-filter input[name="q"]', "no such project");
+      await page.locator("#projects-none").waitFor();
+      assert.ok(page.url().includes("q=no+such+project"));
+      await page.fill('#home-filter input[name="q"]', "");
+      await page.locator('#home-filter select[name="tag"]').selectOption("thesis");
+      assert.ok(await row.isVisible());
+      // Archived projects leave the list, and come back under Archived.
+      await page.locator('#home-filter select[name="tag"]').selectOption("");
+      await row.locator("[data-organize]").click();
+      await page.check("#organize-archived");
+      await page.locator("#organize-form button[type=submit]").click();
+      await page.locator("#projects-none").waitFor();
+      await page.check('#home-filter input[name="archived"]');
+      await page.locator("#projects-table tbody tr:not([hidden])").first().waitFor();
+      await page.locator("#projects-table tbody tr:not([hidden]) [data-organize]").first().click();
+      await page.uncheck("#organize-archived");
+      await page.locator("#organize-form button[type=submit]").click();
+      await page.uncheck('#home-filter input[name="archived"]');
+      await page.locator("#projects-table tbody tr:not([hidden])").first().waitFor();
+      await noOverflow(page, "home");
+      noProblems(page);
+    });
+
     test("formatting toolbar", async () => {
       await page.goto(projectUrl);
       await page.locator("tbody a", { hasText: /\.md$/ }).first().click();
@@ -264,6 +297,22 @@ for (const vp of VIEWPORTS) {
       await page.locator('input[name="preview-target"][value="pdf"]').check();
       await page.locator(".pdf-viewer canvas").first().waitFor({ timeout: 90_000 });
       await noOverflow(page, "PDF preview");
+      // The PDF bar: the text layer is there to select, zoom steps, the page count, find.
+      await page.locator(".pdf-sheet .textLayer span").first().waitFor({ timeout: 30_000 });
+      assert.ok(await page.locator("#pdf-bar").isVisible());
+      assert.equal(await page.locator("[data-pdf-zoom]").inputValue(), "fit");
+      await page.click("[data-pdf-zoom-in]");
+      await page.waitForFunction(() => document.querySelector("[data-pdf-zoom]").value !== "fit");
+      await page.locator("[data-pdf-zoom]").selectOption("fit");
+      assert.match(await page.locator("[data-pdf-pages]").textContent(), /^\d+$/);
+      await page.click("[data-pdf-open-find]");
+      await page.fill("[data-pdf-find]", "after the table");
+      await page.waitForFunction(() => /\d+ of \d+/.test(document.querySelector("[data-pdf-find-count]").textContent),
+                                 null, { timeout: 15_000 });
+      assert.ok(await page.locator(".sheet-mark.find.current").count() >= 1);
+      await page.keyboard.press("Escape");
+      assert.equal(await page.locator(".sheet-mark.find").count(), 0);
+      await noOverflow(page, "PDF preview with its bar");
       await accessible(page, "editor with the PDF preview");
 
       if (vp.isMobile) {
@@ -271,6 +320,37 @@ for (const vp of VIEWPORTS) {
         assert.ok(await page.locator(".editor-pane").isVisible());
         assert.ok(!(await page.locator("#preview-pane").isVisible()));
       }
+      noProblems(page);
+    });
+
+    test("command palette", async () => {
+      // The editor from the last test; on phones from the Actions menu, elsewhere Ctrl/Cmd+K.
+      if (vp.isMobile) {
+        await page.click("#more-actions");
+        await page.click("#open-palette");
+      } else {
+        await page.locator(".cm-content").click();
+        await page.keyboard.press("ControlOrMeta+K");
+      }
+      const input = page.locator("dialog.palette[open] .palette-input");
+      await input.waitFor();
+      await noOverflow(page, "command palette");
+      await input.fill("page setup");
+      assert.match(await page.locator(".palette-list li[aria-selected=true]").textContent(), /Page setup/);
+      await page.keyboard.press("Enter");
+      await page.locator("#options-dialog[open]").waitFor();
+      await page.locator("#options-dialog [data-close-dialog]").click();
+      // ">" lists the actions only.
+      if (vp.isMobile) {
+        await page.click("#more-actions");
+        await page.click("#open-palette");
+      } else {
+        await page.keyboard.press("ControlOrMeta+K");
+      }
+      await input.fill(">print");
+      assert.match(await page.locator(".palette-list li[aria-selected=true]").textContent(), /Download or print/);
+      await page.keyboard.press("Escape");
+      assert.equal(await page.locator("dialog.palette[open]").count(), 0);
       noProblems(page);
     });
 

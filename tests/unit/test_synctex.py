@@ -112,3 +112,19 @@ def test_words_find_their_passage_across_files():
     assert path == "a.md" and TEXT_A[offset:].startswith("Politics")
     # Nothing like it.
     assert synctex.match_words(texts, ["zebra", "quartz", "violin"], 1) is None
+
+
+def test_forward_finds_where_a_line_is_set():
+    data = synctex.parse(SAMPLE)
+    # Line 12 sets both lines of the paragraph: two boxes, top first.
+    boxes = synctex.forward(data, "main.tex", 12)
+    assert [(b["page"], b["x"], b["y"], b["w"], b["h"]) for b in boxes] == [
+        (1, 72.0, 92.0, 468.0, 10.0), (1, 72.0, 106.0, 468.0, 10.0)]
+    # Line 10 only has glue: the line box around it.
+    assert [(b["page"], b["y"]) for b in synctex.forward(data, "main.tex", 10)] == [(1, 92.0)]
+    # A line without records takes the next one with records (line 9 → 10).
+    assert synctex.forward(data, "main.tex", 9) == synctex.forward(data, "main.tex", 10)
+    # Past the last record, the one before; other files and unknown files.
+    assert synctex.forward(data, "main.tex", 50)
+    assert synctex.forward(data, "chapters/two.tex", 7)[0]["y"] == 292.0
+    assert synctex.forward(data, "nope.tex", 1) == []

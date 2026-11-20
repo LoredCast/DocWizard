@@ -155,6 +155,60 @@ def lookup(data: dict, page: int, x: float, y: float) -> tuple[str, int] | None:
     return inputs[pick[1]], pick[2]
 
 
+def forward(data: dict, path: str, line: int, limit: int = 60) -> list[dict]:
+    """Where *path* line *line* is set (§6.4): boxes {page, x, y, w, h} in PDF points from the page's
+    top left. A line TeX recorded nothing for (a blank line, a comment) uses the next one that has
+    records, a few lines on, or else the one before."""
+    inputs = data.get("inputs", {})
+    tags = {tag for tag, p in inputs.items() if p == path}
+    if not tags:
+        return []
+    by_line: dict[int, list[tuple[int, list]]] = {}
+    for page, records in data.get("pages", {}).items():
+        try:
+            n = int(page)
+        except ValueError:
+            continue
+        for r in records:
+            if r[1] in tags and r[2] > 0:
+                by_line.setdefault(r[2], []).append((n, r))
+    if not by_line:
+        return []
+    after = [ln for ln in by_line if line <= ln <= line + 20]
+    before = [ln for ln in by_line if ln < line]
+    pick = min(after) if after else max(before) if before else None
+    if pick is None:
+        return []
+    found = by_line[pick]
+    boxes = [(n, r[3], r[4] - r[6], r[5], r[6] + r[7]) for n, r in found if r[0] in "(h" and r[5] > 0]
+    if not boxes:
+        # Only points (glue, kerns, math): the line boxes around them, whichever file they belong to.
+        for n, r in found:
+            around = [b for b in data["pages"].get(str(n), []) if b[0] in "(h" and b[5] > 0
+                      and b[3] - 1 <= r[3] <= b[3] + b[5] + 1 and b[4] - b[6] - 2 <= r[4] <= b[4] + b[7] + 2]
+            if around:
+                b = min(around, key=lambda b: b[5] * (b[6] + b[7] + 1))
+                boxes.append((n, b[3], b[4] - b[6], b[5], b[6] + b[7]))
+            else:
+                boxes.append((n, r[3], r[4] - 10, 4, 12))
+    out, seen = [], set()
+    for n, x, y, w, h in sorted(boxes, key=lambda b: (b[0], b[2], b[1])):
+        key = (n, round(x), round(y), round(w), round(h))
+        if key in seen or h <= 0:
+            continue
+        seen.add(key)
+        # Nested boxes (a line inside a paragraph's box) mark the innermost ones.
+        if any(o["page"] == n and o["x"] <= x + 0.5 and x + w <= o["x"] + o["w"] + 0.5 and o["y"] <= y + 0.5
+               and y + h <= o["y"] + o["h"] + 0.5 and o["h"] > h * 1.5 for o in out):
+            continue
+        out = [o for o in out if not (o["page"] == n and x <= o["x"] + 0.5 and o["x"] + o["w"] <= x + w + 0.5
+                                      and y <= o["y"] + 0.5 and o["y"] + o["h"] <= y + h + 0.5 and h > o["h"] * 1.5)]
+        out.append({"page": n, "x": round(x, 2), "y": round(y, 2), "w": round(w, 2), "h": round(h, 2)})
+        if len(out) >= limit:
+            break
+    return out
+
+
 # -- words ---------------------------------------------------------------------
 
 _WORD = re.compile(r"[^\W_]+", re.UNICODE)
