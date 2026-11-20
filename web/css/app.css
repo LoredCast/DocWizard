@@ -115,21 +115,31 @@
   .qr-box svg { display: block; width: 100%; height: auto; border-radius: 4px; }
   .recovery-codes { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: 4px 16px; }
   .statusbar {
-    display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; padding: 4px 16px; min-height: 24px;
+    display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; padding: 4px 16px; min-height: 24px;
     border-top: 1px solid var(--line); color: var(--muted); font-size: 12px;
   }
   .statusbar .spacer, .pane-head .spacer { flex: 1; }
   .statusbar > span:empty:not(.spacer) { display: none; }
+  .statusbar > a, .statusbar > details { flex: none; white-space: nowrap; }
+  .statusbar-brand { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hint { margin: 4px 0 0; font-size: 13px; }
 
 
-  .editor-page { height: 100dvh; grid-template-rows: auto minmax(0, 1fr) auto; }
+  html:has(> body.editor-page), html:has(> body.layout-editor-page) {
+    height: 100dvh; overflow: hidden; overscroll-behavior: none;
+  }
+  .editor-page { height: 100%; min-height: 0; overflow: hidden; grid-template-rows: auto minmax(0, 1fr) auto; }
   /* While the on-screen keyboard is up (ui/keyboard.js): the page fits above it, and the status bar
      and the Edit/Preview switch make room for the text. */
-  .keyboard-open .editor-page { height: var(--vvh, 100dvh); }
+  .keyboard-open .editor-page { height: var(--vvh, 100dvh); min-height: 0; }
   .keyboard-open .editor-page > .statusbar, .keyboard-open .editor-page .mode-switch { display: none !important; }
+  .editor-page > .statusbar { flex-wrap: nowrap; gap: 12px; white-space: nowrap; overflow: hidden; }
+  .editor-page > .statusbar > * { flex: none; }
+  .editor-page > .statusbar > #word-count,
+  .editor-page > .statusbar > [data-layout-name],
+  .editor-page > .statusbar > #diagnostic { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   input:focus, textarea:focus, select:focus { border-color: var(--accent); }
-  .workspace { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+  .workspace { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
   .mode-switch { display: none; border-bottom: 1px solid var(--line); background: var(--bg); flex: none; }
   .mode-switch[hidden] { display: none !important; }
   .mode-switch button {
@@ -169,11 +179,11 @@
     .menu-group:not(:has(> :not(.menu-heading):not([hidden]):not(.pinned))) { display: none; }
   }
 
-  .split { flex: 1; display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
-  .split.no-preview { grid-template-columns: 1fr; }
+  .split { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); min-height: 0; overflow: hidden; }
+  .split.no-preview { grid-template-columns: minmax(0, 1fr); }
   .split.no-preview .preview-pane { display: none; }
-  .split.with-panel { grid-template-columns: 1fr 1fr 20rem; }
-  .split.no-preview.with-panel { grid-template-columns: 1fr 20rem; }
+  .split.with-panel { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 20rem; }
+  .split.no-preview.with-panel { grid-template-columns: minmax(0, 1fr) 20rem; }
   .side-panel { border-left: 1px solid var(--line); background: var(--bg); }
   .side-panel[hidden] { display: none; }
   .panel-body { overflow: auto; padding: 8px 16px 32px; flex: 1; }
@@ -197,20 +207,20 @@
     .format-bar button { min-height: var(--control); min-width: var(--control); padding: 0 10px; }
   }
   .format-bar [hidden] { display: none; }
-  .preview-pane { border-left: 1px solid var(--line); }
+  .preview-pane { border-left: 1px solid var(--line); overflow: hidden; }
   .pane-head {
     display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 4px 16px; min-height: 32px;
-    border-bottom: 1px solid var(--line); color: var(--muted);
+    border-bottom: 1px solid var(--line); color: var(--muted); flex: none;
   }
   .pane-head button { min-height: 24px; }
   .pane-head .choice { flex: none; white-space: nowrap; gap: 4px; }
-  .preview-pane .pane-head { flex-wrap: nowrap; gap: 12px; }
+  .preview-pane .pane-head { flex-wrap: wrap; gap: 4px 10px; }
   #preview-state { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   @media (pointer: coarse) { .pane-head button { min-height: var(--control); } }
-  #preview, .pdf-frame { flex: 1; width: 100%; border: 0; background: #fff; }
+  #preview, .pdf-frame { flex: 1; min-height: 0; width: 100%; border: 0; background: #fff; }
   #preview[hidden], .pdf-frame[hidden], .pdf-viewer[hidden], .preview-empty[hidden] { display: none; }
   .preview-pane.dark-paper #preview { background: #000; }
-  .pdf-viewer { flex: 1; min-height: 0; overflow: auto; background: #fff; padding: 12px; touch-action: manipulation; }
+  .pdf-viewer { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; background: #fff; padding: 12px; touch-action: manipulation; }
   .pdf-viewer:focus-visible { outline-offset: -2px; }
   /* Zoomed in, the pages are wider than the viewer and it scrolls sideways; zoomed out, they're centered. */
   .pdf-pages { display: flex; flex-direction: column; align-items: center; gap: 12px; min-width: 100%; width: max-content; }
@@ -225,7 +235,7 @@
   /* The PDF bar (§6.4): zoom, the page in view, find. */
   .pdf-bar {
     display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 4px 16px; min-height: 32px;
-    border-bottom: 1px solid var(--line); color: var(--muted); font-size: 13px;
+    border-bottom: 1px solid var(--line); color: var(--muted); font-size: 13px; flex: none;
   }
   .pdf-bar[hidden], .pdf-find[hidden] { display: none; }
   .pdf-bar button { min-height: 24px; padding: 0 8px; }
@@ -269,15 +279,17 @@
   @media (max-width: 900px) {
     .mode-switch { display: flex; }
     .editor-page #toggle-preview { display: none; }
-    .split { grid-template-columns: 1fr; }
+    .split { grid-template-columns: minmax(0, 1fr); }
     .split.show-preview .editor-pane { display: none; }
     .split:not(.show-preview) .preview-pane { display: none; }
     .preview-pane { border-left: 0; }
-    .split.with-panel, .split.no-preview.with-panel { grid-template-columns: 1fr; position: relative; }
+    .split.with-panel, .split.no-preview.with-panel { grid-template-columns: minmax(0, 1fr); position: relative; }
     .side-panel { position: absolute; inset: 0; border-left: 0; z-index: 2; }
     /* Comments are a sheet over the lower half, so the commented passage stays in view above. */
     #side-panel { top: auto; height: 55%; border-top: 1px solid var(--line); }
-    .preview-pane .pane-head { gap: 8px; padding-right: 8px; }
+    .preview-pane .pane-head { gap: 4px 10px; padding: 4px 12px; }
+    .preview-pane .pane-head .spacer { display: none; }
+    .preview-pane .pane-head #open-options { margin-left: auto; }
     #preview-state.idle { display: none; }
     .actions > .status, .presence .name { display: none; }
     .menu-status { display: block; padding: 4px 8px; font-size: 12px; }
@@ -292,6 +304,10 @@
     .toolbar:has(.toolbar-search) .crumbs:not(:has(> :nth-child(2))) { display: none; }
     .toolbar:has(.toolbar-search) .actions { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; }
     .toolbar:has(.toolbar-search) form.inline { display: flex; flex: 1 1 auto; min-width: 0; }
+    .statusbar { gap: 4px 10px; padding: 4px 12px; }
+    .editor-page > .statusbar { gap: 10px; }
+    .editor-page > .statusbar > #doc-kind,
+    .editor-page > .statusbar > [data-layout-name] { display: none; }
     th, td { padding: 4px 8px; }
     th:first-child, td:first-child { padding-left: 16px; }
     th:last-child, td:last-child { padding-right: 16px; }
@@ -332,6 +348,7 @@
   .grid { margin: 8px 0 16px; }
   .grid td { vertical-align: top; padding-top: 8px; padding-bottom: 8px; }
   .table-wrap { overflow-x: auto; }
+  :root:not([data-js]) .table-wrap:has(details.menu[open]) { overflow: visible; }
   .badge { display: inline-block; padding: 0 6px; border: 1px solid var(--edge); border-radius: 999px; font-size: .85em; color: var(--muted); }
   .ok { color: var(--ok); }
   .storage { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 8px 0; }
@@ -343,8 +360,11 @@
   .narrow-form { max-width: 40rem; }
   details.menu { position: relative; }
   details.menu summary { cursor: pointer; color: var(--accent); }
-  details.menu[open] .menu-body { position: absolute; right: 0; z-index: 5; width: min(22rem, 90vw); background: var(--bg);
-    border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; display: grid; gap: 12px; }
+  details.menu[open] .menu-body {
+    position: absolute; right: 0; z-index: 5; width: min(22rem, calc(100vw - 16px)); background: var(--bg);
+    border: 1px solid var(--edge); border-radius: var(--radius); padding: 12px; display: grid; gap: 12px;
+    text-align: left; white-space: normal; box-shadow: 0 4px 16px rgb(0 0 0 / .25);
+  }
   details.account-menu summary {
     list-style: none; display: inline-flex; align-items: center; gap: 4px; min-height: var(--control);
     padding: 0 8px; border: 1px solid var(--edge); border-radius: var(--radius); color: var(--fg);
@@ -355,8 +375,32 @@
   /* On phones a long name gives its room to the bar. */
   @media (max-width: 640px) { details.account-menu summary { max-width: 6rem; flex: none; } }
   details.account-menu summary::after { content: "▾"; font-size: 11px; color: var(--muted); flex: none; }
-  details.account-menu[open] .menu-body { width: min(14rem, calc(100vw - 32px)); padding: 4px; gap: 0; z-index: 20; }
+  details.account-menu[open] .menu-body {
+    width: min(14rem, calc(100vw - 32px)); max-height: calc(var(--vvh, 100dvh) - 56px); overflow-y: auto;
+    padding: 4px; gap: 0; z-index: 20;
+  }
   details.account-menu form.inline { display: contents; }
+  .account-menu .lang-group { margin: 4px 0; padding: 4px 0; border-bottom: 1px solid var(--line); }
+  .account-menu .lang-group:not(:first-child) { border-top: 1px solid var(--line); }
+  .account-menu .lang-group:first-child { margin-top: 0; padding-top: 2px; }
+  .lang-pills { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 4px 4px 2px; }
+  .actions-list .lang-pills button {
+    justify-content: center; text-align: center; padding: 0 4px; border-color: var(--line); font-size: 12px;
+  }
+  .actions-list .lang-pills button[aria-current="true"] {
+    color: var(--accent); border-color: var(--accent); font-weight: 600;
+  }
+  details.lang-menu summary { list-style: none; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+  details.lang-menu summary::-webkit-details-marker { display: none; }
+  details.lang-menu summary::after { content: "▾"; font-size: 11px; color: var(--muted); }
+  details.lang-menu[open] .menu-body {
+    top: auto; bottom: calc(100% + 6px); right: 0;
+    width: min(10rem, calc(100vw - 32px)); padding: 4px; gap: 0; z-index: 20;
+    font-size: 14px; color: var(--fg);
+  }
+  details.lang-menu button { display: flex; align-items: center; width: 100%; }
+  details.lang-menu button[aria-current="true"] { color: var(--accent); font-weight: 600; }
+  details.lang-menu button[aria-current="true"]::after { content: "✓"; margin-left: auto; padding-left: 8px; }
   /* Menus (§25.7): plain rows, the hovered one in --hover. */
   .actions-list { display: grid; gap: 0; }
   .actions-list button { justify-content: flex-start; text-align: left; border-color: transparent; padding: 0 8px; }
@@ -463,12 +507,12 @@
   .layout-facts { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 12px; }
   .layout-fields { font-size: 12px; margin: 2px 0 0; overflow-wrap: anywhere; }
   .layout-list .row { margin: 0; }
-  .layout-editor-page { height: 100dvh; grid-template-rows: auto minmax(0, 1fr); }
-  .layout-workspace { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
-  .layout-split { flex: 1; display: grid; grid-template-columns: minmax(22rem, 32rem) minmax(0, 1fr); min-height: 0; }
+  .layout-editor-page { height: 100%; min-height: 0; overflow: hidden; grid-template-rows: auto minmax(0, 1fr); }
+  .layout-workspace { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
+  .layout-split { flex: 1; display: grid; grid-template-columns: minmax(22rem, 32rem) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); min-height: 0; overflow: hidden; }
   .layout-settings { overflow: hidden; }
   .layout-settings .panel-body { padding-top: 12px; }
-  .layout-preview { border-left: 1px solid var(--line); }
+  .layout-preview { border-left: 1px solid var(--line); overflow: hidden; }
   .pdf-container { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #fff; }
   .layout-meta { margin-bottom: 16px; }
   .layout-meta textarea { resize: vertical; }
@@ -507,7 +551,7 @@
   .option-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; padding: 4px 0 12px; }
   @media (max-width: 900px) {
     .layout-editor-page .mode-switch { display: flex; }
-    .layout-split { grid-template-columns: 1fr; }
+    .layout-split { grid-template-columns: minmax(0, 1fr); }
     .layout-split.show-preview .layout-settings { display: none; }
     .layout-split:not(.show-preview) .layout-preview { display: none; }
     .layout-preview { border-left: 0; }
@@ -524,8 +568,8 @@
 
   /* References panel (§10.4) */
   @media (min-width: 901px) {
-    .split.with-panel.refs-open, .split.with-panel.fields-open { grid-template-columns: 1fr 1fr 24rem; }
-    .split.no-preview.with-panel.refs-open, .split.no-preview.with-panel.fields-open { grid-template-columns: 1fr 24rem; }
+    .split.with-panel.refs-open, .split.with-panel.fields-open { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 24rem; }
+    .split.no-preview.with-panel.refs-open, .split.no-preview.with-panel.fields-open { grid-template-columns: minmax(0, 1fr) 24rem; }
   }
   .refs-controls { display: grid; gap: 6px; padding: 8px 16px; border-bottom: 1px solid var(--line); }
   .refs-controls select, .refs-controls input { width: 100%; }
@@ -622,7 +666,7 @@
 /* Unlayered and scoped to #editor so they win over CodeMirror's injected base theme. */
   #editor .cm-editor { height: 100%; background: var(--bg); color: var(--fg); }
   #editor .cm-editor.cm-focused { outline: none; }
-  #editor .cm-scroller { font-family: var(--editor-font, var(--font)); font-size: var(--editor-size, 17px); line-height: 1.6; }
+  #editor .cm-scroller { font-family: var(--editor-font, var(--font)); font-size: var(--editor-size, 17px); line-height: 1.6; overscroll-behavior: contain; }
   /* min-width: 0 so a wide picture, table or title never makes the text wider than a phone. */
   #editor .cm-content { max-width: 72ch; min-width: 0; margin: 0 auto; padding: 24px 16px 40vh; caret-color: var(--accent); }
   #editor .cm-content > * { max-width: 100%; }
@@ -1094,10 +1138,10 @@
   .quote-check .verdict.info { color: var(--muted); }
 
   /* The source reader takes the preview's place: the draft and the source side by side. */
-  .split.source-open, .split.source-open.with-panel, .split.no-preview.source-open { grid-template-columns: 1fr 1fr; position: relative; }
+  .split.source-open, .split.source-open.with-panel, .split.no-preview.source-open { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); position: relative; }
   .split.source-open .preview-pane { display: none; }
   @media (max-width: 900px) {
-    .split.source-open { grid-template-columns: 1fr; }
+    .split.source-open { grid-template-columns: minmax(0, 1fr); }
     .split.source-open .source-panel { position: absolute; inset: 0; z-index: 2; }
   }
   .source-panel { display: flex; flex-direction: column; min-width: 0; }

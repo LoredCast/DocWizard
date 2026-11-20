@@ -37,6 +37,16 @@
         {% if user.is_admin %}<a class="menu-item" href="/admin">{{ _("Admin") }}</a>{% endif %}
         <a class="menu-item" href="/layouts">{{ _("Layouts") }}</a>
         <a class="menu-item" href="/settings">{{ _("Settings") }}</a>
+        <div class="menu-group lang-group" role="group" aria-labelledby="account-lang-heading">
+          <span class="menu-heading" id="account-lang-heading">{{ _("Language") }}</span>
+          <form method="post" action="/language" class="lang-pills">
+            <input type="hidden" name="_csrf" value="{{ csrf }}">
+            <input type="hidden" name="next" value="{{ current_url }}">
+            {% for code, label in ui_languages.items() %}
+            <button type="submit" name="lang" value="{{ code }}" title="{{ label }}" aria-label="{{ label }}"{% if code == lang %} aria-current="true"{% endif %}>{{ code|upper }}</button>
+            {% endfor %}
+          </form>
+        </div>
         <form method="post" action="/logout" class="inline">
           <input type="hidden" name="_csrf" value="{{ csrf }}">
           <button type="submit">{{ _("Log out") }}</button>
@@ -47,6 +57,16 @@
     <details class="menu account-menu">
       <summary title="{{ guest.display_name }}"><span class="account-name">{{ guest.display_name }} <span class="muted">({{ _("guest") }})</span></span></summary>
       <div class="menu-body actions-list">
+        <div class="menu-group lang-group" role="group" aria-labelledby="account-lang-heading">
+          <span class="menu-heading" id="account-lang-heading">{{ _("Language") }}</span>
+          <form method="post" action="/language" class="lang-pills">
+            <input type="hidden" name="_csrf" value="{{ csrf }}">
+            <input type="hidden" name="next" value="{{ current_url }}">
+            {% for code, label in ui_languages.items() %}
+            <button type="submit" name="lang" value="{{ code }}" title="{{ label }}" aria-label="{{ label }}"{% if code == lang %} aria-current="true"{% endif %}>{{ code|upper }}</button>
+            {% endfor %}
+          </form>
+        </div>
         <form method="post" action="/logout" class="inline">
           <input type="hidden" name="_csrf" value="{{ csrf }}">
           <button type="submit">{{ _("Leave") }}</button>
@@ -60,8 +80,8 @@
 {% block content %}{% endblock %}
 </main>
 {% block footer %}
-<footer class="statusbar"><a href="/source">{{ _("Source code") }}</a>{% include "_legal.html" %}<span>DocWizard {{ release }}</span></footer>
+<footer class="statusbar">{% block footer_links %}{% endblock %}{% include "_legal.html" %}<span class="statusbar-brand">DocWizard {{ release }}</span><span class="spacer"></span>{% if not path.startswith("/_shell/") %}{% include "_lang_menu.html" %}{% endif %}</footer>
 {% endblock %}
-{% block scripts %}{% endblock %}
+{% block scripts %}<script type="module" src="{{ static }}/app/main.js"></script>{% endblock %}
 </body>
 </html>

@@ -1,5 +1,7 @@
 // The layout gallery: make a copy of a layout, start a new one, delete your own (ARCHITECTURE.md §9.3).
-import { $$, api, t, toast } from "../ui/dom.js";
+import { $$, api, t, toast, wireCommon } from "../ui/dom.js";
+
+wireCommon();
 
 for (const button of $$("[data-new-layout]")) {
   button.addEventListener("click", async () => {

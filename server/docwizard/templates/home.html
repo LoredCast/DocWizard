@@ -130,4 +130,5 @@
 <input type="file" id="import-word" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
 <p class="visually-hidden" id="import-status" role="status"></p>
 {% endblock %}
+{% block footer_links %}<a href="/source">{{ _("Source code") }}</a>{% endblock %}
 {% block scripts %}<script type="module" src="{{ static }}/app/main.js"></script>{% if projects %}<script type="module" src="{{ static }}/app/home.js"></script>{% endif %}{% endblock %}

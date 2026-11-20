@@ -16,6 +16,8 @@ from ..mail import MailError
 def safe_next(value: str | None) -> str:
     if not value or not value.startswith("/") or value.startswith("//") or "\\" in value:
         return "/"
+    if "\r" in value or "\n" in value:
+        return "/"
     return value
 
 
@@ -316,6 +318,22 @@ def register(app) -> None:
             return await render_settings(req, 400, email_error=str(exc))
         return redirect("/settings?saved=email-sent#email")
 
+    async def set_language(req: Request) -> Response:
+        """Quick interface language switch from the footer or header menu (§21)."""
+        from ..i18n import LANGUAGES
+
+        form = await req.form()
+        chosen = form.get("lang", "")
+        target = safe_next(form.get("next"))
+        resp = redirect(target)
+        if chosen in LANGUAGES:
+            if req.user is not None:
+                prefs = dict(req.user.preferences)
+                prefs["language"] = chosen
+                await app.db.write(lambda c: users.update_profile(c, req.user.id, req.user.display_name, prefs))
+            resp.set_cookie("lang", chosen, max_age=365 * 86400, secure=cfg.secure_cookies)
+        return resp
+
     async def me(req: Request) -> Response:
         who = req.user.public() if req.user is not None else req.guest.public()
         return json_response({"user": who, "csrf": req.session.csrf_token})
@@ -323,6 +341,7 @@ def register(app) -> None:
     app.router.add("GET", "/login", login_page, auth=False)
     app.router.add("POST", "/login", login, anonymous=True)
     app.router.add("POST", "/logout", logout, anonymous=True, totp_exempt=True)
+    app.router.add("POST", "/language", set_language, anonymous=True, guest=True, totp_exempt=True)
     app.router.add("GET", "/register", register_page, auth=False)
     app.router.add("POST", "/register", register_post, anonymous=True)
     app.router.add("GET", "/settings", settings_page, totp_exempt=True)

@@ -1,8 +1,10 @@
 // The layout editor (ARCHITECTURE.md §9.3): a form built from the design schema, a live PDF
 // preview of a sample document, and saving as a custom layout. A custom layout stores only the
 // settings that differ from the layout it is based on, so it follows that layout's updates.
-import { $, $$, api, el, t, toast } from "../ui/dom.js";
+import { $, $$, api, el, t, toast, wireCommon } from "../ui/dom.js";
 import { PdfPreview } from "../preview/pdf.js";
+
+wireCommon();
 
 const form = $("#design-form");
 const meta = $("#layout-meta");

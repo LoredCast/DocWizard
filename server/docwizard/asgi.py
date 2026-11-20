@@ -511,8 +511,12 @@ class App:
 
         theme = req.user.theme if req.user else (req.cookies.get("theme") or "dark")
         lang = self.lang_of(req)
+        raw = req.raw_path or req.path
+        qs = req.scope.get("query_string", b"").decode("latin-1")
+        current_url = f"{raw}?{qs}" if qs else raw
         base = {
             "lang": lang,
+            "ui_languages": i18n.LANGUAGES,
             "_": lambda message, **values: i18n.gettext(lang, message, **values),
             "i18n_json": script_json(i18n.catalog(lang)) if lang != i18n.DEFAULT else "",
             "user": req.user,
@@ -523,6 +527,7 @@ class App:
             "release": self.cfg.release,
             "theme": theme if theme in ("dark", "light", "system") else "dark",
             "path": req.path,
+            "current_url": current_url,
             "legal": self.cfg.legal,
         }
         base.update(ctx)

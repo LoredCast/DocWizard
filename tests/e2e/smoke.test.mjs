@@ -140,6 +140,11 @@ for (const vp of VIEWPORTS) {
       assert.equal(await row("notes.md").count(), 1);
 
       await row("notes.md").locator("details.file-menu summary").click();
+      // The file edit menu floats above the table's scroll container, completely visible without scrolling it.
+      const menuBox = await row("notes.md").locator("details.file-menu .menu-body").boundingBox();
+      assert.ok(menuBox && menuBox.height > 60 && menuBox.x >= 0 && menuBox.y >= 0
+        && menuBox.x + menuBox.width <= vp.viewport.width && menuBox.y + menuBox.height <= vp.viewport.height,
+        `file menu should be fully visible in viewport, got ${JSON.stringify(menuBox)}`);
       await row("notes.md").locator('input[name="new_path"]').fill("chapter-one.md");
       await row("notes.md").locator('button:text("Rename")').click();
       await page.waitForLoadState("load");
@@ -293,6 +298,20 @@ for (const vp of VIEWPORTS) {
       const frame = page.frameLocator("#preview");
       await frame.locator("body").getByText(/\S/).first().waitFor({ timeout: 30_000 });
       await noOverflow(page, "HTML preview");
+      // The editor stays locked to the viewport (no scrolling below the footer) and Page setup stays on screen.
+      const layoutCheck = await page.evaluate(() => {
+        const opts = document.getElementById("open-options").getBoundingClientRect();
+        const bar = document.getElementById("statusbar").getBoundingClientRect();
+        return {
+          scrollH: document.documentElement.scrollHeight, innerH: window.innerHeight,
+          optsRight: opts.right, innerW: window.innerWidth, barH: bar.height,
+        };
+      });
+      assert.ok(layoutCheck.scrollH <= layoutCheck.innerH,
+        `editor overflows vertically: scrollHeight=${layoutCheck.scrollH} > innerHeight=${layoutCheck.innerH}`);
+      assert.ok(layoutCheck.optsRight <= layoutCheck.innerW + 1,
+        `Page setup overflows horizontally: right=${layoutCheck.optsRight} > innerWidth=${layoutCheck.innerW}`);
+      assert.ok(layoutCheck.barH <= 36, `editor statusbar wrapped to multiple lines: height=${layoutCheck.barH}`);
 
       await page.locator('input[name="preview-target"][value="pdf"]').check();
       await page.locator(".pdf-viewer canvas").first().waitFor({ timeout: 90_000 });
