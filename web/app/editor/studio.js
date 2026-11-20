@@ -62,6 +62,8 @@ export class Corkboard {
     });
     host.append(this.panel);
     this.timer = null;
+    this.pressed = false; // a card is held down (it may become a drag)
+    this.stale = false; // the text changed while it was held
     this.chapters = null;
   }
 
@@ -85,11 +87,15 @@ export class Corkboard {
     if (restore) this.returnFocus?.focus?.();
   }
 
-  // Someone typed (or a collaborator did): the cards follow, unless one is being dragged.
+  // Someone typed (or a collaborator did): the cards follow, unless a card is held down. Drawing
+  // the cards anew under a held card would drop the drag, so that waits for the release.
   docChanged() {
-    if (!this.open || this.dragging) return;
+    if (!this.open) return;
     clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.render(), 300);
+    this.timer = setTimeout(() => {
+      if (this.pressed) this.stale = true;
+      else this.render();
+    }, 300);
   }
 
   async loadChapters() {
@@ -106,6 +112,7 @@ export class Corkboard {
   get readOnly() { return this.locked(this.view.state); }
 
   render() {
+    this.stale = false;
     const focused = this.panel.querySelector(".cork-card:focus")?.dataset.id;
     const text = this.view.state.doc.toString();
     this.model = board(text, { script: this.script });
@@ -222,12 +229,15 @@ export class Corkboard {
   // of the lane under it. A short movement counts as a click.
   drag(event, li, c) {
     if (event.button !== 0 || event.target.closest("button, a")) return;
+    const pointer = event.pointerId;
+    this.pressed = true;
     const startX = event.clientX;
     const startY = event.clientY;
     let active = false;
     let drop = null;
     const marker = el("li", { class: "cork-drop", "aria-hidden": "true" });
     const onMove = (e) => {
+      if (e.pointerId !== pointer) return;
       if (!active) {
         if (Math.hypot(e.clientX - startX, e.clientY - startY) < 8) return;
         active = true;
@@ -257,11 +267,17 @@ export class Corkboard {
       const cards = this.model.lanes[Number(lane.dataset.lane)].cards;
       drop = [Number(lane.dataset.lane), before ? cards.findIndex((x) => String(x.id) === before.dataset.id) : cards.length];
     };
-    const onUp = () => {
-      li.removeEventListener("pointermove", onMove);
-      li.removeEventListener("pointerup", onUp);
-      li.removeEventListener("pointercancel", onUp);
-      if (!active) return;
+    const onUp = (e) => {
+      if (e.pointerId !== pointer) return;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      this.pressed = false;
+      if (!active) {
+        // A click: the cards held back while it was down are drawn once it has gone to its scene.
+        if (this.stale) this.docChanged();
+        return;
+      }
       this.dragging = false;
       this.justDragged = true;
       setTimeout(() => { this.justDragged = false; }, 0);
@@ -271,9 +287,10 @@ export class Corkboard {
       if (drop) this.apply(c, drop[0], drop[1]);
       else this.render();
     };
-    li.addEventListener("pointermove", onMove);
-    li.addEventListener("pointerup", onUp);
-    li.addEventListener("pointercancel", onUp);
+    // On the window, so a release outside the card (before it is captured) still ends the press.
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   }
 }
 
