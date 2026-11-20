@@ -17,7 +17,23 @@ def test_catalog_is_complete_for_placeholders():
     assert i18n.gettext("en", "Projects") == "Projects"
     assert i18n.gettext("de", "no such message {n}", n=3) == "no such message 3"
     assert i18n.pick("de-AT,de;q=0.9,en;q=0.5") == "de"
-    assert i18n.pick("fr-FR,fr;q=0.9") == "en"
+    assert i18n.pick("fr-FR,fr;q=0.9") == "fr"
+    assert i18n.pick("es-MX,es;q=0.9,en;q=0.5") == "es"
+    assert i18n.pick("it-IT") == "en"
+
+
+def test_every_language_has_every_german_string():
+    """French and Spanish follow the German catalog, which follows the source strings."""
+    de = i18n.catalog("de")
+    for lang in ("fr", "es"):
+        catalog = i18n.catalog(lang)
+        assert set(catalog) == set(de), (lang, sorted(set(de) ^ set(catalog))[:10])
+        for key, value in catalog.items():
+            assert set(re.findall(r"\{(\w+)\}", key)) == set(re.findall(r"\{(\w+)\}", value)), (lang, key)
+    assert i18n.gettext("fr", "Projects") == "Projets"
+    assert i18n.gettext("es", "{n} words", n=3) == "3 palabras"
+    assert i18n.reltime("fr", "2020-03-04T10:00:00Z") == "4 mars 2020"
+    assert i18n.reltime("es", "2020-08-04T10:00:00Z") == "4 ago. 2020"
     assert i18n.pick(None) == "en"
 
 
