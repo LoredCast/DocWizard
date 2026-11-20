@@ -28,8 +28,8 @@ def static_assets(app) -> list[str]:
         if path.suffix in ("", ".md") or path.name in ("MANIFEST", "LICENSE"):
             continue
         # Harper's 20 MB of WebAssembly is cached when the grammar checker first loads it, not
-        # with every release (§6.8).
-        if rel.parts[:2] == ("vendor", "harper"):
+        # with every release (§6.8); the same goes for the browser renderer's pandoc and Typst (§6.4).
+        if rel.parts[:2] in (("vendor", "harper"), ("vendor", "browser-render")):
             continue
         out.append(f"{app.static_prefix}/{rel.as_posix()}")
     return out

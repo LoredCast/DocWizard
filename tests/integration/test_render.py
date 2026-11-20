@@ -101,6 +101,12 @@ async def test_html_preview_on_preview_origin(rapp, rclient):
     # A forged token gets nothing.
     forged = re.sub(r"/_preview/[0-9a-f]{32}/", "/_preview/" + "0" * 32 + "/", path)
     assert (await preview.get(forged)).status == 404
+    # The token is kept in the database as a hash, so it outlives the app's memory (a restart).
+    token = re.search(r"/_preview/([0-9a-f]{32})/", path).group(1)
+    rows = await rapp.db.fetchall("SELECT token_hash FROM preview_tokens")
+    assert token not in [r["token_hash"] for r in rows] and len(rows) == 1
+    rapp.renderer._tokens.clear()
+    assert (await preview.get(path)).status == 200
     await ws.close()
 
 

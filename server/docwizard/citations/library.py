@@ -79,9 +79,15 @@ class CitationLibrary:
             return json.loads(cached.read_text())
         except (OSError, ValueError):
             pass
-        renderer = self.app.renderer
+        try:
+            async with self.app.renderer.worker.lease() as worker:
+                return await self._convert_on(worker, path, text, fmt, cached)
+        except WorkerUnavailable:
+            return []
+
+    async def _convert_on(self, worker, path: str, text: str, fmt: str, cached: Path) -> list:
         job_id = jobs.new_job_id()
-        job_dir = self.app.cfg.jobs_dir / "run" / job_id
+        job_dir = worker.run_dir / job_id
         name = "input" + Path(path).suffix
 
         def prepare():
@@ -95,7 +101,7 @@ class CitationLibrary:
 
         try:
             await asyncio.to_thread(prepare)
-            reply = await renderer.worker.run(job_id, 30)
+            reply = await worker.run(job_id, 30)
             if reply.get("status") != "ok":
                 log.warning("bibliography conversion failed", extra=fields(path=path, diagnostics=reply.get("diagnostics")))
                 return []

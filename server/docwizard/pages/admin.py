@@ -75,7 +75,7 @@ def register(app) -> None:
                          ("sync_errors", "SELECT COUNT(*) FROM sync_targets WHERE status = 'error'"),
                          ("publications", "SELECT COUNT(*) FROM publications")):
             counts[key] = (await app.db.fetchone(sql))[0]
-        return page(req, "health", worker_ok=worker_ok, versions=versions, disk=await asyncio.to_thread(disk),
+        return page(req, "health", worker_ok=worker_ok, versions=versions, workers=app.renderer.worker.status(), disk=await asyncio.to_thread(disk),
                     counts=counts, rooms=len(app.rooms.rooms) if hasattr(app.rooms, "rooms") else 0,
                     inflight=len(app.renderer._inflight), errors=list(reversed(app.recent_errors)),
                     release=app.cfg.release, fts=app.search.available if hasattr(app, "search") else False)

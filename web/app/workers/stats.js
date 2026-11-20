@@ -1,4 +1,5 @@
 // Word counts and outline off the main thread (ARCHITECTURE.md §6.6).
+import { normseiten } from "../editor/manuscript.js";
 // Body words exclude front matter, code, raw blocks, HTML comments, citation keys and math;
 // footnotes are counted separately. For screenplays it also lists scenes and characters and
 // estimates the page count, following the rules of filters/screenplay.lua.
@@ -31,12 +32,12 @@ const SCENE = /^(INT\.?\/EXT|EXT\.?\/INT|I\/E|INNEN\/AUSSEN|INT|EXT|EST|INNEN|AU
 const WIDTH = { action: 61, dialogue: 35, parenthetical: 25 };
 const LINES_PER_PAGE = 55;
 
-const isUpper = (s) => {
+export const isUpper = (s) => {
   const letters = s.replace(/\([^)]*\)/g, "").replace(/[^\p{L}]/gu, "");
   return letters !== "" && s.toLocaleUpperCase() === s;
 };
-const isScene = (s) => (/^\.[\p{L}\p{N}]/u.test(s)) || SCENE.test(s);
-const isTransition = (s) => isUpper(s) && (/(TO|AUF):$/.test(s) || /^(FADE OUT|ABBLENDE)/.test(s));
+export const isScene = (s) => (/^\.[\p{L}\p{N}]/u.test(s)) || SCENE.test(s);
+export const isTransition = (s) => isUpper(s) && (/(TO|AUF):$/.test(s) || /^(FADE OUT|ABBLENDE)/.test(s));
 const wrapped = (s, width) => Math.max(1, Math.ceil(s.length / width));
 
 // The name in a character cue: without @, the dual-dialogue ^ and extensions like (V.O.).
@@ -125,9 +126,13 @@ export function analyse(text, script = false) {
   return result;
 }
 
-if (typeof self !== "undefined" && "onmessage" in self) {
+// Only inside the worker: the editor imports these functions too (editor/manuscript.js).
+if (typeof WorkerGlobalScope !== "undefined" && self instanceof WorkerGlobalScope) {
   self.onmessage = (event) => {
-    const { id, text, script } = event.data;
-    self.postMessage({ id, ...analyse(text, script) });
+    const { id, text, script, normseite } = event.data;
+    const result = analyse(text, script);
+    // Layouts on the Normseite (30 lines of 60 characters) also count those pages (editor/studio.js).
+    if (normseite) result.normseiten = normseiten(text);
+    self.postMessage({ id, ...result });
   };
 }
