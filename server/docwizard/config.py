@@ -150,6 +150,18 @@ class GrammarConfig:
 
 
 @dataclass
+class AssistConfig:
+    """The writing helper (§8.10): an OpenAI-compatible model (Ollama, vLLM, llama.cpp, a hosted
+    API) that may only propose suggestions. Off while url is empty; each person also opts in."""
+    url: str = ""  # the API's base, e.g. http://ollama:11434/v1
+    model: str = ""
+    api_key: str = ""
+    max_chars: int = 6000  # the longest passage sent at once
+    per_user_rpm: int = 6  # requests per person per minute
+    timeout_seconds: int = 120
+
+
+@dataclass
 class OIDCProvider:
     """One [[oidc]] entry (§13.4)."""
     id: str = ""
@@ -177,6 +189,7 @@ class Config:
     sync: SyncConfig = field(default_factory=SyncConfig)
     smtp: SMTPConfig = field(default_factory=SMTPConfig)
     grammar: GrammarConfig = field(default_factory=GrammarConfig)
+    assist: AssistConfig = field(default_factory=AssistConfig)
     legal: LegalConfig = field(default_factory=LegalConfig)
     oidc: list[OIDCProvider] = field(default_factory=list)
 

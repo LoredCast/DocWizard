@@ -89,6 +89,16 @@ default_quota_bytes = 2000000000                  # per account, trash included;
 # languagetool_api_key = ""          # only for LanguageTool Premium
 # languagetool_username = ""
 
+# The writing helper (§8.10): a language model behind an OpenAI-compatible API (Ollama, vLLM,
+# llama.cpp's server, or a hosted one) that may only propose suggestions, never change text. Off
+# while url is empty; each person also turns it on in their settings. Passages go to this endpoint.
+# [assist]
+# url = "http://ollama:11434/v1"
+# model = "llama3.1:8b"
+# api_key = ""                       # sent as a bearer token, for hosted APIs
+# max_chars = 6000                   # the longest passage sent at once
+# per_user_rpm = 6                   # requests per person per minute
+
 # Mail for password resets and invitations (§13.2). Without it, admins hand out
 # the links from the admin area.
 # [smtp]

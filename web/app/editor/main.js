@@ -8,6 +8,7 @@ import { HtmlPreview, headingId } from "../preview/html.js";
 import { PdfPreview } from "../preview/pdf.js";
 import { LocalRenderer } from "../preview/local.js";
 import { openTimeline } from "./timeline.js";
+import { openAssist } from "./assist.js";
 import { getCitations, getDoc, getDocByUrl, prune, putCitations, putLayout } from "../store/idb.js";
 import { $, api, confirmDialog, el, t, toast, wireCommon } from "../ui/dom.js";
 import { AnchorLoader, anchorsField, conflictGutter } from "./anchors.js";
@@ -1256,6 +1257,14 @@ $("#open-versions").addEventListener("click", () => {
   versionsDialog.showModal();
   loadVersions();
 });
+// The writing helper (§8.10), for people who turned it on: its answers become suggestions.
+const assistButton = $("#open-assist");
+if (assistButton && snap.assist && !offlineRecord) {
+  assistButton.hidden = false;
+  assistButton.addEventListener("click", () => openAssist({
+    view, session, docId, onSuggested: () => { comments.load(); if (!narrow.matches) comments.show(); },
+  }));
+}
 $("#open-timeline")?.addEventListener("click", () => openTimeline({ docId, name: snap.doc.path }));
 $("#version-form").addEventListener("submit", async (event) => {
   event.preventDefault();

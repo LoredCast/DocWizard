@@ -765,6 +765,7 @@ Track changes in the document stays a non-goal ([§2](#2-goals-and-non-goals)); 
   - On touch screens the editor's own keyboard stays closed while suggesting (`inputmode="none"`): a tap puts the cursor and opens the keyboard for the textarea within the tap, and a selection gets a toolbar with Delete, Replace and Comment.
 - In place, the editor strikes and adds only the words a suggestion changes: words it keeps at either end of the passage stay as they are, so an insertion reads as new words, not as its passage struck and written again.
 - **Accept** (editors) replaces the anchored passage with the suggestion as an ordinary update from the authority (`system:suggestion`, authored by whoever accepted). If the passage no longer reads as when it was suggested, the server answers `409 changed` and the editor asks before replacing it anyway. **Reject** (editors) leaves the text alone. Either way the thread is resolved with `suggestion_state`, and the people in the thread are notified ([§8.9](#89-mentions-and-notifications)). With two or more open suggestions the panel offers **Accept all** and **Reject all**, which decide them one by one from the end of the text; any whose passage changed stay open.
+- **The writing helper** (`api/assist.py`, `editor/assist.js`), optional and opt-in twice: the admin names a language model behind an OpenAI-compatible API (`[assist] url`, `model`, `api_key`: Ollama, vLLM, llama.cpp's server or a hosted API), and each person turns it on in their settings (`preferences.assist`, off by default; the settings say that passages go to that model). *Write → Writing helper* sends the selection, or the paragraph at the cursor (at most `max_chars`, default 6,000), with a task (correct spelling and grammar, clearer, shorter, simpler, more formal, or an instruction of one's own) to `POST /api/documents/{id}/assist`. The app asks the model through the request policy (only that host, `per_user_rpm` per person) and files its answer as an ordinary suggestion thread by that person whose note names the helper and the model, anchored to exactly the passage sent (`409 changed` if the text there no longer reads so). The helper has no other way in: it can't edit text, accept suggestions or see more than the passage, and an editor decides on its suggestions like on any other. The browser never talks to the model, so the CSP keeps `connect-src 'self'`.
 
 ### 8.11 Word files in and out
 
@@ -1671,6 +1672,13 @@ user_exports        = 2      # per person, queued or running
 per_user_rpm        = 0      # renders per person per minute; 0: no limit
 latex_daily_limit   = 0      # LaTeX builds per person per day; 0: no limit
 allow_latex         = true   # users.allow_latex overrides it per account
+
+[assist]
+url                 = ""     # an OpenAI-compatible API for the writing helper (§8.10); empty: off
+model               = ""
+api_key             = ""
+max_chars           = 6000
+per_user_rpm        = 6
 
 [legal]
 terms_url    = "https://example.org/terms"

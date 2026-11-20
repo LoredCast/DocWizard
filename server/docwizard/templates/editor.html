@@ -29,7 +29,8 @@
       {% if not review %}<button type="button" id="open-corkboard" data-open-corkboard aria-pressed="false" aria-controls="corkboard" title="{{ _('Chapters and scenes as cards to rearrange') }}">{{ _("Corkboard") }}</button>
       <button type="button" id="open-breakdown" hidden title="{{ _('Scenes, cast and locations of the script') }}">{{ _("Breakdown") }}</button>
       <button type="button" id="start-table-read" hidden title="{{ _('Read the script aloud from the cursor, a voice for each character') }}">{{ _("Table read") }}</button>
-      <button type="button" id="open-target" hidden>{{ _("Daily target") }}</button>{% endif %}
+      <button type="button" id="open-target" hidden>{{ _("Daily target") }}</button>
+      <button type="button" id="open-assist" hidden title="{{ _('Have the writing helper suggest a change to the selected passage') }}">{{ _("Writing helper") }}</button>{% endif %}
       <a class="button" id="switch-view" title="{{ _('Edit the Markdown') if review else _('Read the document as it prints, without Markdown, to comment and suggest') }}" href="?view={{ 'source' if review else 'review' }}">{{ _("Edit the source") if review else _("Review view") }}</a>{% endif %}
     </div>
     <div class="menu-group" role="group" aria-labelledby="menu-review">
