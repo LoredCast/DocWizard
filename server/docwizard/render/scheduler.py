@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import re
 import logging
@@ -35,7 +36,7 @@ from ..projects import docx_import, fountain
 from ..projects import service as svc
 from . import jobs, sample, synctex
 from .layouts import Layout, LayoutError
-from .worker_client import WorkerClient, WorkerUnavailable
+from .worker_client import WorkerPool, WorkerUnavailable
 
 log = logging.getLogger("docwizard.render")
 
@@ -128,7 +129,7 @@ class Renderer:
     def __init__(self, app):
         self.app = app
         self.cfg = app.cfg
-        self.worker = WorkerClient(app.cfg.worker_socket)
+        self.worker = WorkerPool.from_config(app.cfg)
         self.renders_dir = app.cfg.data_dir / "renders"
         self.configure()
         self.stats = RenderStats()
@@ -140,15 +141,17 @@ class Renderer:
         self._latest: dict[tuple, int] = {}
         self._seq = 0
         self._preview_tasks: dict[tuple, asyncio.Task] = {}
-        self.tokens: dict[str, dict] = {}
+        self.boot = secrets.token_hex(6)
+        self._tokens: dict[tuple[str, str], tuple[str, float]] = {}  # (conn, project) -> (token, expires)
         self.exports: dict[str, ExportJob] = {}
 
     def configure(self) -> None:
         """Size the slots from [render]: every job takes one of ``concurrency`` slots, and heavy
         targets also one of the ``concurrency - fast_lane`` heavy ones."""
         cfg = self.cfg.render
-        total = max(1, cfg.concurrency)
-        fast = max(0, min(cfg.fast_lane, total - 1))
+        # Each worker runs ``concurrency`` jobs at once (give it the same --concurrency).
+        total = max(1, cfg.concurrency) * len(self.worker)
+        fast = max(0, min(cfg.fast_lane * len(self.worker), total - 1))
         self.sem = asyncio.Semaphore(total)
         self.heavy = asyncio.Semaphore(total - fast)
         self.previews = _PerKey(cfg.user_previews)
@@ -229,10 +232,11 @@ class Renderer:
     # -- lifecycle ---------------------------------------------------------
     async def start(self) -> None:
         self.renders_dir.mkdir(parents=True, exist_ok=True)
-        (self.cfg.jobs_dir / "run").mkdir(parents=True, exist_ok=True)
-        os.chmod(self.cfg.jobs_dir / "run", 0o711)
+        for member in self.worker.members:
+            member.run_dir.mkdir(parents=True, exist_ok=True)
+            os.chmod(member.run_dir, 0o711)
         if self.cfg.render.spawn_worker:
-            await self.worker.spawn(self.cfg.jobs_dir, self.cfg.cache_dir, self.cfg.render.concurrency)
+            await self.worker.spawn(self.cfg.cache_dir, self.cfg.render.concurrency)
         else:
             try:
                 await self.worker.hello()
@@ -487,8 +491,17 @@ class Renderer:
 
             await asyncio.to_thread(write_fountain)
             return self._finish(key, project_id, target, "ok", [], dest)
+        async with self.worker.lease() as worker:
+            return await self._run_on(worker, key, project_id, target, layout, inputs, options, snap,
+                                      layout_folder, lang, timeout)
+
+    async def _run_on(self, worker, key: str, project_id: str, target: str, layout: Layout, inputs: list[str],
+                      options: dict, snap: jobs.ProjectSnapshot, layout_folder: str, lang: str | None,
+                      timeout: int | None) -> RenderResult:
+        dest = self.renders_dir / key
+        output = jobs.OUTPUTS[target]
         job_id = jobs.new_job_id()
-        job_dir = self.cfg.jobs_dir / "run" / job_id
+        job_dir = worker.run_dir / job_id
         layout_dir = await asyncio.to_thread(self.app.layouts.cached_dir, layout, layout_folder)
         approved = self.app.layouts.filters_approved(layout)
         steps, copies = jobs.pandoc_steps(layout, layout_dir, target, inputs, options, approved)
@@ -514,8 +527,9 @@ class Renderer:
             await asyncio.to_thread(prepare)
             started = time.monotonic()
             try:
-                reply = await self.worker.run(job_id, limits["wall_seconds"])
+                reply = await worker.run(job_id, limits["wall_seconds"])
             except WorkerUnavailable as exc:
+                worker.down_until = time.monotonic() + 15
                 return RenderResult(key, "error", target, output,
                                     [{"severity": "error", "message": str(exc)}], project_id=project_id)
             status = reply.get("status", "error")
@@ -541,8 +555,12 @@ class Renderer:
         """Convert an uploaded Word file in the render worker (§8.11): pandoc keeps comments and
         tracked changes, which filters/docx_import.lua marks. Returns the Markdown and the media
         files (paths relative to the media folder)."""
+        async with self.worker.lease() as worker:
+            return await self._convert_docx_on(worker, data)
+
+    async def _convert_docx_on(self, worker, data: bytes) -> tuple[str, dict[str, bytes]]:
         job_id = jobs.new_job_id()
-        job_dir = self.cfg.jobs_dir / "run" / job_id
+        job_dir = worker.run_dir / job_id
         layout_dir = await asyncio.to_thread(self.app.layouts.cached_dir, self.app.layouts.get("default"), "layouts")
         L = str(layout_dir)
         limits = {"cpu_seconds": self.cfg.render.timeout_seconds, "memory_mb": self.cfg.render.memory_mb,
@@ -574,7 +592,7 @@ class Renderer:
             await asyncio.to_thread(prepare)
             async with self.slot("md-import"):
                 try:
-                    reply = await self.worker.run(job_id, limits["wall_seconds"])
+                    reply = await worker.run(job_id, limits["wall_seconds"])
                 except WorkerUnavailable as exc:
                     raise HTTPError(503, "worker_unavailable", str(exc)) from None
             if reply.get("status") != "ok" or not (job_dir / "out" / "document.md").is_file():
@@ -592,30 +610,46 @@ class Renderer:
         return RenderResult(key, status, target, output, diagnostics, project_id=project_id)
 
     # -- previews ------------------------------------------------------------
-    def preview_token(self, conn_key: int, project_id: str) -> str:
+    # Capability tokens live in the database (migration 0015): they survive a restart and any process
+    # serving the preview origin can check them. Connections are numbered per process, so their keys
+    # carry this process's boot id.
+    def _conn(self, conn_key: int) -> str:
+        return f"{self.boot}:{conn_key}"
+
+    async def preview_token(self, conn_key: int, project_id: str) -> str:
         now = time.time()
-        for tok, info in list(self.tokens.items()):
-            if info["expires"] < now:
-                del self.tokens[tok]
-        for tok, info in self.tokens.items():
-            if info["conn"] == conn_key and info["project_id"] == project_id:
-                info["expires"] = now + PREVIEW_TOKEN_TTL
-                return tok
-        tok = secrets.token_hex(16)  # 128 bits
-        self.tokens[tok] = {"conn": conn_key, "project_id": project_id, "expires": now + PREVIEW_TOKEN_TTL}
+        conn = self._conn(conn_key)
+        cached = self._tokens.get((conn, project_id))
+        if cached and cached[1] - now > PREVIEW_TOKEN_TTL / 2:
+            return cached[0]
+        tok = cached[0] if cached and cached[1] > now else secrets.token_hex(16)  # 128 bits
+        expires = now + PREVIEW_TOKEN_TTL
+
+        def save(c):
+            c.execute("DELETE FROM preview_tokens WHERE expires_at < ?", (now,))
+            c.execute("INSERT INTO preview_tokens(token_hash, project_id, conn_key, expires_at) VALUES (?, ?, ?, ?)"
+                      " ON CONFLICT(token_hash) DO UPDATE SET expires_at = excluded.expires_at",
+                      (_token_hash(tok), project_id, conn, expires))
+
+        await self.app.db.write(save)
+        self._tokens[(conn, project_id)] = (tok, expires)
         return tok
 
-    def forget(self, conn_key: int) -> None:
-        """Preview capabilities expire with the editor session."""
-        for tok, info in list(self.tokens.items()):
-            if info["conn"] == conn_key:
-                info["expires"] = min(info["expires"], time.time() + 60)
+    async def forget(self, conn_key: int) -> None:
+        """Preview capabilities expire with the editor session (a minute later, for the last loads)."""
+        conn = self._conn(conn_key)
+        for k in [k for k in self._tokens if k[0] == conn]:
+            del self._tokens[k]
+        soon = time.time() + 60
+        await self.app.db.write(lambda c: c.execute(
+            "UPDATE preview_tokens SET expires_at = MIN(expires_at, ?) WHERE conn_key = ?", (soon, conn)))
 
-    def token_project(self, token: str) -> str | None:
-        info = self.tokens.get(token)
-        if info is None or info["expires"] < time.time():
+    async def token_project(self, token: str) -> str | None:
+        row = await self.app.db.fetchone("SELECT project_id, expires_at FROM preview_tokens WHERE token_hash = ?",
+                                         (_token_hash(token),))
+        if row is None or row["expires_at"] < time.time():
             return None
-        return info["project_id"]
+        return row["project_id"]
 
     async def request_preview(self, conn, peer, room, msg: dict) -> None:
         target = msg.get("target")
@@ -661,7 +695,7 @@ class Renderer:
             url = None
             if result.status == "ok":
                 if target == "html":
-                    token = self.preview_token(conn.key, room.project_id)
+                    token = await self.preview_token(conn.key, room.project_id)
                     url = f"{self.cfg.server.preview_url.rstrip('/')}/{token}/{result.key}/{result.output}"
                 else:
                     url = f"/api/renders/{result.key}/{result.output}"
@@ -733,16 +767,22 @@ class Renderer:
     def sweep_jobs(self) -> None:
         """Remove job directories left behind by a crash or a worker restart."""
         cutoff = time.time() - self.cfg.render.timeout_seconds - 300
-        try:
-            entries = list((self.cfg.jobs_dir / "run").iterdir())
-        except OSError:
-            return
+        entries = []
+        for member in self.worker.members:
+            try:
+                entries += list(member.run_dir.iterdir())
+            except OSError:
+                continue
         for d in entries:
             try:
                 if d.lstat().st_mtime < cutoff:
                     shutil.rmtree(d, ignore_errors=True)
             except OSError:
                 continue
+
+
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 async def _text_version(room):

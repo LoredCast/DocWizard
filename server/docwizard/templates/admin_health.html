@@ -4,7 +4,8 @@
 <h1>{{ _("Health") }}</h1>
 <dl class="facts">
   <div><dt>{{ _("Release") }}</dt><dd>{{ release }}</dd></div>
-  <div><dt>{{ _("Render worker") }}</dt><dd>{% if worker_ok %}<span class="ok">{{ _("Reachable") }}</span>{% else %}<span class="error">{{ _("Not reachable") }}</span>{% endif %}</dd></div>
+  <div><dt>{{ _("Render worker") }}</dt><dd>{% if worker_ok %}<span class="ok">{{ _("Reachable") }}</span>{% else %}<span class="error">{{ _("Not reachable") }}</span>{% endif %}{% if workers is defined and workers|length > 1 %}
+    <ul class="plain">{% for w in workers %}<li>{{ w.jobs }} · {% if w.up %}<span class="ok">{{ _("Reachable") }}</span>{% else %}<span class="error">{{ _("Not reachable") }}</span>{% endif %} · {{ _("{n} jobs running", n=w.inflight) }}</li>{% endfor %}</ul>{% endif %}</dd></div>
   {% for tool, version in versions.items() %}<div><dt>{{ tool }}</dt><dd>{{ version or _("not installed") }}</dd></div>{% endfor %}
   <div><dt>{{ _("Render jobs running or queued") }}</dt><dd>{{ inflight }}</dd></div>
   <div><dt>{{ _("Documents open in memory") }}</dt><dd>{{ rooms }}</dd></div>

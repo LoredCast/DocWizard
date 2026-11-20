@@ -96,9 +96,12 @@ jobs:
       - name: Install pinned pandoc and Typst
         run: sudo python3 -I deploy/fetch_tools.py
 
+      - name: Install the browser renderer (pandoc and Typst as WebAssembly)
+        run: python3 -I deploy/fetch_tools.py --browser-render web/vendor/browser-render
+
       - name: Install Playwright and Chromium
         run: |
-          npm install --no-save --no-package-lock playwright@1.55.0
+          npm install --no-save --no-package-lock playwright@1.55.0 axe-core@4.10.3
           npx playwright install --with-deps chromium
 
       - name: Browser smoke tests (phone 390×844, desktop 1280×800)

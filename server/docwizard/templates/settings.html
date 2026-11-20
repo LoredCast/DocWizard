@@ -46,6 +46,12 @@
       </select>
     </label>
     {% endif %}
+    {% if assist.enabled %}
+    <input type="hidden" name="assist_shown" value="1">
+    <label class="choice"><input type="checkbox" name="assist" {% if user.preferences.get("assist") is sameas true %}checked{% endif %}>
+      {{ _("Writing helper: let {model} suggest changes to passages I pick").replace("{model}", assist.model) }}</label>
+    <p class="muted hint">{{ _("The passage goes to this server's language model. Its answers only ever become suggestions that someone accepts or rejects; it never changes the text itself.") }}</p>
+    {% endif %}
     <label>{{ _("Email me about comments") }}
       <select name="notify_email">
         {% for value, label in [("all", "Mentions and replies"), ("mentions", "Only when someone mentions me"), ("off", "Never")] %}
