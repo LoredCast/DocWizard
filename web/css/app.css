@@ -660,6 +660,11 @@
   #editor .cm-table-view tbody tr:hover { background: none; }
   #editor .cm-table-view td:hover, #editor .cm-table-view th:hover { outline: 1px solid var(--edge); outline-offset: -1px; }
   #editor .cm-table-view code { font-family: var(--mono); font-size: .9em; }
+  /* Cells are typed into in place; the one with the caret is outlined, a search match tinted. */
+  #editor .cm-table-view [contenteditable] { min-width: 3em; white-space: pre-wrap; caret-color: var(--fg); }
+  #editor .cm-table-view [contenteditable]:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+  #editor .cm-table-view [data-editing] { font-family: inherit; }
+  #editor .cm-table-view .is-selected { background: color-mix(in srgb, var(--accent) 22%, transparent); }
   .review-mode #editor .cm-table-view { cursor: default; }
   .review-mode #editor .cm-table-view td:hover, .review-mode #editor .cm-table-view th:hover { outline: 0; }
   /* Plain text editing: the Markdown as it is, monospaced, every line the same size. */
@@ -667,21 +672,33 @@
   .raw-mode #editor .cm-content { max-width: 96ch; }
   .raw-mode #editor .cm-md-table, .raw-mode #editor .cm-md-code, .raw-mode #editor .cm-md-frontmatter,
   .raw-mode #editor .cm-md-math, .raw-mode #editor .cm-md-raw { font-size: inherit; }
-  #editor .cm-figure { margin: 4px 0; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius); display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; min-width: 0; font-family: var(--font); cursor: default; }
+  #editor .cm-figure { position: relative; margin: 4px 0; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius); display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; min-width: 0; font-family: var(--font); cursor: default; container-type: inline-size; }
   #editor .cm-figure-img { display: flex; justify-content: center; min-height: 2rem; align-items: center; }
   #editor .cm-figure-img img { max-width: 100%; max-height: 16rem; object-fit: contain; display: block; }
-  #editor .cm-figure-row { display: flex; gap: 8px; align-items: center; min-width: 0; }
-  #editor .cm-figure-caption { flex: 1; min-width: 0; width: 0; border: 1px solid transparent; background: transparent; color: var(--fg); font: inherit; font-size: .95em; text-align: center; min-height: 0; padding: 2px 6px; }
+  /* The caption: centered under the picture, wrapping, as tall as its text. */
+  #editor .cm-figure-caption { display: block; width: 100%; min-height: 0; resize: none; overflow: hidden; field-sizing: content; border: 1px solid transparent; border-radius: var(--radius); background: transparent; color: var(--fg); font: inherit; font-size: .95em; line-height: 1.4; text-align: center; padding: 2px 6px; }
   #editor .cm-figure-caption:hover:not(:disabled) { border-color: var(--line); }
   #editor .cm-figure-caption:focus { border-color: var(--accent); outline: none; }
-  #editor .cm-figure-pill { flex: none; min-height: 0; padding: 0 8px; border-radius: 999px; border: 1px solid var(--line); font: 11px/18px var(--mono); color: var(--muted); }
-  #editor .cm-figure-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; font-size: 13px; }
+  /* One quiet button in the corner for the label, the file and the actions. */
+  #editor .cm-figure-more { position: absolute; top: 4px; right: 4px; display: inline-flex; align-items: center; gap: 6px; min-height: 0; height: 26px; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--fg); font: 12px/1 var(--font); opacity: .8; }
+  #editor .cm-figure-more:hover, #editor .cm-figure-more[aria-expanded="true"] { opacity: 1; color: var(--fg); }
+  #editor .cm-figure-more-label { font: 11px var(--mono); }
+  #editor .cm-figure-more > [aria-hidden] { font-size: 16px; letter-spacing: 1px; }
+  #editor .cm-figure-more-label:empty { display: none; }
+  @container (max-width: 30rem) { #editor .cm-figure-more-label { display: none; } #editor .cm-figure-more { width: 30px; justify-content: center; padding: 0; } }
+  #editor .cm-figure-meta { display: grid; gap: 8px; padding: 8px 4px 2px; border-top: 1px solid var(--line); font-size: 13px; }
   #editor .cm-figure-meta[hidden] { display: none; }
-  #editor .cm-figure-meta label { display: inline-flex; gap: 4px; align-items: center; }
-  #editor .cm-figure-meta input { width: 9rem; max-width: 100%; min-height: 24px; font: 12px var(--mono); }
-  #editor .cm-figure-path { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
-  #editor .cm-figure button.link { min-height: 0; }
-  @media (pointer: coarse) { #editor .cm-figure button, #editor .cm-figure input { min-height: var(--control); } }
+  #editor .cm-figure-label-field { display: flex; gap: 8px; align-items: center; min-width: 0; }
+  #editor .cm-figure-label-input { display: flex; flex: 1; align-items: center; gap: 2px; min-width: 0; max-width: 18rem; font: 12px var(--mono); }
+  #editor .cm-figure-meta input { flex: 1; width: 0; min-width: 0; min-height: 28px; font: 12px var(--mono); }
+  #editor .cm-figure-path { font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #editor .cm-figure-actions { display: flex; flex-wrap: wrap; gap: 4px 16px; justify-content: space-between; }
+  #editor .cm-figure button.link { min-height: 0; padding: 0; }
+  @media (pointer: coarse) {
+    #editor .cm-figure-more { height: 32px; }
+    @container (max-width: 30rem) { #editor .cm-figure-more { width: 36px; } }
+    #editor .cm-figure-meta input, #editor .cm-figure-actions button.link { min-height: var(--control); }
+  }
   /* The title card: the front matter as a document's title block (§6.3) */
   #editor .cm-title-card {
     display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; min-width: 0; padding: 8px 0 12px; margin-bottom: 8px; border-bottom: 1px solid var(--line);

@@ -1,7 +1,8 @@
 // Figures in the editor (ARCHITECTURE.md §6.3): a paragraph that is only an image,
-// ![Caption](figures/map.png){#fig:map}, shows as the picture with its caption to type into. The
-// label for cross-references sits behind a small pill. Off the line being edited (or always, in
-// writer mode); "Edit as Markdown" shows the source.
+// ![Caption](figures/map.png){#fig:map}, shows as the picture with its caption to type into, which
+// wraps as it grows. The label for cross-references, the file and the actions sit behind a small
+// button in its corner. Off the line being edited (or always, in writer mode); "Edit as Markdown"
+// shows the source.
 import { Decoration, EditorView, StateEffect, StateField, WidgetType } from "codemirror";
 import { el, t } from "../ui/dom.js";
 import { writerMode } from "./writer-mode.js";
@@ -32,6 +33,12 @@ function scan(doc) {
     pos += line.length + 1;
   }
   return out;
+}
+
+// A caption field as tall as its text.
+function fit(area) {
+  area.style.height = "auto";
+  if (area.scrollHeight) area.style.height = `${area.scrollHeight}px`;
 }
 
 function assetUrl(projectId, path) {
@@ -71,9 +78,11 @@ class FigureWidget extends WidgetType {
     } else {
       picture.append(el("span", { class: "muted" }, this.fig.path));
     }
-    const caption = el("input", {
-      class: "cm-figure-caption", placeholder: t("Caption"), "aria-label": t("Caption"), disabled: this.ctx.locked,
+    // The caption wraps onto as many lines as it needs, under the picture.
+    const caption = el("textarea", {
+      class: "cm-figure-caption", rows: "1", placeholder: t("Caption"), "aria-label": t("Caption"), disabled: this.ctx.locked,
       oninput: () => {
+        fit(caption);
         const at = this.line(view, dom);
         if (!at) return;
         view.dispatch({ changes: { from: at.line.from + at.fig.altFrom, to: at.line.from + at.fig.altTo,
@@ -91,38 +100,48 @@ class FigureWidget extends WidgetType {
     caption.value = unescapeCaption(this.fig.alt);
     const label = el("input", {
       class: "cm-figure-label", "aria-label": t("Label for cross-references"), disabled: this.ctx.locked, spellcheck: "false",
+      placeholder: t("No label"),
       onchange: () => this.setLabel(view, dom, label.value),
       onkeydown: (e) => { if (e.key === "Enter") { e.preventDefault(); label.blur(); } },
     });
     label.value = this.fig.label.replace(/^fig:/, "");
+    // The label, the file and the actions sit behind one small button in the corner.
     const meta = el("div", { class: "cm-figure-meta", hidden: true },
-      el("label", {}, t("Label"), " ", el("span", { class: "muted" }, "fig:"), label),
-      el("span", { class: "muted cm-figure-path" }, this.fig.path),
-      el("button", { type: "button", class: "link", onclick: () => this.raw(view, dom) }, t("Edit as Markdown")),
-      this.ctx.locked ? null : el("button", { type: "button", class: "link danger-text", onclick: () => this.remove(view, dom) }, t("Remove")));
-    const pill = el("button", {
-      type: "button", class: "cm-figure-pill", title: t("Label and file"), "aria-expanded": "false",
+      el("label", { class: "cm-figure-label-field" }, el("span", {}, t("Label")),
+         el("span", { class: "cm-figure-label-input" }, el("span", { class: "muted" }, "fig:"), label)),
+      el("span", { class: "muted cm-figure-path", title: this.fig.path }, this.fig.path),
+      el("div", { class: "cm-figure-actions" },
+         el("button", { type: "button", class: "link", onclick: () => this.raw(view, dom) }, t("Edit as Markdown")),
+         this.ctx.locked ? null : el("button", { type: "button", class: "link danger-text", onclick: () => this.remove(view, dom) }, t("Remove"))));
+    const more = el("button", {
+      type: "button", class: "cm-figure-more", title: t("Label and file"), "aria-label": t("Label and file"), "aria-expanded": "false",
       onclick: () => {
         meta.hidden = !meta.hidden;
-        pill.setAttribute("aria-expanded", String(!meta.hidden));
+        more.setAttribute("aria-expanded", String(!meta.hidden));
       },
-    }, this.fig.label || t("No label"));
-    dom.append(picture, el("div", { class: "cm-figure-row" }, caption, pill), meta);
+    }, el("span", { class: "cm-figure-more-label" }, this.fig.label), el("span", { "aria-hidden": "true" }, "⋯"));
+    dom.append(picture, caption, more, meta);
+    requestAnimationFrame(() => fit(caption));
     return dom;
   }
 
   updateDOM(dom) {
     const caption = dom.querySelector(".cm-figure-caption");
     const value = unescapeCaption(this.fig.alt);
-    if (caption && caption !== document.activeElement && caption.value !== value) caption.value = value;
-    const pill = dom.querySelector(".cm-figure-pill");
-    if (pill) pill.textContent = this.fig.label || t("No label");
+    if (caption && caption !== document.activeElement && caption.value !== value) {
+      caption.value = value;
+      fit(caption);
+    }
+    const tag = dom.querySelector(".cm-figure-more-label");
+    if (tag) tag.textContent = this.fig.label;
     const label = dom.querySelector(".cm-figure-label");
     if (label && label !== document.activeElement) label.value = this.fig.label.replace(/^fig:/, "");
     const img = dom.querySelector(".cm-figure-img img");
     const url = assetUrl(this.ctx.projectId, this.fig.path);
     if (img && url && !img.src.endsWith(url)) img.src = url;
-    dom.querySelector(".cm-figure-path").textContent = this.fig.path;
+    const path = dom.querySelector(".cm-figure-path");
+    path.textContent = this.fig.path;
+    path.title = this.fig.path;
     return dom.querySelector(".cm-figure-caption")?.disabled === this.ctx.locked;
   }
 
