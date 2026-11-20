@@ -152,6 +152,7 @@ jobs:
             rel="pr-${{ github.event.pull_request.number || 'dev' }}"
           fi
           echo "release=${rel//\//-}" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/docwizard-${{ matrix.service }}:sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         if: github.event_name != 'pull_request'
@@ -191,8 +192,58 @@ jobs:
           file: ${{ matrix.dockerfile }}
           platforms: ${{ github.event_name != 'pull_request' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
+          # Only this commit's own tag here: the shared ones (nightly, main, versions) move in the
+          # tags job once all three images are pushed, so a pull never mixes images from two builds.
+          tags: ${{ steps.release.outputs.image }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: RELEASE=${{ steps.release.outputs.release }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  tags:
+    # Moves the shared tags to this commit's images together, once every image is pushed. When each
+    # image job tagged its own, a pull in between got e.g. a new proxy with an old app, whose
+    # /static/<release>/ links the proxy didn't have: no stylesheets or scripts.
+    needs: [images]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Shared tags for each image
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/${{ github.repository_owner }}/docwizard-app
+            ghcr.io/${{ github.repository_owner }}/docwizard-worker
+            ghcr.io/${{ github.repository_owner }}/docwizard-proxy
+          flavor: |
+            latest=auto
+          tags: |
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=nightly,enable=${{ github.ref == 'refs/heads/nightly' }}
+            type=raw,value=nightly-{{date 'YYYYMMDD'}},enable=${{ github.ref == 'refs/heads/nightly' }}
+            type=sha,prefix=sha-
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+
+      - name: Point the shared tags at this commit's images
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          while read -r tag; do
+            source="${tag%:*}:sha-${GITHUB_SHA::7}"
+            [ -n "$tag" ] && [ "$tag" != "$source" ] || continue
+            docker buildx imagetools create -t "$tag" "$source"
+          done <<< "$TAGS"
